@@ -1,68 +1,51 @@
-# Artifacts
+# Artifacts And Derived Cache
 
 ## Purpose
 
-Artifacts preserve experiment state, traces, reports, and recipes.
+Artifacts are technical files, manifests, and cache entries. They are not a product-facing concept.
 
-## Local layout
+Product-facing experiment results are metrics stored on saved experiments.
+
+## Local Layout
 
 ```text
-data/artifacts/
-  documents/
-  chunks/
-  indexes/
-  retrieval_traces/
-  answer_traces/
-  experiments/
-  eval_reports/
-  reports/
-  recipes/
+data/
+  cache/
+    chunks/
+    embeddings/
+    qdrant_indexes/
+    retrieval_temp/
+    answer_temp/
+  manifests/
+  ground_truth/
 ```
 
-## Required artifact types
+## Derived Cache
 
-### Document metadata
+Derived cache may include:
 
-```json
-{
-  "document_id": "doc_001",
-  "dataset_id": "dataset_001",
-  "source_name": "contract.pdf",
-  "mime_type": "application/pdf",
-  "page_count": 12,
-  "char_count": 42000,
-  "text_hash": "sha256:..."
-}
+```text
+chunks
+embeddings
+qdrant_index
+retrieval_temp
+answer_temp
 ```
 
-### Retrieval trace
+These outputs can be regenerated from:
 
-```json
-{
-  "trace_id": "ret_001",
-  "experiment_id": "exp_001",
-  "question_id": "q_001",
-  "retrieved_chunks": []
-}
-```
-
-### Answer trace
-
-```json
-{
-  "trace_id": "ans_001",
-  "experiment_id": "exp_001",
-  "prompt_template_id": "grounded_answer_v1",
-  "prompt_hash": "sha256:...",
-  "answer": "...",
-  "citations": []
-}
+```text
+data asset reference
+full parameter snapshot
+code version
+pipeline version
 ```
 
 ## Rules
 
-- Do not silently mutate artifacts.
-- Store config ids and config snapshots.
-- Store prompt hashes.
+- Do not treat artifacts as saved experiment results.
+- Do not silently mutate cache files.
+- Store hashes for manifests and parameter snapshots.
+- Store prompts, traces, and generated answers only when debug mode requests them.
 - Do not store secrets.
-- Do not commit real client artifacts.
+- Do not commit real client data or derived client cache.

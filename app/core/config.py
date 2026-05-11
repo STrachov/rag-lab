@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     api_prefix: str = "/v1"
     data_dir: Path = Field(default=Path("data"))
     qdrant_url: str = "http://localhost:6333"
+    database_url: str = Field(
+        default="postgresql+psycopg://raglab:raglab@localhost:5433/raglab",
+        validation_alias="DATABASE_URL",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="RAG_LAB_")
 

@@ -2,111 +2,114 @@
 
 ## Purpose
 
-The UI is an engineering workbench, not a generic chatbot.
+The UI is a project-oriented RAG experimentation workbench, not a generic chatbot.
 
-## First implementation
-
-Use Streamlit first.
-
-## Left menu
+## Left Menu
 
 ```text
-Datasets
-Chunk Explorer
-Retrieval Playground
-Answer Playground
-Eval Sets
-Experiment Comparison
-Reports
-Recipes
+Projects
+Data
+Parameters
+Ground Truth
+Saved Experiments
+Comparison
 Settings
 ```
 
-## Datasets
+## Projects
 
 Show:
 
 ```text
-dataset_id
+id
 name
 domain
-document_count
-total characters/tokens
-created_at
 status
+created_at
+updated_at
 ```
 
 Actions:
 
 ```text
-create dataset
-upload documents
-inspect documents
-run indexing
-delete local dataset
+create project
+open project
+archive project
 ```
 
-## Chunk Explorer
+## Data
 
-Show:
+Show raw and prepared data assets:
 
 ```text
-document
-chunking config
-chunk text
-token count
-page
-section
-heading path
-metadata
+id
+name
+asset_type
+parent_id
+storage_path
+manifest_hash
+preparation parameters
+created_at
 ```
 
-## Retrieval Playground
-
-Show:
+Preparation controls should include converter choice and settings:
 
 ```text
-question
-retrieval config
-top chunks
-scores
-source document/page/section
-latency
+pymupdf_text
+docling
+ocrmypdf_tesseract
+marker
+mineru
+custom_vlm
 ```
 
-## Answer Playground
+## Parameters
 
-Show:
-
-```text
-question
-selected chunks
-prompt template
-prompt preview
-model settings
-answer
-citations
-latency/cost
-```
-
-## Experiment Comparison
-
-Show:
+Show reusable parameter sets for:
 
 ```text
-experiment id
+preparation
 chunking
+indexing
 retrieval
-prompt
-hit@k
-MRR
-citation precision
-answer correctness
-not-found accuracy
-latency
-cost
+reranking
+generation
+evaluation
 ```
 
-## Recipes
+## Ground Truth
 
-Show production-ready settings and allow YAML/JSON export.
+Show optional ground truth sets and their data asset references.
+
+## Saved Experiments
+
+Show:
+
+```text
+id
+name
+data_asset_id
+ground_truth_set_id
+parameter_set_id
+params_hash
+status
+debug_level
+created_at
+metrics_summary_json
+```
+
+## Comparison
+
+Compare saved experiments by metrics:
+
+```text
+retrieval metrics
+citation metrics
+quality metrics
+latency/cost metrics
+manual or LLM-judge scores
+```
+
+## Debug Views
+
+Chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and generated answers may appear in debug views later. They must be labeled as derived cache/debug outputs.

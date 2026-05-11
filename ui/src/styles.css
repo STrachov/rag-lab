@@ -126,6 +126,46 @@ h1 {
   margin-bottom: 16px;
 }
 
+.form-panel {
+  align-items: end;
+  background: #ffffff;
+  border: 1px solid #dce3e7;
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr) minmax(220px, 1.2fr) auto;
+  margin-bottom: 18px;
+  padding: 16px;
+}
+
+.form-panel label {
+  color: #425864;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.form-panel input {
+  border: 1px solid #c9d4da;
+  border-radius: 6px;
+  color: #182026;
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.form-panel button {
+  background: #176b87;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
 .table {
   background: #ffffff;
   border: 1px solid #dce3e7;
@@ -139,6 +179,10 @@ h1 {
   grid-template-columns: 1.2fr 1.5fr 1fr 0.8fr 1fr;
   min-height: 48px;
   padding: 13px 16px;
+}
+
+.project-table {
+  grid-template-columns: 1.3fr 1.3fr 0.9fr 0.7fr 1.2fr;
 }
 
 .table-row + .table-row {
@@ -163,6 +207,11 @@ h1 {
 
   .main-panel {
     padding: 24px 18px;
+  }
+
+  .form-panel {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 
   .table {

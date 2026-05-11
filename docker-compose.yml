@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: raglab
+      POSTGRES_USER: raglab
+      POSTGRES_PASSWORD: raglab
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raglab -d raglab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   qdrant:
     image: qdrant/qdrant:v1.9.2
     ports:
@@ -8,4 +24,5 @@ services:
       - qdrant_storage:/qdrant/storage
 
 volumes:
+  postgres_data:
   qdrant_storage:

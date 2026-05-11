@@ -2,63 +2,88 @@
 
 ## Purpose
 
-Experiments compare RAG configurations on a dataset and eval set.
+Saved experiments compare parameter snapshots against data assets, usually with a ground truth set.
 
-## Required inputs
+## Required Inputs
 
-Every experiment must declare:
-
-```text
-dataset_id
-eval_set_id
-chunking_config_id
-embedding_config_id
-retrieval_config_id
-prompt_config_id
-```
-
-## Required outputs
-
-Every experiment should save:
+Every saved experiment must declare:
 
 ```text
-experiment_result.json
-retrieval_traces.jsonl
-answer_traces.jsonl
-eval_report.json
-failure_cases.csv
-summary.md
+project_id
+data_asset_id
+params_snapshot_json
+params_hash
 ```
 
-## Baseline matrix
+Optional references:
 
-For each new dataset, run at least:
+```text
+ground_truth_set_id
+parameter_set_id
+```
+
+## Parameter Snapshot
+
+The saved experiment stores the full parameter snapshot used at execution time. It may include:
+
+```text
+preparation
+chunking
+indexing
+retrieval
+reranking
+generation
+evaluation
+```
+
+Preparation includes PDF-to-Markdown, OCR, or document conversion method and settings.
+
+## Results
+
+Saved experiment results are metrics only.
+
+Examples:
+
+```text
+hit@k
+MRR
+source_recall
+citation_precision
+answer_correctness
+not_found_accuracy
+latency_ms
+estimated_cost
+manual_score
+llm_judge_score
+```
+
+## Derived Runtime Outputs
+
+Chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and generated answers are derived cache/debug outputs. They should not be persisted as core results unless the saved experiment uses an explicit debug level:
+
+```text
+none
+summary
+full
+```
+
+## Baseline Matrix
+
+For each new project and data asset, compare at least:
 
 1. Full-context baseline if feasible.
 2. Naive dense retrieval.
 3. Hybrid retrieval.
 4. Hybrid + reranking.
-5. Strict not-found prompt.
+5. Strict not-found generation parameters.
 
-## What to compare
+## Promotion Rule
 
-```text
-retrieval quality
-citation quality
-answer correctness
-not-found behavior
-latency
-cost
-failure cases
-```
-
-## Promotion rule
-
-An experiment can be promoted to a recipe only if:
+A parameter snapshot can be promoted toward a recipe only if:
 
 - metrics beat baseline;
 - failure cases are understood;
-- configs are explicit;
-- prompt is versioned;
-- citations are acceptable;
+- preparation and retrieval parameters are explicit;
+- prompts are versioned;
+- citation metrics are acceptable;
 - not-found behavior was tested.

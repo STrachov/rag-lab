@@ -21,13 +21,25 @@ Copy-Item .env.example .env
 ## Start services
 
 ```bash
-docker compose up -d qdrant
+docker compose up -d postgres qdrant
+```
+
+PostgreSQL is exposed on host port `5433` to avoid collisions with a local PostgreSQL install:
+
+```text
+DATABASE_URL=postgresql+psycopg://raglab:raglab@localhost:5433/raglab
 ```
 
 ## Start backend
 
 ```bash
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
+```
+
+Run database migrations before starting the backend against PostgreSQL:
+
+```bash
+alembic upgrade head
 ```
 
 ## Start UI
@@ -47,16 +59,14 @@ python -m pytest
 ## Minimal manual workflow
 
 ```text
-1. Create dataset
-2. Add sample documents
-3. Run chunking
-4. Build index
-5. Run retrieval playground
-6. Run answer playground
-7. Create eval set
-8. Run experiment
-9. Inspect failure cases
-10. Export recipe
+1. Create project
+2. Register raw data asset
+3. Create preparation and RAG parameter sets
+4. Register optional ground truth set
+5. Save experiment with full parameter snapshot
+6. Inspect metrics
+7. Compare saved experiments
+8. Promote validated parameter snapshot later
 ```
 
 ## Review checklist

@@ -2,41 +2,75 @@
 
 ## Purpose
 
-RAG Lab is a separate experimental project for testing RAG approaches before moving stable configurations into OCRlty main or client-specific deployments.
+RAG Lab is a permanent project-oriented platform for experimenting with, evaluating, and documenting RAG systems over document data.
 
 It answers questions such as:
 
-- Which chunking strategy works best?
-- Is dense retrieval enough, or do we need hybrid search?
-- Is reranking worth the latency and cost?
+- Which data preparation method works best for this project?
+- Which chunking, indexing, retrieval, reranking, and generation parameters are worth keeping?
 - Are answers grounded in retrieved evidence?
 - Can the system correctly say "not found"?
-- Which settings should be used in production?
+- Which parameter snapshot should be reused in production?
 
-## What this project is
+## Core Product Model
 
-- RAG experiment workbench
-- Retrieval debugging tool
-- Evaluation harness
-- Report generator
-- Production recipe generator
-- Upwork portfolio asset
+```text
+Project
+  Data Assets
+    raw data
+    prepared data
+  Parameter Sets
+    preparation
+    chunking
+    indexing
+    retrieval
+    reranking
+    generation
+  Ground Truth Sets
+    optional
+  Saved Experiments
+    data reference
+    full parameter snapshot
+    optional ground truth reference
+    results = metrics only
+```
 
-## What this project is not
+## What This Project Is
+
+- RAG experimentation and evaluation platform
+- Project workspace for data, parameters, ground truth, and saved experiments
+- Retrieval and answer debugging workbench
+- Metrics comparison tool
+- Production recipe generator after enough experiments are validated
+
+## What This Project Is Not
 
 - Generic chatbot
 - Full SaaS product
 - Agent platform
 - GraphRAG-first system
+- Document conversion product by itself
 
-## Relationship to OCRlty main
+## Results
+
+Saved experiment results are metrics only:
+
+- quality metrics
+- retrieval metrics
+- citation metrics
+- latency and cost metrics
+- optional manual or LLM-judge scores
+
+Chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and generated answers are derived runtime/cache/debug outputs by default. Persist them only when a debug mode explicitly requests it.
+
+## Relationship to OCRlty Main
 
 ```text
 RAG Lab:
-  experiments, metrics, traces, reports, recipes
+  projects, data assets, parameter snapshots, ground truth, saved experiments, metrics
 
 OCRlty main:
   stable product features and production document workflows
 ```
 
-Only validated recipes should move from RAG Lab to OCRlty main.
+Only validated recipes or parameter snapshots should move from RAG Lab to OCRlty main.

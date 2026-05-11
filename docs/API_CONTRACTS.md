@@ -4,7 +4,7 @@
 
 Planned API surface for RAG Lab.
 
-## Error shape
+## Error Shape
 
 ```json
 {
@@ -16,58 +16,55 @@ Planned API surface for RAG Lab.
 }
 ```
 
-## Datasets
+## Projects
 
 ```http
-GET  /v1/datasets
-POST /v1/datasets
-GET  /v1/datasets/{dataset_id}
-POST /v1/datasets/{dataset_id}/documents
-GET  /v1/datasets/{dataset_id}/documents
+GET  /v1/projects
+POST /v1/projects
+GET  /v1/projects/{project_id}
 ```
 
-## Chunking and indexing
+## Data Assets
 
 ```http
-POST /v1/datasets/{dataset_id}/chunk
-GET  /v1/chunk-manifests/{chunk_manifest_id}
-POST /v1/datasets/{dataset_id}/index
+GET  /v1/projects/{project_id}/data-assets
+POST /v1/projects/{project_id}/data-assets
 ```
 
-## Retrieval and answer
+## Parameter Sets
 
 ```http
-POST /v1/retrieve
-POST /v1/ask
+GET  /v1/projects/{project_id}/parameter-sets
+POST /v1/projects/{project_id}/parameter-sets
 ```
 
-## Eval sets
+## Ground Truth Sets
 
 ```http
-GET  /v1/eval-sets
-POST /v1/eval-sets
-GET  /v1/eval-sets/{eval_set_id}
+GET  /v1/projects/{project_id}/ground-truth-sets
+POST /v1/projects/{project_id}/ground-truth-sets
 ```
 
-## Experiments
+## Saved Experiments
 
 ```http
-POST /v1/experiments
-POST /v1/experiments/{experiment_id}/run
-GET  /v1/experiments/{experiment_id}
-GET  /v1/experiments/{experiment_id}/result
+GET  /v1/projects/{project_id}/saved-experiments
+POST /v1/projects/{project_id}/saved-experiments
 ```
 
-## Reports and recipes
+## Metrics
 
-```http
-POST /v1/experiments/{experiment_id}/report
-GET  /v1/reports/{report_id}
-POST /v1/experiments/{experiment_id}/promote-to-recipe
-GET  /v1/recipes
-GET  /v1/recipes/{recipe_id}
+Saved experiment results are metrics only. Metrics may be returned in:
+
+```text
+metrics_summary_json
+MetricValue rows
 ```
 
-## Breaking-change rule
+## Derived Cache
+
+Chunks, embeddings, Qdrant indexes, traces, prompts, and generated answers are not core API results. Future debug endpoints should make the cache/debug status explicit.
+
+## Breaking-Change Rule
 
 After implementation, treat endpoint renames, required-field changes, response-shape changes, and error-shape changes as breaking.

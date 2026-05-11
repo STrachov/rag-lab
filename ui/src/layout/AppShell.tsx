@@ -1,22 +1,22 @@
 import type { ReactNode } from "react";
 
 export type PageKey =
-  | "datasets"
-  | "chunks"
-  | "retrieval"
-  | "answer"
-  | "experiments"
-  | "reports"
-  | "recipes";
+  | "projects"
+  | "data"
+  | "parameters"
+  | "groundTruth"
+  | "savedExperiments"
+  | "comparison"
+  | "settings";
 
 const navItems: Array<{ key: PageKey; label: string }> = [
-  { key: "datasets", label: "Datasets" },
-  { key: "chunks", label: "Chunk Explorer" },
-  { key: "retrieval", label: "Retrieval Playground" },
-  { key: "answer", label: "Answer Playground" },
-  { key: "experiments", label: "Experiment Comparison" },
-  { key: "reports", label: "Reports" },
-  { key: "recipes", label: "Recipes" },
+  { key: "projects", label: "Projects" },
+  { key: "data", label: "Data" },
+  { key: "parameters", label: "Parameters" },
+  { key: "groundTruth", label: "Ground Truth" },
+  { key: "savedExperiments", label: "Saved Experiments" },
+  { key: "comparison", label: "Comparison" },
+  { key: "settings", label: "Settings" },
 ];
 
 type AppShellProps = {
@@ -33,7 +33,7 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
           <span className="brand-mark">RL</span>
           <div>
             <strong>RAG Lab</strong>
-            <span>Experiment workbench</span>
+            <span>Project workbench</span>
           </div>
         </div>
         <nav className="nav-list" aria-label="Primary">
