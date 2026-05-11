@@ -1,0 +1,51 @@
+# RAG Patterns
+
+## Full-context baseline
+
+Use when the document set fits into model context. This is a required baseline when feasible.
+
+## Naive dense-vector RAG
+
+```text
+chunk → embed → vector search → answer
+```
+
+Use only as a baseline.
+
+## Hybrid search
+
+Dense vector search + keyword/BM25 search.
+
+Best for acronyms, legal references, product codes, exact terms, and accounting terminology.
+
+## Reranking
+
+Retrieve many candidates, rerank, then pass the best chunks to the prompt.
+
+Tradeoff: better quality, higher latency/cost.
+
+## Contextual chunks
+
+Add document and section context to chunks before indexing.
+
+Useful for legal, policy, audit, and technical documents.
+
+## Parent-child retrieval
+
+Retrieve small chunks, but pass a larger parent section to the answer prompt.
+
+## Structured extraction instead of RAG
+
+Use when the task asks for fixed fields:
+
+```text
+invoice fields
+PO fields
+bank statement transactions
+form fields
+report consistency checks
+```
+
+## GraphRAG
+
+Advanced mode for global questions, entity relations, topic discovery, and cross-document summaries. Not part of the MVP.
