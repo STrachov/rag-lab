@@ -19,12 +19,118 @@ export type ProjectCreate = {
   metadata_json?: Record<string, unknown>;
 };
 
+export type DataAsset = {
+  id: string;
+  project_id: string;
+  name: string;
+  asset_type: "raw" | "prepared";
+  data_format: string;
+  storage_kind: string;
+  parent_id?: string | null;
+  storage_path?: string | null;
+  manifest_hash?: string | null;
+  preparation_params_json?: Record<string, unknown> | null;
+  metadata_json: Record<string, unknown>;
+  status: string;
+  created_at: string;
+};
+
+export type DataAssetCreate = {
+  name: string;
+  asset_type?: "raw" | "prepared";
+  data_format?: string;
+  storage_kind?: string;
+  parent_id?: string | null;
+  storage_path?: string | null;
+  manifest_hash?: string | null;
+  preparation_params_json?: Record<string, unknown> | null;
+  metadata_json?: Record<string, unknown>;
+  status?: string;
+};
+
+export type RawDataAssetUpload = {
+  name: string;
+  data_format: string;
+  files: File[];
+  metadata_json?: Record<string, unknown>;
+};
+
+export type PreparedDataAssetUpload = {
+  name: string;
+  data_format: string;
+  files: File[];
+  parent_id?: string;
+  preparation_params_json: Record<string, unknown>;
+  metadata_json?: Record<string, unknown>;
+};
+
+export type ParameterSet = {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string | null;
+  params_json: Record<string, unknown>;
+  params_hash: string;
+  created_at: string;
+};
+
+export type ParameterSetCreate = {
+  name: string;
+  description?: string;
+  params_json: Record<string, unknown>;
+  params_hash: string;
+};
+
+export type GroundTruthSet = {
+  id: string;
+  project_id: string;
+  name: string;
+  data_asset_id?: string | null;
+  storage_path?: string | null;
+  manifest_hash?: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type GroundTruthSetCreate = {
+  name: string;
+  data_asset_id?: string | null;
+  storage_path?: string | null;
+  manifest_hash?: string | null;
+  metadata_json?: Record<string, unknown>;
+};
+
+export type SavedExperiment = {
+  id: string;
+  project_id: string;
+  name: string;
+  data_asset_id: string;
+  ground_truth_set_id?: string | null;
+  parameter_set_id?: string | null;
+  params_snapshot_json: Record<string, unknown>;
+  params_hash: string;
+  metrics_summary_json: Record<string, unknown>;
+  status: string;
+  notes?: string | null;
+  debug_level: "none" | "summary" | "full";
+  code_commit?: string | null;
+  pipeline_version?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error_json?: Record<string, unknown> | null;
+};
+
 export async function getHealth(): Promise<{ status: string }> {
   return request("/health");
 }
 
 export async function listProjects(): Promise<{ projects: Project[] }> {
   return request("/projects");
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  return request(`/projects/${projectId}`);
 }
 
 export async function createProject(payload: ProjectCreate): Promise<Project> {
@@ -34,9 +140,105 @@ export async function createProject(payload: ProjectCreate): Promise<Project> {
   });
 }
 
+export async function listDataAssets(projectId: string): Promise<{ data_assets: DataAsset[] }> {
+  return request(`/projects/${projectId}/data-assets`);
+}
+
+export async function createDataAsset(
+  projectId: string,
+  payload: DataAssetCreate,
+): Promise<DataAsset> {
+  return request(`/projects/${projectId}/data-assets`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function uploadRawDataAsset(
+  projectId: string,
+  payload: RawDataAssetUpload,
+): Promise<DataAsset> {
+  const formData = new FormData();
+  formData.append("name", payload.name);
+  formData.append("data_format", payload.data_format);
+  if (payload.metadata_json) {
+    formData.append("metadata_json", JSON.stringify(payload.metadata_json));
+  }
+  appendFiles(formData, payload.files);
+
+  return request(`/projects/${projectId}/data-assets/raw/upload`, {
+    body: formData,
+    method: "POST",
+  });
+}
+
+export async function uploadPreparedDataAsset(
+  projectId: string,
+  payload: PreparedDataAssetUpload,
+): Promise<DataAsset> {
+  const formData = new FormData();
+  formData.append("name", payload.name);
+  formData.append("data_format", payload.data_format);
+  formData.append("preparation_params_json", JSON.stringify(payload.preparation_params_json));
+  if (payload.parent_id) {
+    formData.append("parent_id", payload.parent_id);
+  }
+  if (payload.metadata_json) {
+    formData.append("metadata_json", JSON.stringify(payload.metadata_json));
+  }
+  appendFiles(formData, payload.files);
+
+  return request(`/projects/${projectId}/data-assets/prepared/upload`, {
+    body: formData,
+    method: "POST",
+  });
+}
+
+export async function listParameterSets(
+  projectId: string,
+): Promise<{ parameter_sets: ParameterSet[] }> {
+  return request(`/projects/${projectId}/parameter-sets`);
+}
+
+export async function createParameterSet(
+  projectId: string,
+  payload: ParameterSetCreate,
+): Promise<ParameterSet> {
+  return request(`/projects/${projectId}/parameter-sets`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function listGroundTruthSets(
+  projectId: string,
+): Promise<{ ground_truth_sets: GroundTruthSet[] }> {
+  return request(`/projects/${projectId}/ground-truth-sets`);
+}
+
+export async function createGroundTruthSet(
+  projectId: string,
+  payload: GroundTruthSetCreate,
+): Promise<GroundTruthSet> {
+  return request(`/projects/${projectId}/ground-truth-sets`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function listSavedExperiments(
+  projectId: string,
+): Promise<{ saved_experiments: SavedExperiment[] }> {
+  return request(`/projects/${projectId}/saved-experiments`);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers =
+    init?.body instanceof FormData
+      ? init?.headers
+      : { "Content-Type": "application/json", ...init?.headers };
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers,
     ...init,
   });
 
@@ -45,4 +247,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+function appendFiles(formData: FormData, files: File[]) {
+  files.forEach((file) => {
+    const relativePath = getRelativePath(file);
+    formData.append("files", file, relativePath);
+  });
+}
+
+function getRelativePath(file: File): string {
+  const maybeRelativeFile = file as File & { webkitRelativePath?: string };
+  return maybeRelativeFile.webkitRelativePath || file.name;
 }

@@ -29,7 +29,13 @@ GET  /v1/projects/{project_id}
 ```http
 GET  /v1/projects/{project_id}/data-assets
 POST /v1/projects/{project_id}/data-assets
+POST /v1/projects/{project_id}/data-assets/raw/upload
+POST /v1/projects/{project_id}/data-assets/prepared/upload
 ```
+
+Upload endpoints store files under project-scoped storage and create immutable data asset records after the files and manifest are written.
+
+Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets.
 
 ## Parameter Sets
 

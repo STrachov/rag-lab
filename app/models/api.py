@@ -34,11 +34,14 @@ class ProjectListResponse(BaseModel):
 class DataAssetCreate(BaseModel):
     name: str
     asset_type: Literal["raw", "prepared"] = "raw"
+    data_format: str = "mixed"
+    storage_kind: str = "uploaded"
     parent_id: str | None = None
     storage_path: str | None = None
     manifest_hash: str | None = None
     preparation_params_json: JsonObject | None = None
     metadata_json: JsonObject = Field(default_factory=dict)
+    status: str = "ready"
 
 
 class DataAssetResponse(DataAssetCreate):
@@ -70,6 +73,26 @@ class ParameterSetResponse(ParameterSetCreate):
 
 class ParameterSetListResponse(BaseModel):
     parameter_sets: list[ParameterSetResponse]
+
+
+class GroundTruthSetCreate(BaseModel):
+    name: str
+    data_asset_id: str | None = None
+    storage_path: str | None = None
+    manifest_hash: str | None = None
+    metadata_json: JsonObject = Field(default_factory=dict)
+
+
+class GroundTruthSetResponse(GroundTruthSetCreate):
+    id: str
+    project_id: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GroundTruthSetListResponse(BaseModel):
+    ground_truth_sets: list[GroundTruthSetResponse]
 
 
 class SavedExperimentCreate(BaseModel):

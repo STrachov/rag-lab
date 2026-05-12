@@ -2,7 +2,12 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { createProject, listProjects, Project } from "../api/client";
 
-export function ProjectsPage() {
+type ProjectsPageProps = {
+  currentProject: Project | null;
+  onProjectOpen: (project: Project) => void;
+};
+
+export function ProjectsPage({ currentProject, onProjectOpen }: ProjectsPageProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -35,6 +40,7 @@ export function ProjectsPage() {
         name: name.trim(),
       });
       setProjects((current) => [...current, project]);
+      onProjectOpen(project);
       setName("");
       setDomain("");
       setDescription("");
@@ -51,6 +57,13 @@ export function ProjectsPage() {
         <h1>Project workspaces</h1>
         <p>Create durable RAG evaluation workspaces for data, parameters, ground truth, and metrics.</p>
       </header>
+
+      {currentProject ? (
+        <div className="notice neutral">
+          Open project: <strong>{currentProject.name}</strong>. Data, parameters, ground truth, and
+          experiments now load in this project context.
+        </div>
+      ) : null}
 
       <form className="form-panel" onSubmit={handleSubmit}>
         <label>
@@ -72,19 +85,33 @@ export function ProjectsPage() {
 
       <div className="table">
         <div className="table-row project-table table-head">
-          <span>ID</span>
           <span>Name</span>
           <span>Domain</span>
-          <span>Status</span>
-          <span>Created</span>
+          <span>Description</span>
+          <span>Updated</span>
         </div>
         {projects.map((project) => (
-          <div className="table-row project-table" key={project.id}>
-            <span>{project.id}</span>
-            <span>{project.name}</span>
+          <div
+            className={
+              project.id === currentProject?.id
+                ? "table-row project-table selected-row"
+                : "table-row project-table"
+            }
+            key={project.id}
+          >
+            <span>
+              <button
+                className="project-link"
+                onClick={() => onProjectOpen(project)}
+                type="button"
+              >
+                {project.name}
+              </button>
+              {project.id === currentProject?.id ? <small className="current-tag">Current</small> : null}
+            </span>
             <span>{project.domain ?? "-"}</span>
-            <span>{project.status}</span>
-            <span>{new Date(project.created_at).toLocaleString()}</span>
+            <span>{project.description ?? "-"}</span>
+            <span>{new Date(project.updated_at).toLocaleString()}</span>
           </div>
         ))}
       </div>

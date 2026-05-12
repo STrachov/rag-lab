@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import type { Project } from "../api/client";
+
 export type PageKey =
   | "projects"
   | "data"
@@ -22,10 +24,11 @@ const navItems: Array<{ key: PageKey; label: string }> = [
 type AppShellProps = {
   activePage: PageKey;
   children: ReactNode;
+  currentProject: Project | null;
   onPageChange: (page: PageKey) => void;
 };
 
-export function AppShell({ activePage, children, onPageChange }: AppShellProps) {
+export function AppShell({ activePage, children, currentProject, onPageChange }: AppShellProps) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -35,6 +38,11 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
             <strong>RAG Lab</strong>
             <span>Project workbench</span>
           </div>
+        </div>
+        <div className="project-context">
+          <span>Current project</span>
+          <strong>{currentProject ? currentProject.name : "None selected"}</strong>
+          {currentProject?.domain ? <small>{currentProject.domain}</small> : null}
         </div>
         <nav className="nav-list" aria-label="Primary">
           {navItems.map((item) => (
@@ -49,7 +57,27 @@ export function AppShell({ activePage, children, onPageChange }: AppShellProps) 
           ))}
         </nav>
       </aside>
-      <main className="main-panel">{children}</main>
+      <main className="main-panel">
+        {currentProject ? (
+          <div className="context-bar">
+            <div>
+              <span>Project</span>
+              <strong>{currentProject.name}</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <strong>{currentProject.status}</strong>
+            </div>
+            {currentProject.domain ? (
+              <div>
+                <span>Domain</span>
+                <strong>{currentProject.domain}</strong>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {children}
+      </main>
     </div>
   );
 }

@@ -28,15 +28,39 @@ id
 project_id
 name
 asset_type: raw | prepared
+data_format
+storage_kind: uploaded | local_path | external_uri
 parent_id
 storage_path
 manifest_hash
 preparation_params_json
 metadata_json
+status
 created_at
 ```
 
 Prepared data is produced from raw data by preparation parameters. PDF-to-Markdown, OCR, and document conversion settings belong in `preparation_params_json`.
+
+Data assets are immutable after creation. If files, manifests, or preparation metadata change, create a new data asset instead of mutating the existing one.
+
+`raw` assets should not have `parent_id`. `prepared` assets may reference a raw parent asset, but the parent is optional because some workflows receive only prepared Markdown. Saved experiments should use prepared data assets.
+
+Prepared data must include preparation provenance in `preparation_params_json`, for example:
+
+```json
+{
+  "method": "external_gpu",
+  "tool": "marker",
+  "tool_version": "1.2.3",
+  "source_format": "pdf",
+  "output_format": "markdown",
+  "command": "marker_single ...",
+  "settings": {
+    "ocr": true
+  },
+  "notes": "Parsed on a rented GPU server"
+}
+```
 
 ## ParameterSet
 
