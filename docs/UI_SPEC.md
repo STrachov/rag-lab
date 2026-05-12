@@ -106,6 +106,7 @@ File operations:
 ```text
 add files to data asset
 delete files from data asset
+download file by original filename
 create manifest snapshot after each change
 store original filename in manifest
 store file on disk under generated safe name
@@ -122,6 +123,8 @@ inspection failed
 ```
 
 These hints help users choose a preparation path such as CPU text extraction, OCR, or external GPU parsing.
+
+For source data with a text layer or plain text inputs, expose a `Prepare with PyMuPDF` action that creates a prepared Markdown version linked to the source asset.
 
 Preparation controls should include converter choice and settings:
 

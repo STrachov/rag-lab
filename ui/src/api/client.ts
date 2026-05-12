@@ -114,6 +114,17 @@ export type DataAssetFileDeleteResponse = {
   deleted_data_asset_id?: string | null;
 };
 
+export type DataAssetDeleteResponse = {
+  deleted_data_asset_ids: string[];
+};
+
+export type DataAssetPrepareRequest = {
+  name?: string;
+  method?: "pymupdf_text";
+  output_format?: "markdown";
+  page_breaks?: boolean;
+};
+
 export type ParameterSet = {
   id: string;
   project_id: string;
@@ -267,6 +278,35 @@ export async function deleteDataAssetFile(
   return request(`/projects/${projectId}/data-assets/${dataAssetId}/files?${params.toString()}`, {
     method: "DELETE",
   });
+}
+
+export async function deleteDataAsset(
+  projectId: string,
+  dataAssetId: string,
+): Promise<DataAssetDeleteResponse> {
+  return request(`/projects/${projectId}/data-assets/${dataAssetId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function prepareDataAsset(
+  projectId: string,
+  dataAssetId: string,
+  payload: DataAssetPrepareRequest = {},
+): Promise<DataAsset> {
+  return request(`/projects/${projectId}/data-assets/${dataAssetId}/prepare`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export function getDataAssetFileDownloadUrl(
+  projectId: string,
+  dataAssetId: string,
+  storedPath: string,
+): string {
+  const params = new URLSearchParams({ stored_path: storedPath });
+  return `${API_BASE_URL}/projects/${projectId}/data-assets/${dataAssetId}/files/download?${params.toString()}`;
 }
 
 export async function listParameterSets(

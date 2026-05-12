@@ -276,7 +276,7 @@ h1 {
   align-items: center;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(220px, 1.5fr) 0.6fr 0.6fr 0.8fr auto;
+  grid-template-columns: minmax(220px, 1.5fr) 0.5fr 0.5fr 0.8fr auto auto;
   padding: 14px 16px;
 }
 
@@ -309,7 +309,7 @@ h1 {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.1fr) minmax(220px, 1.3fr) 0.4fr auto;
+  grid-template-columns: minmax(180px, 1.3fr) minmax(220px, 1.4fr) 0.4fr auto;
   min-height: 40px;
   padding: 9px 12px;
 }
@@ -330,6 +330,16 @@ h1 {
   font-size: 13px;
   font-weight: 700;
   gap: 10px;
+}
+
+.file-link {
+  color: #176b87;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.file-link:hover {
+  text-decoration: underline;
 }
 
 .inspection-badges {
@@ -377,6 +387,19 @@ h1 {
   gap: 10px;
 }
 
+.prepared-actions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.prepared-actions div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .prepared-list h2 {
   font-size: 16px;
   margin: 4px 0 0;
@@ -395,7 +418,7 @@ h1 {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(180px, 1.3fr) 0.6fr 0.8fr 0.8fr 0.8fr;
+  grid-template-columns: minmax(180px, 1.3fr) 0.6fr 0.8fr 0.8fr 0.8fr auto;
 }
 
 .nested-empty {
@@ -656,12 +679,14 @@ h1 {
   .action-header,
   .asset-summary,
   .file-row,
+  .prepared-actions,
   .prepared-heading,
   .modal-form.two-column {
     grid-template-columns: 1fr;
   }
 
-  .action-header {
+  .action-header,
+  .prepared-actions {
     align-items: stretch;
     display: grid;
   }

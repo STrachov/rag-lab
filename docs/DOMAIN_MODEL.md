@@ -84,6 +84,8 @@ Prepared data must include preparation provenance in `preparation_params_json`, 
 }
 ```
 
+The first local preparation adapter is `pymupdf_text`. It creates prepared Markdown from PDFs with extractable text layers and from plain text/Markdown source files.
+
 ## ParameterSet
 
 A named reusable parameter bundle.

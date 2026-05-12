@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import File, Form, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,8 +12,10 @@ from app.db import models
 from app.db.session import get_db
 from app.models.api import (
     DataAssetCreate,
+    DataAssetDeleteResponse,
     DataAssetFileDeleteResponse,
     DataAssetListResponse,
+    DataAssetPrepareRequest,
     DataAssetResponse,
     GroundTruthSetCreate,
     GroundTruthSetListResponse,
@@ -31,8 +34,11 @@ from app.services.data_assets import (
     append_uploaded_data_asset_files,
     delete_data_asset_file,
     new_data_asset_id,
+    resolve_manifest_file_path,
+    store_generated_data_asset_files,
     store_uploaded_data_asset_files,
 )
+from app.services.preparation import prepare_pymupdf_text
 
 router = APIRouter()
 
@@ -244,6 +250,118 @@ def remove_data_asset_file(
     return DataAssetFileDeleteResponse(data_asset=_build_data_asset_response(db, asset))
 
 
+@router.delete(
+    "/projects/{project_id}/data-assets/{data_asset_id}",
+    response_model=DataAssetDeleteResponse,
+)
+def delete_data_asset(
+    project_id: str,
+    data_asset_id: str,
+    db: Session = Depends(get_db),
+) -> DataAssetDeleteResponse:
+    _get_project_or_404(db, project_id)
+    asset = _get_data_asset_or_404(db, project_id, data_asset_id)
+    assets_to_delete = _collect_deletable_data_assets(db, project_id, asset)
+    deleted_ids = [item.id for item in assets_to_delete]
+
+    for item in assets_to_delete:
+        _delete_asset_storage(item.storage_path)
+        db.delete(item)
+
+    db.commit()
+    return DataAssetDeleteResponse(deleted_data_asset_ids=deleted_ids)
+
+
+@router.get("/projects/{project_id}/data-assets/{data_asset_id}/files/download")
+def download_data_asset_file(
+    project_id: str,
+    data_asset_id: str,
+    stored_path: str = Query(...),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    _get_project_or_404(db, project_id)
+    asset = _get_data_asset_or_404(db, project_id, data_asset_id)
+    current_manifest = _get_current_manifest_json(db, asset)
+    path, file_entry = _resolve_file_or_400(
+        storage_path=asset.storage_path,
+        current_manifest=current_manifest,
+        stored_path=stored_path,
+    )
+    return FileResponse(
+        path,
+        filename=str(file_entry.get("original_name") or path.name),
+        media_type=file_entry.get("content_type") or "application/octet-stream",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/data-assets/{data_asset_id}/prepare",
+    response_model=DataAssetResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def prepare_data_asset(
+    project_id: str,
+    data_asset_id: str,
+    payload: DataAssetPrepareRequest,
+    db: Session = Depends(get_db),
+) -> DataAssetResponse:
+    _get_project_or_404(db, project_id)
+    source_asset = _get_data_asset_or_404(db, project_id, data_asset_id)
+    _require_data_asset_type(db, source_asset.id, "raw")
+    source_manifest = _get_current_manifest_json(db, source_asset)
+
+    if source_asset.storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source data asset has no storage path",
+        )
+
+    preparation_params = {
+        "method": payload.method,
+        "output_format": payload.output_format,
+        "settings": {"page_breaks": payload.page_breaks},
+        "source_format": source_asset.data_format,
+        "tool": "pymupdf",
+    }
+    try:
+        generated_files = prepare_pymupdf_text(
+            source_storage_path=source_asset.storage_path,
+            source_manifest=source_manifest,
+            page_breaks=payload.page_breaks,
+        )
+        asset_id = new_data_asset_id()
+        stored = store_generated_data_asset_files(
+            project_id=project_id,
+            asset_id=asset_id,
+            asset_type="prepared",
+            generated_files=generated_files,
+            parent_id=source_asset.id,
+            preparation_params_json=preparation_params,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    asset = models.DataAsset(
+        id=asset_id,
+        project_id=project_id,
+        name=payload.name or f"{source_asset.name} pymupdf_text",
+        asset_type="prepared",
+        data_format=payload.output_format,
+        storage_kind="generated",
+        parent_id=source_asset.id,
+        storage_path=stored["storage_path"],
+        manifest_hash=stored["manifest_hash"],
+        preparation_params_json=preparation_params,
+        metadata_json={},
+        status="ready",
+    )
+    db.add(asset)
+    _add_manifest_snapshot(db, asset_id, stored["manifest_hash"], stored["manifest_json"])
+    db.commit()
+    db.refresh(asset)
+    return _build_data_asset_response(db, asset)
+
+
 @router.get("/projects/{project_id}/parameter-sets", response_model=ParameterSetListResponse)
 def list_parameter_sets(project_id: str, db: Session = Depends(get_db)) -> ParameterSetListResponse:
     _get_project_or_404(db, project_id)
@@ -448,6 +566,33 @@ def _add_manifest_snapshot(
     )
 
 
+def _collect_deletable_data_assets(
+    db: Session,
+    project_id: str,
+    asset: models.DataAsset,
+) -> list[models.DataAsset]:
+    children = db.scalars(
+        select(models.DataAsset)
+        .where(models.DataAsset.project_id == project_id)
+        .where(models.DataAsset.parent_id == asset.id)
+    ).all()
+    assets = [asset, *children]
+    used_asset_ids = {
+        row[0]
+        for row in db.execute(
+            select(models.SavedExperiment.data_asset_id).where(
+                models.SavedExperiment.data_asset_id.in_([item.id for item in assets])
+            )
+        ).all()
+    }
+    if used_asset_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete data asset used by saved experiments",
+        )
+    return list(reversed(assets))
+
+
 def _validate_data_asset_payload(
     db: Session,
     project_id: str,
@@ -573,6 +718,27 @@ def _delete_file_or_400(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _resolve_file_or_400(
+    *,
+    storage_path: str | None,
+    current_manifest: dict,
+    stored_path: str,
+) -> tuple[Path, dict]:
+    if storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data asset has no storage path",
+        )
+    try:
+        return resolve_manifest_file_path(
+            storage_path=storage_path,
+            current_manifest=current_manifest,
+            stored_path=stored_path,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 def _delete_asset_storage(storage_path: str | None) -> None:

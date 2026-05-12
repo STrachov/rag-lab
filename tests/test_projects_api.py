@@ -117,6 +117,67 @@ def test_upload_pdf_source_inspects_text_layer(client: TestClient, monkeypatch, 
     assert inspection["scan_likelihood"]["likely_scanned"] is False
 
 
+def test_download_data_asset_file_uses_original_filename(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Raw PDF", "data_format": "pdf"},
+        files={"files": ("policy.pdf", b"download me", "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+    asset = upload_response.json()
+
+    download_response = client.get(
+        f"/v1/projects/{project_id}/data-assets/{asset['id']}/files/download",
+        params={"stored_path": "files/f_000001.pdf"},
+    )
+
+    assert download_response.status_code == 200
+    assert download_response.content == b"download me"
+    assert 'filename="policy.pdf"' in download_response.headers["content-disposition"]
+
+
+def test_prepare_source_asset_with_pymupdf_text(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    pdf_bytes = _make_text_pdf_bytes("Payment is due within 30 days.")
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Policy PDF", "data_format": "pdf"},
+        files={"files": ("policy.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+    source_asset = upload_response.json()
+
+    prepare_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
+        json={"method": "pymupdf_text", "output_format": "markdown", "page_breaks": True},
+    )
+
+    assert prepare_response.status_code == 201
+    prepared = prepare_response.json()
+    assert prepared["asset_type"] == "prepared"
+    assert prepared["parent_id"] == source_asset["id"]
+    assert prepared["data_format"] == "markdown"
+    assert prepared["preparation_params_json"]["method"] == "pymupdf_text"
+    assert prepared["current_manifest_json"]["files"][0]["original_name"] == "policy.md"
+
+    download_response = client.get(
+        f"/v1/projects/{project_id}/data-assets/{prepared['id']}/files/download",
+        params={"stored_path": "files/f_000001.md"},
+    )
+    assert download_response.status_code == 200
+    assert "Payment is due within 30 days." in download_response.text
+
+
 def test_upload_prepared_data_asset_requires_provenance(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     raw_asset_id = _create_data_asset(client, project_id)
@@ -200,6 +261,51 @@ def test_delete_last_prepared_file_removes_prepared_asset(client: TestClient, mo
     list_response = client.get(f"/v1/projects/{project_id}/data-assets")
     assert list_response.status_code == 200
     assert data_asset_id not in [asset["id"] for asset in list_response.json()["data_assets"]]
+
+
+def test_delete_source_asset_removes_linked_prepared_assets(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    raw_asset_id = _create_data_asset(client, project_id)
+    prepared_asset_id = _upload_prepared_data_asset_with_parent(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        raw_asset_id,
+    )
+
+    delete_response = client.delete(f"/v1/projects/{project_id}/data-assets/{raw_asset_id}")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_data_asset_ids"] == [prepared_asset_id, raw_asset_id]
+
+    list_response = client.get(f"/v1/projects/{project_id}/data-assets")
+    assert list_response.status_code == 200
+    remaining_ids = [asset["id"] for asset in list_response.json()["data_assets"]]
+    assert raw_asset_id not in remaining_ids
+    assert prepared_asset_id not in remaining_ids
+
+
+def test_delete_experiment_data_asset_is_blocked(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+    parameter_set_id = _create_parameter_set(client, project_id)
+    response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "name": "Uses prepared data",
+            "data_asset_id": data_asset_id,
+            "parameter_set_id": parameter_set_id,
+            "params_hash": "sha256:test-params",
+            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
+        },
+    )
+    assert response.status_code == 201
+
+    delete_response = client.delete(f"/v1/projects/{project_id}/data-assets/{data_asset_id}")
+
+    assert delete_response.status_code == 400
+    assert "saved experiments" in delete_response.json()["detail"]
 
 
 def test_create_ground_truth_set_under_project(client: TestClient) -> None:
@@ -321,6 +427,31 @@ def _upload_prepared_data_asset(
     project_id: str,
 ) -> str:
     raw_asset_id = _create_data_asset(client, project_id)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    response = client.post(
+        f"/v1/projects/{project_id}/data-assets/prepared/upload",
+        data={
+            "name": "Prepared policies",
+            "data_format": "markdown",
+            "parent_id": raw_asset_id,
+            "preparation_params_json": '{"method":"external_gpu","output_format":"markdown"}',
+        },
+        files={"files": ("policy.md", b"# Policy", "text/markdown")},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def _upload_prepared_data_asset_with_parent(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+    project_id: str,
+    raw_asset_id: str,
+) -> str:
     monkeypatch.setattr(
         "app.services.data_assets.get_settings",
         lambda: type("Settings", (), {"data_dir": tmp_path})(),

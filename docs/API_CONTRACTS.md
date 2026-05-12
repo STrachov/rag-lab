@@ -33,6 +33,8 @@ POST /v1/projects/{project_id}/data-assets/raw/upload
 POST /v1/projects/{project_id}/data-assets/prepared/upload
 POST /v1/projects/{project_id}/data-assets/{data_asset_id}/files
 DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}/files?stored_path=...
+GET  /v1/projects/{project_id}/data-assets/{data_asset_id}/files/download?stored_path=...
+POST /v1/projects/{project_id}/data-assets/{data_asset_id}/prepare
 ```
 
 Upload endpoints store files under project-scoped storage using generated safe filenames. Original filenames are recorded in manifest JSON.
@@ -42,6 +44,8 @@ PDF uploads are inspected with a lightweight CPU pass. Manifest entries may incl
 Adding or deleting files creates a new manifest snapshot in `data_asset_manifests` and updates `data_assets.manifest_hash`.
 
 Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets, and snapshot `data_asset_manifest_hash`.
+
+The initial local preparation method is `pymupdf_text`, which converts PDFs with extractable text layers plus `.txt` and `.md` files into prepared Markdown.
 
 ## Parameter Sets
 

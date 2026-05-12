@@ -80,6 +80,69 @@ def append_uploaded_data_asset_files(
         _close_uploads(files)
 
 
+def store_generated_data_asset_files(
+    *,
+    project_id: str,
+    asset_id: str,
+    asset_type: str,
+    generated_files: list[dict[str, Any]],
+    parent_id: str | None = None,
+    preparation_params_json: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not generated_files:
+        raise ValueError("At least one generated file is required")
+
+    base_dir = _asset_base_dir(project_id, asset_type, asset_id)
+    files_dir = base_dir / "files"
+    base_dir.mkdir(parents=True, exist_ok=False)
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = _new_manifest(
+        asset_id=asset_id,
+        asset_type=asset_type,
+        parent_id=parent_id,
+        project_id=project_id,
+        preparation_params_json=preparation_params_json,
+    )
+
+    try:
+        manifest_files = manifest["files"]
+        for index, generated in enumerate(generated_files, start=1):
+            original_name = str(generated["original_name"])
+            content = generated["content"]
+            content_type = generated.get("content_type")
+            suffix = _safe_suffix(original_name)
+            stored_name = f"f_{index:06d}{suffix}"
+            target_path = files_dir / stored_name
+            target_path.write_bytes(content)
+            manifest_files.append(
+                {
+                    "content_type": content_type,
+                    "inspection": inspect_file(
+                        target_path,
+                        content_type=content_type,
+                        original_name=original_name,
+                    ),
+                    "original_name": original_name,
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "size_bytes": len(content),
+                    "stored_path": f"files/{stored_name}",
+                    "source": generated.get("source"),
+                }
+            )
+
+        manifest_hash = write_current_manifest(base_dir, manifest)
+        return {
+            "manifest_hash": manifest_hash,
+            "manifest_json": manifest,
+            "storage_path": str(base_dir),
+        }
+    except Exception:
+        if base_dir.exists():
+            shutil.rmtree(base_dir)
+        raise
+
+
 def delete_data_asset_file(
     *,
     storage_path: str,
@@ -103,6 +166,26 @@ def delete_data_asset_file(
     manifest["files"] = [item for item in files if item.get("stored_path") != stored_path]
     manifest_hash = write_current_manifest(base_dir, manifest)
     return {"manifest_hash": manifest_hash, "manifest_json": manifest}
+
+
+def resolve_manifest_file_path(
+    *,
+    storage_path: str,
+    current_manifest: dict[str, Any],
+    stored_path: str,
+) -> tuple[Path, dict[str, Any]]:
+    files = current_manifest.get("files", [])
+    if not isinstance(files, list):
+        raise ValueError("Manifest files must be a list")
+
+    file_entry = next((item for item in files if item.get("stored_path") == stored_path), None)
+    if file_entry is None:
+        raise ValueError("File not found in current manifest")
+
+    path = Path(storage_path) / stored_path
+    if not path.exists():
+        raise ValueError("File is missing from storage")
+    return path, file_entry
 
 
 def write_current_manifest(base_dir: Path, manifest: dict[str, Any]) -> str:

@@ -6,8 +6,11 @@ import {
   DataAssetManifestFile,
   Project,
   addDataAssetFiles,
+  deleteDataAsset,
   deleteDataAssetFile,
+  getDataAssetFileDownloadUrl,
   listDataAssets,
+  prepareDataAsset,
   uploadPreparedDataAsset,
   uploadRawDataAsset,
 } from "../api/client";
@@ -114,6 +117,47 @@ export function DataPage({ currentProject }: DataPageProps) {
     }
   }
 
+  async function handleDeleteAsset(asset: DataAsset) {
+    if (!currentProject) {
+      return;
+    }
+
+    const message =
+      asset.asset_type === "raw"
+        ? `Delete source asset "${asset.name}" and all linked prepared versions?`
+        : `Delete prepared version "${asset.name}"?`;
+    if (!window.confirm(message)) {
+      return;
+    }
+
+    try {
+      const result = await deleteDataAsset(currentProject.id, asset.id);
+      result.deleted_data_asset_ids.forEach(removeAsset);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete data asset");
+    }
+  }
+
+  async function handlePrepareWithPyMuPDF(asset: DataAsset) {
+    if (!currentProject) {
+      return;
+    }
+
+    try {
+      const prepared = await prepareDataAsset(currentProject.id, asset.id, {
+        method: "pymupdf_text",
+        output_format: "markdown",
+        page_breaks: true,
+      });
+      upsertAsset(prepared);
+      setExpandedAssetIds((current) => new Set(current).add(asset.id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to prepare source data");
+    }
+  }
+
   if (!currentProject) {
     return (
       <ScopedEmptyPage
@@ -150,8 +194,11 @@ export function DataPage({ currentProject }: DataPageProps) {
               key={source.id}
               onAddFiles={handleAddFiles}
               onAddPrepared={openPreparedModal}
+              onDeleteAsset={handleDeleteAsset}
               onDeleteFile={handleDeleteFile}
+              onPrepareWithPyMuPDF={handlePrepareWithPyMuPDF}
               onToggle={toggleAsset}
+              projectId={currentProject.id}
               preparedAssets={preparedAssets.filter((asset) => asset.parent_id === source.id)}
             />
           ))}
@@ -185,16 +232,22 @@ function SourceAssetCard({
   expanded,
   onAddFiles,
   onAddPrepared,
+  onDeleteAsset,
   onDeleteFile,
+  onPrepareWithPyMuPDF,
   onToggle,
+  projectId,
   preparedAssets,
 }: {
   asset: DataAsset;
   expanded: boolean;
   onAddFiles: (asset: DataAsset, files: File[]) => void;
   onAddPrepared: (asset: DataAsset) => void;
+  onDeleteAsset: (asset: DataAsset) => void;
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
+  onPrepareWithPyMuPDF: (asset: DataAsset) => void;
   onToggle: (assetId: string) => void;
+  projectId: string;
   preparedAssets: DataAsset[];
 }) {
   const files = asset.current_manifest_json?.files ?? [];
@@ -209,16 +262,23 @@ function SourceAssetCard({
         <span>{asset.data_format}</span>
         <span>{files.length} file(s)</span>
         <span title={asset.manifest_hash ?? undefined}>{shortHash(asset.manifest_hash)}</span>
-        <button className="secondary-action" onClick={() => onAddPrepared(asset)} type="button">
-          Add Prepared Version
+        <InlineFileAdd asset={asset} onAddFiles={onAddFiles} />
+        <button className="text-action danger" onClick={() => onDeleteAsset(asset)} type="button">
+          Delete
         </button>
       </div>
 
       {expanded ? (
         <div className="asset-details">
-          <FileList asset={asset} files={files} onDeleteFile={onDeleteFile} />
-          <InlineFileAdd asset={asset} onAddFiles={onAddFiles} />
-          <PreparedVersionList assets={preparedAssets} onDeleteFile={onDeleteFile} />
+          <FileList asset={asset} files={files} onDeleteFile={onDeleteFile} projectId={projectId} />
+          <PreparedVersionList
+            assets={preparedAssets}
+            onAddPrepared={() => onAddPrepared(asset)}
+            onDeleteAsset={onDeleteAsset}
+            onDeleteFile={onDeleteFile}
+            onPrepareWithPyMuPDF={() => onPrepareWithPyMuPDF(asset)}
+            projectId={projectId}
+          />
         </div>
       ) : null}
     </article>
@@ -227,18 +287,33 @@ function SourceAssetCard({
 
 function PreparedVersionList({
   assets,
+  onAddPrepared,
+  onDeleteAsset,
   onDeleteFile,
+  onPrepareWithPyMuPDF,
+  projectId,
 }: {
   assets: DataAsset[];
+  onAddPrepared: () => void;
+  onDeleteAsset: (asset: DataAsset) => void;
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
+  onPrepareWithPyMuPDF: () => void;
+  projectId: string;
 }) {
-  if (assets.length === 0) {
-    return <div className="nested-empty">No prepared versions yet.</div>;
-  }
-
   return (
     <div className="prepared-list">
-      <h2>Prepared Versions</h2>
+      <div className="prepared-actions">
+        <h2>Prepared Versions</h2>
+        <div>
+          <button className="secondary-action" onClick={onAddPrepared} type="button">
+            Add Prepared Version
+          </button>
+          <button className="secondary-action" onClick={onPrepareWithPyMuPDF} type="button">
+            Prepare with PyMuPDF
+          </button>
+        </div>
+      </div>
+      {assets.length === 0 ? <div className="nested-empty">No prepared versions yet.</div> : null}
       {assets.map((asset) => {
         const files = asset.current_manifest_json?.files ?? [];
         const params = asset.preparation_params_json ?? {};
@@ -250,8 +325,11 @@ function PreparedVersionList({
               <span>{String(params.method ?? "-")}</span>
               <span>{String(params.tool ?? "-")}</span>
               <span title={asset.manifest_hash ?? undefined}>{shortHash(asset.manifest_hash)}</span>
+              <button className="text-action danger" onClick={() => onDeleteAsset(asset)} type="button">
+                Delete
+              </button>
             </div>
-            <FileList asset={asset} files={files} onDeleteFile={onDeleteFile} />
+            <FileList asset={asset} files={files} onDeleteFile={onDeleteFile} projectId={projectId} />
           </div>
         );
       })}
@@ -263,10 +341,12 @@ function FileList({
   asset,
   files,
   onDeleteFile,
+  projectId,
 }: {
   asset: DataAsset;
   files: DataAssetManifestFile[];
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
+  projectId: string;
 }) {
   if (files.length === 0) {
     return <div className="nested-empty">No files in current manifest.</div>;
@@ -276,8 +356,14 @@ function FileList({
     <div className="file-list">
       {files.map((file) => (
         <div className="file-row" key={file.stored_path}>
-          <span>{file.original_name}</span>
-          <span>{file.stored_path}</span>
+          <span>
+            <a
+              className="file-link"
+              href={getDataAssetFileDownloadUrl(projectId, asset.id, file.stored_path)}
+            >
+              {file.original_name}
+            </a>
+          </span>
           <FileInspectionBadges file={file} />
           <span>{formatBytes(file.size_bytes)}</span>
           <button className="text-action danger" onClick={() => onDeleteFile(asset, file)} type="button">

@@ -62,6 +62,17 @@ class DataAssetFileDeleteResponse(BaseModel):
     deleted_data_asset_id: str | None = None
 
 
+class DataAssetDeleteResponse(BaseModel):
+    deleted_data_asset_ids: list[str]
+
+
+class DataAssetPrepareRequest(BaseModel):
+    name: str | None = None
+    method: Literal["pymupdf_text"] = "pymupdf_text"
+    output_format: Literal["markdown"] = "markdown"
+    page_breaks: bool = True
+
+
 class ParameterSetCreate(BaseModel):
     name: str
     description: str | None = None
