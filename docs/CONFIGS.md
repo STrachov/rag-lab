@@ -14,6 +14,23 @@ configs/prompts/
 configs/eval/
 ```
 
+## Preparation example
+
+Preparation settings are part of the reproducibility surface. A prepared data asset stores its preparation metadata and every edit creates a manifest snapshot.
+
+```yaml
+config_id: pymupdf_text_default
+method: pymupdf_text
+tool: pymupdf
+tool_version: ""
+source_format: mixed
+output_format: markdown
+settings:
+  include_page_markers: true
+  preserve_metadata: true
+notes: CPU text extraction for PDFs with extractable text layers, plus text and Markdown inputs.
+```
+
 ## Chunking example
 
 ```yaml

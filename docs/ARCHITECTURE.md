@@ -4,14 +4,16 @@
 
 ```text
 Project
--> raw Data Asset
--> preparation parameters
+-> source Data Asset
+-> inspection and preparation parameters
 -> prepared Data Asset
 -> chunking/indexing/retrieval/reranking/generation parameters
 -> optional Ground Truth Set
 -> Saved Experiment
 -> Metrics
 ```
+
+Source data assets hold uploaded source files. Prepared data assets are RAG-ready versions linked to source data assets. File changes create `DataAssetManifest` snapshots; saved experiments snapshot the prepared data manifest hash used for the run.
 
 The runtime pipeline may create chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and answers. These are derived cache/debug outputs, not product-facing results.
 
@@ -28,6 +30,10 @@ app/
 ui/
 configs/
 data/
+  projects/
+    {project_id}/
+      source/
+      prepared/
   cache/
   manifests/
   ground_truth/
@@ -42,7 +48,9 @@ Use Python, FastAPI, SQLAlchemy 2.0, Alembic, and PostgreSQL.
 Responsibilities:
 
 - manage projects;
-- register raw and prepared data assets;
+- upload, inspect, edit, and delete source and prepared data assets;
+- store data asset manifest snapshots;
+- prepare source assets into prepared assets with adapter-backed methods such as `pymupdf_text`;
 - save reusable parameter sets;
 - save optional ground truth set references;
 - save experiments with full parameter snapshots;
@@ -57,6 +65,7 @@ PostgreSQL is the primary application database. It stores product state:
 ```text
 Project
 DataAsset
+DataAssetManifest
 ParameterSet
 GroundTruthSet
 SavedExperiment
@@ -84,12 +93,16 @@ Settings
 
 Debug views for chunks, traces, prompts, and answers may be added later, but they should be clearly marked as derived runtime/debug data.
 
+The Data UI shows source assets as rows with linked prepared versions. Users can download files by original filename, add/delete files, delete assets, inspect PDF signals, and create prepared Markdown with `pymupdf_text`.
+
 ## Adapters
 
 External services must be wrapped:
 
 ```text
 Converter
+Inspector
+Preparer
 Embedder
 VectorStore
 Reranker

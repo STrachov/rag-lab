@@ -8,7 +8,9 @@ Core flow:
 
 ```text
 Project
--> Data Asset
+-> Source Data Asset
+-> Prepared Data Asset
+-> Data Asset Manifest snapshot
 -> Parameter Set
 -> optional Ground Truth Set
 -> Saved Experiment

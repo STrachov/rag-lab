@@ -16,6 +16,8 @@ eval metrics
 config loading
 recipe export
 prompt rendering
+file inspection
+preparation adapters
 ```
 
 ## Integration tests
@@ -23,9 +25,10 @@ prompt rendering
 Use for:
 
 ```text
-document ingest → chunk → index → retrieve
-retrieve → answer trace
-experiment run → eval report
+source upload -> inspection -> prepared version
+document ingest -> chunk -> index -> retrieve
+retrieve -> answer trace
+experiment run -> saved metrics
 recipe promotion
 ```
 
@@ -36,6 +39,8 @@ Use fixed synthetic documents and expected outputs.
 Examples:
 
 ```text
+expected PDF inspection for a synthetic text-layer PDF
+expected prepared Markdown for a source document
 expected chunks for a markdown document
 expected source found for a known question
 expected not-found result for absent evidence
@@ -46,6 +51,9 @@ expected not-found result for absent evidence
 Add tests when changing:
 
 ```text
+data asset upload/delete/download
+file inspection
+preparation adapters
 chunkers
 retrievers
 rerankers
@@ -59,10 +67,11 @@ artifact writers
 ## Smoke test
 
 ```text
-synthetic dataset
-→ chunk
-→ index
-→ retrieve known answer
-→ generate answer
-→ evaluate hit@k
+synthetic source data
+-> prepare markdown
+-> chunk
+-> index
+-> retrieve known answer
+-> generate answer
+-> evaluate hit@k
 ```

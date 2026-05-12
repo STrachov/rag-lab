@@ -17,8 +17,9 @@ It answers questions such as:
 ```text
 Project
   Data Assets
-    raw data
-    prepared data
+    source data
+    prepared versions
+    manifest snapshots
   Parameter Sets
     preparation
     chunking
@@ -30,6 +31,7 @@ Project
     optional
   Saved Experiments
     data reference
+    data manifest hash
     full parameter snapshot
     optional ground truth reference
     results = metrics only
@@ -39,6 +41,7 @@ Project
 
 - RAG experimentation and evaluation platform
 - Project workspace for data, parameters, ground truth, and saved experiments
+- Source data upload, lightweight inspection, and prepared data versioning
 - Retrieval and answer debugging workbench
 - Metrics comparison tool
 - Production recipe generator after enough experiments are validated
@@ -67,7 +70,7 @@ Chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and generated ans
 
 ```text
 RAG Lab:
-  projects, data assets, parameter snapshots, ground truth, saved experiments, metrics
+  projects, data assets, manifest snapshots, parameter snapshots, ground truth, saved experiments, metrics
 
 OCRlty main:
   stable product features and production document workflows

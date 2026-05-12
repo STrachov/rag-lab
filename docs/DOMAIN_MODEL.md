@@ -49,6 +49,8 @@ Data assets may be edited by adding or deleting files. Each edit creates a new `
 
 Uploaded files are stored under generated safe names. Original filenames are kept in manifest JSON.
 
+Deleting an individual file removes the file from active storage but preserves prior manifest snapshots for that asset. Deleting a whole prepared asset removes its storage directory and its manifest snapshots. Deleting a source asset removes linked prepared versions first. Any data asset referenced by a saved experiment cannot be deleted.
+
 ## DataAssetManifest
 
 A snapshot of a data asset's file manifest.
@@ -144,6 +146,8 @@ created_at
 ## SavedExperiment
 
 A persisted experiment record. Do not model a separate `ExperimentRun` as a main product concept.
+
+Saved experiments snapshot the current prepared data manifest via `data_asset_manifest_hash` when they are created. Later edits to the data asset do not change existing experiment records.
 
 Fields:
 

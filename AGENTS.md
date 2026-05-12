@@ -11,7 +11,7 @@ The main goal is to test RAG strategies inside durable projects and preserve the
 - Prefer transparent, inspectable code over opaque framework chains.
 - Use frameworks as adapters, not as the project domain model.
 - Do not make LangChain `Document` or LlamaIndex `Node` the internal source of truth.
-- Use `Project`, `DataAsset`, `ParameterSet`, `GroundTruthSet`, `SavedExperiment`, `MetricValue`, and `DerivedCache` as core entities.
+- Use `Project`, `DataAsset`, `DataAssetManifest`, `ParameterSet`, `GroundTruthSet`, `SavedExperiment`, `MetricValue`, and `DerivedCache` as core entities.
 - Do not use `Dataset` as the main product concept; use `Data Asset` or `Data`.
 - Do not introduce `ExperimentRun` as a separate main concept; use `SavedExperiment`.
 - Do not use `Report` as a main concept yet; reports may be derived later from saved experiment metrics.
@@ -28,8 +28,9 @@ The main goal is to test RAG strategies inside durable projects and preserve the
 ```text
 Project
   Data
-    raw data
-    prepared data
+    source/raw data
+    prepared data versions
+    manifest snapshots
   Parameter Sets
     preparation
     chunking

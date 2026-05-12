@@ -91,7 +91,6 @@ asset_type
 data_format
 storage_kind
 parent_id
-storage_path
 manifest_hash
 current manifest files
 preparation parameters
@@ -99,13 +98,18 @@ status
 created_at
 ```
 
-Experiments should use prepared data assets. Raw data assets are source references.
+Experiments should use prepared data assets. Raw/source data assets are source references.
+
+Internal storage paths should not be shown as the primary file UI. Show original filenames as download links instead.
+
+Deleting a source data asset should also delete its linked prepared versions after user confirmation. Assets used by saved experiments cannot be deleted.
 
 File operations:
 
 ```text
 add files to data asset
 delete files from data asset
+delete data asset, with confirmation
 download file by original filename
 create manifest snapshot after each change
 store original filename in manifest
@@ -163,6 +167,7 @@ Show:
 id
 name
 data_asset_id
+data_asset_manifest_hash
 ground_truth_set_id
 parameter_set_id
 params_hash

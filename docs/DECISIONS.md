@@ -110,3 +110,37 @@ Pros:
 Cons:
 - debug output needs explicit opt-in;
 - reporting will be derived later instead of being modeled now.
+
+---
+
+## 2026-05-12 - Use editable data assets with manifest snapshots
+
+Status: accepted
+
+### Context
+
+Data assets need practical file management: source upload, add/delete files, download by original filename, PDF inspection, and prepared versions. Saved experiments still need to remain tied to the data state used at creation time.
+
+### Decision
+
+- Data assets may be edited by adding and deleting files.
+- Each file change creates a `DataAssetManifest` snapshot in PostgreSQL.
+- `DataAsset.manifest_hash` points to the current manifest.
+- `SavedExperiment.data_asset_manifest_hash` snapshots the prepared data manifest used by the experiment.
+- Uploaded and generated files are stored under generated safe filenames; original filenames live in manifest JSON.
+- Source assets can have linked prepared versions.
+- Source asset deletion also deletes linked prepared versions, but assets used by saved experiments cannot be deleted.
+- The first local preparation adapter is `pymupdf_text` for PDFs with text layers, `.txt`, and `.md`.
+
+### Consequences
+
+Pros:
+- data management matches real experimentation workflows;
+- manifest history is queryable and auditable in the application database;
+- saved experiments remain tied to a specific data manifest;
+- source files can be inspected before choosing a preparation path.
+
+Cons:
+- manifest snapshots are audit/history, not full file versioning after physical deletion;
+- delete behavior must protect saved experiments;
+- source/prepared relationships add UI complexity.

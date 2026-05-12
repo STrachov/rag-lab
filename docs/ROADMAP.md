@@ -11,8 +11,12 @@
 
 ## Phase 2: Data Preparation
 
-- register raw data assets
-- prepare data assets from raw data
+- upload source data assets
+- store generated safe filenames and manifest snapshots
+- inspect PDF text-layer, page, image, encryption, and scan-likelihood signals
+- edit assets by adding and deleting files
+- download files by original filename
+- prepare source assets into prepared versions
 - support converter parameter snapshots:
   - pymupdf_text
   - docling
@@ -23,7 +27,7 @@
 
 ## Phase 3: Basic RAG Runtime
 
-- chunk prepared data
+- chunk prepared data using the selected prepared data asset manifest
 - embed chunks
 - index in Qdrant
 - retrieve top-k chunks

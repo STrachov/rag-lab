@@ -2,21 +2,32 @@
 
 ## Purpose
 
-Artifacts are technical files, manifests, and cache entries. They are not a product-facing concept.
+Artifacts are technical files, generated storage filenames, and cache entries. They are not a product-facing concept.
 
 Product-facing experiment results are metrics stored on saved experiments.
+
+Data asset manifest snapshots are application state stored in PostgreSQL, not just loose files on disk. A current `_manifest.json` may be written next to files for inspection/export convenience, but `data_asset_manifests.manifest_json` is the authoritative manifest history.
 
 ## Local Layout
 
 ```text
 data/
+  projects/
+    {project_id}/
+      source/
+        {data_asset_id}/
+          files/
+          _manifest.json
+      prepared/
+        {data_asset_id}/
+          files/
+          _manifest.json
   cache/
     chunks/
     embeddings/
     qdrant_indexes/
     retrieval_temp/
     answer_temp/
-  manifests/
   ground_truth/
 ```
 
@@ -46,6 +57,9 @@ pipeline version
 - Do not treat artifacts as saved experiment results.
 - Do not silently mutate cache files.
 - Store hashes for manifests and parameter snapshots.
+- Store data asset manifest snapshots in the application database.
+- Store uploaded/generated files under safe generated filenames; keep original filenames in manifest JSON.
+- Saved experiments must snapshot the prepared data asset manifest hash used for the run.
 - Store prompts, traces, and generated answers only when debug mode requests them.
 - Do not store secrets.
 - Do not commit real client data or derived client cache.

@@ -11,6 +11,7 @@ Every saved experiment must declare:
 ```text
 project_id
 data_asset_id
+data_asset_manifest_hash
 params_snapshot_json
 params_hash
 ```
@@ -21,6 +22,8 @@ Optional references:
 ground_truth_set_id
 parameter_set_id
 ```
+
+`data_asset_manifest_hash` is captured from the prepared data asset at saved experiment creation time. This keeps experiment records tied to the exact data manifest used even if the data asset is edited later.
 
 ## Parameter Snapshot
 

@@ -33,6 +33,7 @@ POST /v1/projects/{project_id}/data-assets/raw/upload
 POST /v1/projects/{project_id}/data-assets/prepared/upload
 POST /v1/projects/{project_id}/data-assets/{data_asset_id}/files
 DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}/files?stored_path=...
+DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}
 GET  /v1/projects/{project_id}/data-assets/{data_asset_id}/files/download?stored_path=...
 POST /v1/projects/{project_id}/data-assets/{data_asset_id}/prepare
 ```
@@ -42,6 +43,8 @@ Upload endpoints store files under project-scoped storage using generated safe f
 PDF uploads are inspected with a lightweight CPU pass. Manifest entries may include page count, encryption status, text-layer metrics, image counts, scan likelihood, and document metadata. Inspection failures are recorded in the manifest and should not fail the upload.
 
 Adding or deleting files creates a new manifest snapshot in `data_asset_manifests` and updates `data_assets.manifest_hash`.
+
+Deleting an individual file preserves prior manifest snapshots for that asset. Deleting a whole source data asset deletes its linked prepared versions as well. Deleting any data asset used by saved experiments is blocked.
 
 Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets, and snapshot `data_asset_manifest_hash`.
 
@@ -67,6 +70,8 @@ POST /v1/projects/{project_id}/ground-truth-sets
 GET  /v1/projects/{project_id}/saved-experiments
 POST /v1/projects/{project_id}/saved-experiments
 ```
+
+Saved experiment creation snapshots the current `data_assets.manifest_hash` into `data_asset_manifest_hash`.
 
 ## Metrics
 

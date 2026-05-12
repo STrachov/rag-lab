@@ -60,13 +60,15 @@ python -m pytest
 
 ```text
 1. Create project
-2. Register raw data asset
-3. Create preparation and RAG parameter sets
-4. Register optional ground truth set
-5. Save experiment with full parameter snapshot
-6. Inspect metrics
-7. Compare saved experiments
-8. Promote validated parameter snapshot later
+2. Upload source data asset
+3. Inspect PDF/text-layer hints
+4. Create prepared version by upload or `pymupdf_text`
+5. Create preparation and RAG parameter sets
+6. Register optional ground truth set
+7. Save experiment with full parameter snapshot and data manifest hash
+8. Inspect metrics
+9. Compare saved experiments
+10. Promote validated parameter snapshot later
 ```
 
 ## Review checklist

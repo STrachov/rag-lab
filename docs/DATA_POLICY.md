@@ -55,7 +55,9 @@ financial account numbers
 Safe to log:
 
 ```text
-dataset_id
+project_id
+data_asset_id
+data_asset_manifest_hash
 document_id
 chunk_id
 experiment_id
