@@ -309,7 +309,7 @@ h1 {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.2fr) 0.4fr auto;
+  grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.1fr) minmax(220px, 1.3fr) 0.4fr auto;
   min-height: 40px;
   padding: 9px 12px;
 }
@@ -330,6 +330,46 @@ h1 {
   font-size: 13px;
   font-weight: 700;
   gap: 10px;
+}
+
+.inspection-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  background: #eef3f5;
+  border: 1px solid #d5e0e5;
+  border-radius: 999px;
+  color: #425864;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.badge.good {
+  background: #e9f6ef;
+  border-color: #b9dfc9;
+  color: #22613a;
+}
+
+.badge.warning {
+  background: #fff5dc;
+  border-color: #efd27a;
+  color: #7a5a12;
+}
+
+.badge.danger {
+  background: #fbeaea;
+  border-color: #e4b8b8;
+  color: #9b3434;
+}
+
+.badge.muted {
+  background: #f5f7f8;
+  color: #6d7f88;
 }
 
 .prepared-list {

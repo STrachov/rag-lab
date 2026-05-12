@@ -1,4 +1,6 @@
 import json
+import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import File, Form, UploadFile
@@ -9,6 +11,7 @@ from app.db import models
 from app.db.session import get_db
 from app.models.api import (
     DataAssetCreate,
+    DataAssetFileDeleteResponse,
     DataAssetListResponse,
     DataAssetResponse,
     GroundTruthSetCreate,
@@ -210,14 +213,14 @@ def add_data_asset_files(
 
 @router.delete(
     "/projects/{project_id}/data-assets/{data_asset_id}/files",
-    response_model=DataAssetResponse,
+    response_model=DataAssetFileDeleteResponse,
 )
 def remove_data_asset_file(
     project_id: str,
     data_asset_id: str,
     stored_path: str = Query(...),
     db: Session = Depends(get_db),
-) -> DataAssetResponse:
+) -> DataAssetFileDeleteResponse:
     _get_project_or_404(db, project_id)
     asset = _get_data_asset_or_404(db, project_id, data_asset_id)
     current_manifest = _get_current_manifest_json(db, asset)
@@ -228,9 +231,17 @@ def remove_data_asset_file(
     )
     asset.manifest_hash = stored["manifest_hash"]
     _add_manifest_snapshot(db, asset.id, stored["manifest_hash"], stored["manifest_json"])
+
+    if asset.asset_type == "prepared" and not stored["manifest_json"].get("files"):
+        deleted_asset_id = asset.id
+        _delete_asset_storage(asset.storage_path)
+        db.delete(asset)
+        db.commit()
+        return DataAssetFileDeleteResponse(deleted_data_asset_id=deleted_asset_id)
+
     db.commit()
     db.refresh(asset)
-    return _build_data_asset_response(db, asset)
+    return DataAssetFileDeleteResponse(data_asset=_build_data_asset_response(db, asset))
 
 
 @router.get("/projects/{project_id}/parameter-sets", response_model=ParameterSetListResponse)
@@ -562,3 +573,11 @@ def _delete_file_or_400(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _delete_asset_storage(storage_path: str | None) -> None:
+    if storage_path is None:
+        return
+    path = Path(storage_path)
+    if path.exists():
+        shutil.rmtree(path)

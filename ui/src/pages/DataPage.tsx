@@ -59,6 +59,10 @@ export function DataPage({ currentProject }: DataPageProps) {
     });
   }
 
+  function removeAsset(assetId: string) {
+    setDataAssets((current) => current.filter((asset) => asset.id !== assetId));
+  }
+
   function openPreparedModal(parent: DataAsset) {
     setPreparedParent(parent);
     setModal("prepared");
@@ -97,8 +101,13 @@ export function DataPage({ currentProject }: DataPageProps) {
     }
 
     try {
-      const updated = await deleteDataAssetFile(currentProject.id, asset.id, file.stored_path);
-      upsertAsset(updated);
+      const result = await deleteDataAssetFile(currentProject.id, asset.id, file.stored_path);
+      if (result.deleted_data_asset_id) {
+        removeAsset(result.deleted_data_asset_id);
+      }
+      if (result.data_asset) {
+        upsertAsset(result.data_asset);
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete file");
@@ -269,6 +278,7 @@ function FileList({
         <div className="file-row" key={file.stored_path}>
           <span>{file.original_name}</span>
           <span>{file.stored_path}</span>
+          <FileInspectionBadges file={file} />
           <span>{formatBytes(file.size_bytes)}</span>
           <button className="text-action danger" onClick={() => onDeleteFile(asset, file)} type="button">
             Delete
@@ -276,6 +286,45 @@ function FileList({
         </div>
       ))}
     </div>
+  );
+}
+
+function FileInspectionBadges({ file }: { file: DataAssetManifestFile }) {
+  const inspection = file.inspection;
+  if (!inspection) {
+    return <span>-</span>;
+  }
+
+  if (inspection.status === "failed") {
+    return (
+      <span className="badge danger" title={inspection.error}>
+        Inspect failed
+      </span>
+    );
+  }
+
+  if (inspection.status === "skipped") {
+    return (
+      <span className="badge muted" title={inspection.reason}>
+        {inspection.file_type ?? "file"}
+      </span>
+    );
+  }
+
+  const hasText = inspection.text_layer?.has_text;
+  const likelyScanned = inspection.scan_likelihood?.likely_scanned;
+  const title = buildInspectionTitle(file);
+
+  return (
+    <span className="inspection-badges" title={title}>
+      {inspection.file_type ? <span className="badge">{inspection.file_type}</span> : null}
+      {inspection.page_count !== undefined ? <span className="badge">{inspection.page_count} pages</span> : null}
+      <span className={hasText ? "badge good" : "badge warning"}>
+        {hasText ? "Text layer" : "No text"}
+      </span>
+      {inspection.is_encrypted ? <span className="badge danger">Encrypted</span> : null}
+      {likelyScanned === true ? <span className="badge warning">Likely scanned</span> : null}
+    </span>
   );
 }
 
@@ -536,4 +585,25 @@ function formatBytes(bytes: number) {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildInspectionTitle(file: DataAssetManifestFile) {
+  const inspection = file.inspection;
+  if (!inspection) {
+    return "";
+  }
+
+  const lines = [
+    `Type: ${inspection.file_type ?? "unknown"}`,
+    inspection.page_count !== undefined ? `Pages: ${inspection.page_count}` : null,
+    inspection.text_layer
+      ? `Text pages: ${inspection.text_layer.pages_with_text}, chars: ${inspection.text_layer.text_char_count}`
+      : null,
+    inspection.images
+      ? `Images: ${inspection.images.image_count}, pages with images: ${inspection.images.pages_with_images}`
+      : null,
+    inspection.scan_likelihood ? `Scan signal: ${inspection.scan_likelihood.reason}` : null,
+  ].filter(Boolean);
+
+  return lines.join("\n");
 }

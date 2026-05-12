@@ -57,6 +57,11 @@ class DataAssetListResponse(BaseModel):
     data_assets: list[DataAssetResponse]
 
 
+class DataAssetFileDeleteResponse(BaseModel):
+    data_asset: DataAssetResponse | None = None
+    deleted_data_asset_id: str | None = None
+
+
 class ParameterSetCreate(BaseModel):
     name: str
     description: str | None = None

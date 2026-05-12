@@ -67,10 +67,36 @@ export type PreparedDataAssetUpload = {
 
 export type DataAssetManifestFile = {
   content_type?: string | null;
+  inspection?: FileInspection;
   original_name: string;
   sha256: string;
   size_bytes: number;
   stored_path: string;
+};
+
+export type FileInspection = {
+  error?: string;
+  file_type?: string;
+  images?: {
+    image_count: number;
+    pages_with_images: number;
+  };
+  is_encrypted?: boolean;
+  metadata?: Record<string, string>;
+  page_count?: number;
+  reason?: string;
+  scan_likelihood?: {
+    likely_scanned: boolean | null;
+    reason: string;
+  };
+  status: "ok" | "failed" | "skipped";
+  text_layer?: {
+    avg_text_chars_per_page: number;
+    has_text: boolean;
+    pages_with_text: number;
+    text_char_count: number;
+    text_pages_ratio: number;
+  };
 };
 
 export type DataAssetManifest = {
@@ -81,6 +107,11 @@ export type DataAssetManifest = {
   parent_id?: string;
   preparation_params_json?: Record<string, unknown>;
   project_id: string;
+};
+
+export type DataAssetFileDeleteResponse = {
+  data_asset?: DataAsset | null;
+  deleted_data_asset_id?: string | null;
 };
 
 export type ParameterSet = {
@@ -231,7 +262,7 @@ export async function deleteDataAssetFile(
   projectId: string,
   dataAssetId: string,
   storedPath: string,
-): Promise<DataAsset> {
+): Promise<DataAssetFileDeleteResponse> {
   const params = new URLSearchParams({ stored_path: storedPath });
   return request(`/projects/${projectId}/data-assets/${dataAssetId}/files?${params.toString()}`, {
     method: "DELETE",

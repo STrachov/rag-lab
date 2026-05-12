@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from app.core.config import get_settings
+from app.services.file_inspection import inspect_file
 
 
 def new_data_asset_id() -> str:
@@ -167,6 +168,11 @@ def _append_uploads(files_dir: Path, manifest: dict[str, Any], files: list[Uploa
         manifest_files.append(
             {
                 "content_type": upload.content_type,
+                "inspection": inspect_file(
+                    target_path,
+                    content_type=upload.content_type,
+                    original_name=original_name,
+                ),
                 "original_name": original_name,
                 "sha256": file_hash.hexdigest(),
                 "size_bytes": size,

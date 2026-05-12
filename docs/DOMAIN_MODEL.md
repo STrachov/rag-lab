@@ -63,7 +63,9 @@ manifest_json
 created_at
 ```
 
-Manifest JSON includes generated storage paths, original filenames, content type, size, and sha256 hash for each current file.
+Manifest JSON includes generated storage paths, original filenames, content type, size, sha256 hash, and lightweight file inspection metadata for each current file.
+
+PDF inspection should record page count, encryption status, document metadata, text layer signal, image counts, and scan likelihood. Inspection failures should not block upload; store failure details in the manifest entry.
 
 Prepared data must include preparation provenance in `preparation_params_json`, for example:
 

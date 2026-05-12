@@ -37,6 +37,8 @@ DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}/files?stored_path=.
 
 Upload endpoints store files under project-scoped storage using generated safe filenames. Original filenames are recorded in manifest JSON.
 
+PDF uploads are inspected with a lightweight CPU pass. Manifest entries may include page count, encryption status, text-layer metrics, image counts, scan likelihood, and document metadata. Inspection failures are recorded in the manifest and should not fail the upload.
+
 Adding or deleting files creates a new manifest snapshot in `data_asset_manifests` and updates `data_assets.manifest_hash`.
 
 Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets, and snapshot `data_asset_manifest_hash`.

@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import fitz
 
 
 def test_create_project(client: TestClient) -> None:
@@ -93,6 +94,29 @@ def test_upload_raw_data_asset(client: TestClient, monkeypatch, tmp_path) -> Non
     assert body["current_manifest_json"]["files"][0]["stored_path"] == "files/f_000001.pdf"
 
 
+def test_upload_pdf_source_inspects_text_layer(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    pdf_bytes = _make_text_pdf_bytes("Synthetic text layer")
+
+    response = client.post(
+        f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Text PDF", "data_format": "pdf"},
+        files={"files": ("text.pdf", pdf_bytes, "application/pdf")},
+    )
+
+    assert response.status_code == 201
+    inspection = response.json()["current_manifest_json"]["files"][0]["inspection"]
+    assert inspection["status"] == "ok"
+    assert inspection["file_type"] == "pdf"
+    assert inspection["page_count"] == 1
+    assert inspection["text_layer"]["has_text"] is True
+    assert inspection["scan_likelihood"]["likely_scanned"] is False
+
+
 def test_upload_prepared_data_asset_requires_provenance(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     raw_asset_id = _create_data_asset(client, project_id)
@@ -153,10 +177,29 @@ def test_add_and_delete_data_asset_files_updates_manifest(client: TestClient, mo
         params={"stored_path": "files/f_000001.pdf"},
     )
     assert delete_response.status_code == 200
-    deleted = delete_response.json()
+    deleted = delete_response.json()["data_asset"]
     assert [file["stored_path"] for file in deleted["current_manifest_json"]["files"]] == [
         "files/f_000002.pdf"
     ]
+
+
+def test_delete_last_prepared_file_removes_prepared_asset(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/data-assets/{data_asset_id}/files",
+        params={"stored_path": "files/f_000001.md"},
+    )
+
+    assert delete_response.status_code == 200
+    body = delete_response.json()
+    assert body["deleted_data_asset_id"] == data_asset_id
+    assert body["data_asset"] is None
+
+    list_response = client.get(f"/v1/projects/{project_id}/data-assets")
+    assert list_response.status_code == 200
+    assert data_asset_id not in [asset["id"] for asset in list_response.json()["data_assets"]]
 
 
 def test_create_ground_truth_set_under_project(client: TestClient) -> None:
@@ -227,6 +270,15 @@ def _create_project(client: TestClient) -> str:
     response = client.post("/v1/projects", json={"name": "Policy RAG"})
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def _make_text_pdf_bytes(text: str) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), text)
+    payload = doc.tobytes()
+    doc.close()
+    return payload
 
 
 def _create_data_asset(client: TestClient, project_id: str) -> str:

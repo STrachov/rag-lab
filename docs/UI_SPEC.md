@@ -111,6 +111,18 @@ store original filename in manifest
 store file on disk under generated safe name
 ```
 
+For PDFs, show lightweight inspection hints near each file:
+
+```text
+page count
+text layer present or missing
+likely scanned
+encrypted
+inspection failed
+```
+
+These hints help users choose a preparation path such as CPU text extraction, OCR, or external GPU parsing.
+
 Preparation controls should include converter choice and settings:
 
 ```text

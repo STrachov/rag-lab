@@ -57,14 +57,20 @@ class DataAsset(Base):
 
     project: Mapped[Project] = relationship(back_populates="data_assets")
     parent: Mapped["DataAsset | None"] = relationship(remote_side=[id])
-    manifests: Mapped[list["DataAssetManifest"]] = relationship(back_populates="data_asset")
+    manifests: Mapped[list["DataAssetManifest"]] = relationship(
+        back_populates="data_asset",
+        cascade="all, delete-orphan",
+    )
 
 
 class DataAssetManifest(Base):
     __tablename__ = "data_asset_manifests"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
-    data_asset_id: Mapped[str] = mapped_column(ForeignKey("data_assets.id"), nullable=False)
+    data_asset_id: Mapped[str] = mapped_column(
+        ForeignKey("data_assets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     manifest_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     manifest_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
