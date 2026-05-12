@@ -71,14 +71,17 @@ archive project
 
 ## Data
 
-Data is shown inside one section with two views:
+Data is shown as source data rows with linked prepared versions, not as separate raw/prepared tables.
 
 ```text
-Raw Data
-Prepared Data
+Source Data
+  files
+  prepared versions
 ```
 
-Raw Data supports uploading source documents. Prepared Data supports uploading Markdown or other prepared text outputs, optionally linked to a raw parent data asset.
+Source Data supports uploading source documents in formats such as PDF, Markdown, text, DOCX, HTML, or mixed. Prepared Versions support uploading Markdown or other prepared text outputs linked to a source data asset.
+
+Adding source data and prepared versions should happen in modal dialogs. Preparation metadata should be entered as explicit fields, with advanced JSON reserved for later if needed.
 
 Show data assets:
 
@@ -90,12 +93,23 @@ storage_kind
 parent_id
 storage_path
 manifest_hash
+current manifest files
 preparation parameters
 status
 created_at
 ```
 
 Experiments should use prepared data assets. Raw data assets are source references.
+
+File operations:
+
+```text
+add files to data asset
+delete files from data asset
+create manifest snapshot after each change
+store original filename in manifest
+store file on disk under generated safe name
+```
 
 Preparation controls should include converter choice and settings:
 

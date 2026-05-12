@@ -31,11 +31,15 @@ GET  /v1/projects/{project_id}/data-assets
 POST /v1/projects/{project_id}/data-assets
 POST /v1/projects/{project_id}/data-assets/raw/upload
 POST /v1/projects/{project_id}/data-assets/prepared/upload
+POST /v1/projects/{project_id}/data-assets/{data_asset_id}/files
+DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}/files?stored_path=...
 ```
 
-Upload endpoints store files under project-scoped storage and create immutable data asset records after the files and manifest are written.
+Upload endpoints store files under project-scoped storage using generated safe filenames. Original filenames are recorded in manifest JSON.
 
-Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets.
+Adding or deleting files creates a new manifest snapshot in `data_asset_manifests` and updates `data_assets.manifest_hash`.
+
+Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets, and snapshot `data_asset_manifest_hash`.
 
 ## Parameter Sets
 

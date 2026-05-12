@@ -144,6 +144,13 @@ button {
   padding-bottom: 20px;
 }
 
+.action-header {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
 .eyebrow {
   color: #4d6775;
   font-size: 13px;
@@ -229,9 +236,230 @@ h1 {
   padding: 8px 14px;
 }
 
+.primary-action,
+.secondary-action {
+  background: #176b87;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.secondary-action {
+  background: #244f61;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
 .form-panel button:disabled {
   background: #9eb4bf;
   cursor: not-allowed;
+}
+
+.asset-list {
+  display: grid;
+  gap: 12px;
+}
+
+.asset-card {
+  background: #ffffff;
+  border: 1px solid #dce3e7;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.asset-summary {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(220px, 1.5fr) 0.6fr 0.6fr 0.8fr auto;
+  padding: 14px 16px;
+}
+
+.asset-title {
+  background: transparent;
+  border: 0;
+  color: #176b87;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  font-weight: 800;
+  padding: 0;
+  text-align: left;
+}
+
+.asset-details {
+  border-top: 1px solid #edf1f3;
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+
+.file-list {
+  border: 1px solid #edf1f3;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.file-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.2fr) 0.4fr auto;
+  min-height: 40px;
+  padding: 9px 12px;
+}
+
+.file-row + .file-row {
+  border-top: 1px solid #edf1f3;
+}
+
+.file-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inline-upload {
+  align-items: center;
+  color: #425864;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 10px;
+}
+
+.prepared-list {
+  display: grid;
+  gap: 10px;
+}
+
+.prepared-list h2 {
+  font-size: 16px;
+  margin: 4px 0 0;
+}
+
+.prepared-item {
+  background: #f8fafb;
+  border: 1px solid #edf1f3;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.prepared-heading {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 1.3fr) 0.6fr 0.8fr 0.8fr 0.8fr;
+}
+
+.nested-empty {
+  background: #f8fafb;
+  border: 1px dashed #cbd8de;
+  border-radius: 8px;
+  color: #5d737e;
+  padding: 12px;
+}
+
+.text-action {
+  background: transparent;
+  border: 0;
+  color: #176b87;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+}
+
+.text-action.danger {
+  color: #a94442;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgb(23 32 38 / 0.45);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 20;
+}
+
+.modal-panel {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 22px 70px rgb(23 32 38 / 0.28);
+  max-height: calc(100vh - 48px);
+  max-width: 760px;
+  overflow: auto;
+  padding: 18px;
+  width: min(760px, 100%);
+}
+
+.modal-header {
+  align-items: center;
+  border-bottom: 1px solid #edf1f3;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+}
+
+.modal-header h2 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.modal-form {
+  display: grid;
+  gap: 14px;
+}
+
+.modal-form.two-column {
+  grid-template-columns: 1fr 1fr;
+}
+
+.modal-form label {
+  color: #425864;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.modal-form input,
+.modal-form select,
+.modal-form textarea {
+  border: 1px solid #c9d4da;
+  border-radius: 6px;
+  color: #182026;
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.modal-form button {
+  justify-self: start;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.check-row {
+  align-items: center;
+  display: flex !important;
+  flex-direction: row;
+}
+
+.check-row input {
+  min-height: auto;
 }
 
 .upload-form,
@@ -383,6 +611,19 @@ h1 {
   .form-panel {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .action-header,
+  .asset-summary,
+  .file-row,
+  .prepared-heading,
+  .modal-form.two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .action-header {
+    align-items: stretch;
+    display: grid;
   }
 
   .upload-form,

@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import File, Form, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,7 +24,12 @@ from app.models.api import (
     SavedExperimentListResponse,
     SavedExperimentResponse,
 )
-from app.services.data_assets import new_data_asset_id, store_uploaded_data_asset_files
+from app.services.data_assets import (
+    append_uploaded_data_asset_files,
+    delete_data_asset_file,
+    new_data_asset_id,
+    store_uploaded_data_asset_files,
+)
 
 router = APIRouter()
 
@@ -57,7 +62,9 @@ def list_data_assets(project_id: str, db: Session = Depends(get_db)) -> DataAsse
         .where(models.DataAsset.project_id == project_id)
         .order_by(models.DataAsset.created_at)
     ).all()
-    return DataAssetListResponse(data_assets=assets)
+    return DataAssetListResponse(
+        data_assets=[_build_data_asset_response(db, asset) for asset in assets]
+    )
 
 
 @router.post(
@@ -69,14 +76,14 @@ def create_data_asset(
     project_id: str,
     payload: DataAssetCreate,
     db: Session = Depends(get_db),
-) -> models.DataAsset:
+) -> DataAssetResponse:
     _get_project_or_404(db, project_id)
     _validate_data_asset_payload(db, project_id, payload)
     asset = models.DataAsset(project_id=project_id, **payload.model_dump())
     db.add(asset)
     db.commit()
     db.refresh(asset)
-    return asset
+    return _build_data_asset_response(db, asset)
 
 
 @router.post(
@@ -91,7 +98,7 @@ def upload_raw_data_asset(
     metadata_json: str | None = Form(None),
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
-) -> models.DataAsset:
+) -> DataAssetResponse:
     _get_project_or_404(db, project_id)
     asset_id = new_data_asset_id()
     stored = _store_upload_or_400(
@@ -101,13 +108,6 @@ def upload_raw_data_asset(
         files=files,
     )
     metadata = _parse_json_object(metadata_json, "metadata_json") if metadata_json else {}
-    metadata.update(
-        {
-            "file_count": stored["file_count"],
-            "manifest_path": stored["manifest_path"],
-            "total_bytes": stored["total_bytes"],
-        }
-    )
     asset = models.DataAsset(
         id=asset_id,
         project_id=project_id,
@@ -121,9 +121,10 @@ def upload_raw_data_asset(
         status="ready",
     )
     db.add(asset)
+    _add_manifest_snapshot(db, asset_id, stored["manifest_hash"], stored["manifest_json"])
     db.commit()
     db.refresh(asset)
-    return asset
+    return _build_data_asset_response(db, asset)
 
 
 @router.post(
@@ -140,7 +141,7 @@ def upload_prepared_data_asset(
     metadata_json: str | None = Form(None),
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
-) -> models.DataAsset:
+) -> DataAssetResponse:
     _get_project_or_404(db, project_id)
     preparation_params = _parse_json_object(
         preparation_params_json,
@@ -157,15 +158,10 @@ def upload_prepared_data_asset(
         asset_id=asset_id,
         asset_type="prepared",
         files=files,
+        parent_id=parent_id,
+        preparation_params_json=preparation_params,
     )
     metadata = _parse_json_object(metadata_json, "metadata_json") if metadata_json else {}
-    metadata.update(
-        {
-            "file_count": stored["file_count"],
-            "manifest_path": stored["manifest_path"],
-            "total_bytes": stored["total_bytes"],
-        }
-    )
     asset = models.DataAsset(
         id=asset_id,
         project_id=project_id,
@@ -181,9 +177,60 @@ def upload_prepared_data_asset(
         status="ready",
     )
     db.add(asset)
+    _add_manifest_snapshot(db, asset_id, stored["manifest_hash"], stored["manifest_json"])
     db.commit()
     db.refresh(asset)
-    return asset
+    return _build_data_asset_response(db, asset)
+
+
+@router.post(
+    "/projects/{project_id}/data-assets/{data_asset_id}/files",
+    response_model=DataAssetResponse,
+)
+def add_data_asset_files(
+    project_id: str,
+    data_asset_id: str,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+) -> DataAssetResponse:
+    _get_project_or_404(db, project_id)
+    asset = _get_data_asset_or_404(db, project_id, data_asset_id)
+    current_manifest = _get_current_manifest_json(db, asset)
+    stored = _append_upload_or_400(
+        storage_path=asset.storage_path,
+        current_manifest=current_manifest,
+        files=files,
+    )
+    asset.manifest_hash = stored["manifest_hash"]
+    _add_manifest_snapshot(db, asset.id, stored["manifest_hash"], stored["manifest_json"])
+    db.commit()
+    db.refresh(asset)
+    return _build_data_asset_response(db, asset)
+
+
+@router.delete(
+    "/projects/{project_id}/data-assets/{data_asset_id}/files",
+    response_model=DataAssetResponse,
+)
+def remove_data_asset_file(
+    project_id: str,
+    data_asset_id: str,
+    stored_path: str = Query(...),
+    db: Session = Depends(get_db),
+) -> DataAssetResponse:
+    _get_project_or_404(db, project_id)
+    asset = _get_data_asset_or_404(db, project_id, data_asset_id)
+    current_manifest = _get_current_manifest_json(db, asset)
+    stored = _delete_file_or_400(
+        storage_path=asset.storage_path,
+        current_manifest=current_manifest,
+        stored_path=stored_path,
+    )
+    asset.manifest_hash = stored["manifest_hash"]
+    _add_manifest_snapshot(db, asset.id, stored["manifest_hash"], stored["manifest_json"])
+    db.commit()
+    db.refresh(asset)
+    return _build_data_asset_response(db, asset)
 
 
 @router.get("/projects/{project_id}/parameter-sets", response_model=ParameterSetListResponse)
@@ -303,7 +350,10 @@ def create_saved_experiment(
             "ground truth set",
         )
 
-    saved_experiment = models.SavedExperiment(project_id=project_id, **payload.model_dump())
+    data_asset = db.get(models.DataAsset, payload.data_asset_id)
+    saved_experiment_payload = payload.model_dump()
+    saved_experiment_payload["data_asset_manifest_hash"] = data_asset.manifest_hash
+    saved_experiment = models.SavedExperiment(project_id=project_id, **saved_experiment_payload)
     db.add(saved_experiment)
     db.commit()
     db.refresh(saved_experiment)
@@ -327,6 +377,64 @@ def _get_project_child_or_404(
     item = db.get(model, child_id)
     if item is None or item.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{label.title()} not found")
+
+
+def _get_data_asset_or_404(db: Session, project_id: str, data_asset_id: str) -> models.DataAsset:
+    asset = db.get(models.DataAsset, data_asset_id)
+    if asset is None or asset.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data asset not found")
+    return asset
+
+
+def _build_data_asset_response(db: Session, asset: models.DataAsset) -> DataAssetResponse:
+    return DataAssetResponse.model_validate(asset).model_copy(
+        update={"current_manifest_json": _get_current_manifest_json(db, asset, required=False)}
+    )
+
+
+def _get_current_manifest_json(
+    db: Session,
+    asset: models.DataAsset,
+    *,
+    required: bool = True,
+) -> dict | None:
+    if asset.manifest_hash is None:
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Data asset has no current manifest",
+            )
+        return None
+
+    manifest = db.scalar(
+        select(models.DataAssetManifest)
+        .where(models.DataAssetManifest.data_asset_id == asset.id)
+        .where(models.DataAssetManifest.manifest_hash == asset.manifest_hash)
+        .order_by(models.DataAssetManifest.created_at.desc())
+    )
+    if manifest is None:
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current data asset manifest snapshot not found",
+            )
+        return None
+    return manifest.manifest_json
+
+
+def _add_manifest_snapshot(
+    db: Session,
+    data_asset_id: str,
+    manifest_hash: str,
+    manifest_json: dict,
+) -> None:
+    db.add(
+        models.DataAssetManifest(
+            data_asset_id=data_asset_id,
+            manifest_hash=manifest_hash,
+            manifest_json=manifest_json,
+        )
+    )
 
 
 def _validate_data_asset_payload(
@@ -398,6 +506,8 @@ def _store_upload_or_400(
     asset_id: str,
     asset_type: str,
     files: list[UploadFile],
+    parent_id: str | None = None,
+    preparation_params_json: dict | None = None,
 ) -> dict:
     try:
         return store_uploaded_data_asset_files(
@@ -405,6 +515,50 @@ def _store_upload_or_400(
             asset_id=asset_id,
             asset_type=asset_type,
             files=files,
+            parent_id=parent_id,
+            preparation_params_json=preparation_params_json,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _append_upload_or_400(
+    *,
+    storage_path: str | None,
+    current_manifest: dict,
+    files: list[UploadFile],
+) -> dict:
+    if storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data asset has no storage path",
+        )
+    try:
+        return append_uploaded_data_asset_files(
+            storage_path=storage_path,
+            current_manifest=current_manifest,
+            files=files,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _delete_file_or_400(
+    *,
+    storage_path: str | None,
+    current_manifest: dict,
+    stored_path: str,
+) -> dict:
+    if storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data asset has no storage path",
+        )
+    try:
+        return delete_data_asset_file(
+            storage_path=storage_path,
+            current_manifest=current_manifest,
+            stored_path=stored_path,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

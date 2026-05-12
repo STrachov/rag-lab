@@ -39,11 +39,31 @@ status
 created_at
 ```
 
-Prepared data is produced from raw data by preparation parameters. PDF-to-Markdown, OCR, and document conversion settings belong in `preparation_params_json`.
+Prepared data is produced from source data by preparation parameters. PDF-to-Markdown, OCR, and document conversion settings belong in `preparation_params_json`.
 
-Data assets are immutable after creation. If files, manifests, or preparation metadata change, create a new data asset instead of mutating the existing one.
+Data assets may be edited by adding or deleting files. Each edit creates a new `DataAssetManifest` snapshot and updates `DataAsset.manifest_hash` to the current manifest hash.
 
-`raw` assets should not have `parent_id`. `prepared` assets may reference a raw parent asset, but the parent is optional because some workflows receive only prepared Markdown. Saved experiments should use prepared data assets.
+`raw` assets are source data, not necessarily PDFs. They may be PDFs, Markdown, text, DOCX, HTML, or mixed files. Markdown is not automatically prepared data; a prepared asset is an explicitly RAG-ready version with preparation provenance.
+
+`raw` assets should not have `parent_id`. `prepared` assets may reference a raw parent asset. Saved experiments should use prepared data assets and snapshot the current data asset manifest hash.
+
+Uploaded files are stored under generated safe names. Original filenames are kept in manifest JSON.
+
+## DataAssetManifest
+
+A snapshot of a data asset's file manifest.
+
+Fields:
+
+```text
+id
+data_asset_id
+manifest_hash
+manifest_json
+created_at
+```
+
+Manifest JSON includes generated storage paths, original filenames, content type, size, and sha256 hash for each current file.
 
 Prepared data must include preparation provenance in `preparation_params_json`, for example:
 
@@ -128,6 +148,7 @@ id
 project_id
 name
 data_asset_id
+data_asset_manifest_hash
 ground_truth_set_id
 parameter_set_id
 params_snapshot_json

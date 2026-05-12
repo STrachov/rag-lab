@@ -33,6 +33,7 @@ export type DataAsset = {
   metadata_json: Record<string, unknown>;
   status: string;
   created_at: string;
+  current_manifest_json?: DataAssetManifest | null;
 };
 
 export type DataAssetCreate = {
@@ -62,6 +63,24 @@ export type PreparedDataAssetUpload = {
   parent_id?: string;
   preparation_params_json: Record<string, unknown>;
   metadata_json?: Record<string, unknown>;
+};
+
+export type DataAssetManifestFile = {
+  content_type?: string | null;
+  original_name: string;
+  sha256: string;
+  size_bytes: number;
+  stored_path: string;
+};
+
+export type DataAssetManifest = {
+  asset_id: string;
+  asset_type: "raw" | "prepared";
+  files: DataAssetManifestFile[];
+  manifest_hash?: string;
+  parent_id?: string;
+  preparation_params_json?: Record<string, unknown>;
+  project_id: string;
 };
 
 export type ParameterSet = {
@@ -191,6 +210,31 @@ export async function uploadPreparedDataAsset(
   return request(`/projects/${projectId}/data-assets/prepared/upload`, {
     body: formData,
     method: "POST",
+  });
+}
+
+export async function addDataAssetFiles(
+  projectId: string,
+  dataAssetId: string,
+  files: File[],
+): Promise<DataAsset> {
+  const formData = new FormData();
+  appendFiles(formData, files);
+
+  return request(`/projects/${projectId}/data-assets/${dataAssetId}/files`, {
+    body: formData,
+    method: "POST",
+  });
+}
+
+export async function deleteDataAssetFile(
+  projectId: string,
+  dataAssetId: string,
+  storedPath: string,
+): Promise<DataAsset> {
+  const params = new URLSearchParams({ stored_path: storedPath });
+  return request(`/projects/${projectId}/data-assets/${dataAssetId}/files?${params.toString()}`, {
+    method: "DELETE",
   });
 }
 

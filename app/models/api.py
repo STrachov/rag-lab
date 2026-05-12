@@ -48,6 +48,7 @@ class DataAssetResponse(DataAssetCreate):
     id: str
     project_id: str
     created_at: datetime
+    current_manifest_json: JsonObject | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -98,6 +99,7 @@ class GroundTruthSetListResponse(BaseModel):
 class SavedExperimentCreate(BaseModel):
     name: str
     data_asset_id: str
+    data_asset_manifest_hash: str | None = None
     ground_truth_set_id: str | None = None
     parameter_set_id: str | None = None
     params_snapshot_json: JsonObject

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -22,73 +22,167 @@ def store_uploaded_data_asset_files(
     asset_id: str,
     asset_type: str,
     files: list[UploadFile],
+    parent_id: str | None = None,
+    preparation_params_json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not files:
         raise ValueError("At least one file is required")
 
-    base_dir = get_settings().data_dir / "projects" / project_id / asset_type / asset_id
+    base_dir = _asset_base_dir(project_id, asset_type, asset_id)
+    files_dir = base_dir / "files"
     base_dir.mkdir(parents=True, exist_ok=False)
+    files_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest_entries: list[dict[str, Any]] = []
-    total_bytes = 0
+    manifest = _new_manifest(
+        asset_id=asset_id,
+        asset_type=asset_type,
+        parent_id=parent_id,
+        project_id=project_id,
+        preparation_params_json=preparation_params_json,
+    )
 
     try:
-        for upload in files:
-            relative_path = _safe_relative_path(upload.filename or "uploaded_file")
-            target_path = base_dir / relative_path
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-
-            file_hash = hashlib.sha256()
-            size = 0
-            with target_path.open("wb") as output:
-                while chunk := upload.file.read(1024 * 1024):
-                    size += len(chunk)
-                    file_hash.update(chunk)
-                    output.write(chunk)
-
-            manifest_entries.append(
-                {
-                    "path": relative_path.as_posix(),
-                    "size_bytes": size,
-                    "sha256": file_hash.hexdigest(),
-                }
-            )
-            total_bytes += size
-        manifest_entries.sort(key=lambda item: item["path"])
-
-        manifest = {
-            "asset_id": asset_id,
-            "asset_type": asset_type,
-            "file_count": len(manifest_entries),
-            "files": manifest_entries,
-            "project_id": project_id,
-            "total_bytes": total_bytes,
-        }
-        manifest_json = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
-        manifest_hash = f"sha256:{hashlib.sha256(manifest_json.encode('utf-8')).hexdigest()}"
-        manifest_path = base_dir / "_manifest.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-
+        _append_uploads(files_dir, manifest, files)
+        manifest_hash = write_current_manifest(base_dir, manifest)
         return {
-            "file_count": len(manifest_entries),
             "manifest_hash": manifest_hash,
-            "manifest_path": str(manifest_path),
+            "manifest_json": manifest,
             "storage_path": str(base_dir),
-            "total_bytes": total_bytes,
         }
     except Exception:
         if base_dir.exists():
             shutil.rmtree(base_dir)
         raise
     finally:
-        for upload in files:
-            upload.file.close()
+        _close_uploads(files)
 
 
-def _safe_relative_path(filename: str) -> PurePosixPath:
-    normalized = filename.replace("\\", "/")
-    path = PurePosixPath(normalized)
-    parts = [part for part in path.parts if part not in ("", ".")]
-    if not parts or any(part == ".." for part in parts):
-        raise ValueError(f"Unsafe upload filename: {filename}")
-    return PurePosixPath(*parts)
+def append_uploaded_data_asset_files(
+    *,
+    storage_path: str,
+    current_manifest: dict[str, Any],
+    files: list[UploadFile],
+) -> dict[str, Any]:
+    if not files:
+        raise ValueError("At least one file is required")
+
+    base_dir = Path(storage_path)
+    files_dir = base_dir / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = json.loads(json.dumps(current_manifest))
+    try:
+        _append_uploads(files_dir, manifest, files)
+        manifest_hash = write_current_manifest(base_dir, manifest)
+        return {"manifest_hash": manifest_hash, "manifest_json": manifest}
+    finally:
+        _close_uploads(files)
+
+
+def delete_data_asset_file(
+    *,
+    storage_path: str,
+    current_manifest: dict[str, Any],
+    stored_path: str,
+) -> dict[str, Any]:
+    base_dir = Path(storage_path)
+    manifest = json.loads(json.dumps(current_manifest))
+    files = manifest.get("files", [])
+    if not isinstance(files, list):
+        raise ValueError("Manifest files must be a list")
+
+    file_entry = next((item for item in files if item.get("stored_path") == stored_path), None)
+    if file_entry is None:
+        raise ValueError("File not found in current manifest")
+
+    target_path = base_dir / stored_path
+    if target_path.exists():
+        target_path.unlink()
+
+    manifest["files"] = [item for item in files if item.get("stored_path") != stored_path]
+    manifest_hash = write_current_manifest(base_dir, manifest)
+    return {"manifest_hash": manifest_hash, "manifest_json": manifest}
+
+
+def write_current_manifest(base_dir: Path, manifest: dict[str, Any]) -> str:
+    hash_manifest = {key: value for key, value in manifest.items() if key != "manifest_hash"}
+    manifest_json = json.dumps(hash_manifest, sort_keys=True, separators=(",", ":"))
+    manifest_hash = f"sha256:{hashlib.sha256(manifest_json.encode('utf-8')).hexdigest()}"
+    manifest["manifest_hash"] = manifest_hash
+    manifest_path = base_dir / "_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return manifest_hash
+
+
+def _asset_base_dir(project_id: str, asset_type: str, asset_id: str) -> Path:
+    storage_type = "source" if asset_type == "raw" else "prepared"
+    return get_settings().data_dir / "projects" / project_id / storage_type / asset_id
+
+
+def _new_manifest(
+    *,
+    asset_id: str,
+    asset_type: str,
+    parent_id: str | None,
+    project_id: str,
+    preparation_params_json: dict[str, Any] | None,
+) -> dict[str, Any]:
+    manifest: dict[str, Any] = {
+        "asset_id": asset_id,
+        "asset_type": asset_type,
+        "files": [],
+        "project_id": project_id,
+    }
+    if preparation_params_json is not None:
+        manifest["preparation_params_json"] = preparation_params_json
+    if parent_id is not None:
+        manifest["parent_id"] = parent_id
+    return manifest
+
+
+def _append_uploads(files_dir: Path, manifest: dict[str, Any], files: list[UploadFile]) -> None:
+    manifest_files = manifest.setdefault("files", [])
+    if not isinstance(manifest_files, list):
+        raise ValueError("Manifest files must be a list")
+
+    next_index = len(manifest_files) + 1
+    for upload in files:
+        original_name = upload.filename or "uploaded_file"
+        suffix = _safe_suffix(original_name)
+        stored_name = f"f_{next_index:06d}{suffix}"
+        while (files_dir / stored_name).exists():
+            next_index += 1
+            stored_name = f"f_{next_index:06d}{suffix}"
+        stored_path = f"files/{stored_name}"
+        target_path = files_dir / stored_name
+
+        file_hash = hashlib.sha256()
+        size = 0
+        with target_path.open("wb") as output:
+            while chunk := upload.file.read(1024 * 1024):
+                size += len(chunk)
+                file_hash.update(chunk)
+                output.write(chunk)
+
+        manifest_files.append(
+            {
+                "content_type": upload.content_type,
+                "original_name": original_name,
+                "sha256": file_hash.hexdigest(),
+                "size_bytes": size,
+                "stored_path": stored_path,
+            }
+        )
+        next_index += 1
+
+
+def _safe_suffix(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if len(suffix) > 16 or any(char in suffix for char in ("/", "\\", ":", "\x00")):
+        return ""
+    return suffix
+
+
+def _close_uploads(files: list[UploadFile]) -> None:
+    for upload in files:
+        upload.file.close()

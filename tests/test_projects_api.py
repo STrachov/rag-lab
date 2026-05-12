@@ -89,7 +89,8 @@ def test_upload_raw_data_asset(client: TestClient, monkeypatch, tmp_path) -> Non
     assert body["asset_type"] == "raw"
     assert body["data_format"] == "pdf"
     assert body["manifest_hash"].startswith("sha256:")
-    assert body["metadata_json"]["file_count"] == 1
+    assert body["current_manifest_json"]["files"][0]["original_name"] == "policy.pdf"
+    assert body["current_manifest_json"]["files"][0]["stored_path"] == "files/f_000001.pdf"
 
 
 def test_upload_prepared_data_asset_requires_provenance(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -116,6 +117,46 @@ def test_upload_prepared_data_asset_requires_provenance(client: TestClient, monk
     assert body["asset_type"] == "prepared"
     assert body["parent_id"] == raw_asset_id
     assert body["preparation_params_json"]["method"] == "external_gpu"
+    assert body["current_manifest_json"]["parent_id"] == raw_asset_id
+    assert body["current_manifest_json"]["preparation_params_json"]["method"] == "external_gpu"
+
+
+def test_add_and_delete_data_asset_files_updates_manifest(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Raw PDF", "data_format": "pdf"},
+        files={"files": ("policy.pdf", b"one", "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+    asset = upload_response.json()
+    first_hash = asset["manifest_hash"]
+
+    add_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/{asset['id']}/files",
+        files={"files": ("policy-extra.pdf", b"two", "application/pdf")},
+    )
+    assert add_response.status_code == 200
+    added = add_response.json()
+    assert added["manifest_hash"] != first_hash
+    assert [file["stored_path"] for file in added["current_manifest_json"]["files"]] == [
+        "files/f_000001.pdf",
+        "files/f_000002.pdf",
+    ]
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/data-assets/{asset['id']}/files",
+        params={"stored_path": "files/f_000001.pdf"},
+    )
+    assert delete_response.status_code == 200
+    deleted = delete_response.json()
+    assert [file["stored_path"] for file in deleted["current_manifest_json"]["files"]] == [
+        "files/f_000002.pdf"
+    ]
 
 
 def test_create_ground_truth_set_under_project(client: TestClient) -> None:
@@ -145,9 +186,9 @@ def test_create_ground_truth_set_under_project(client: TestClient) -> None:
     ]
 
 
-def test_create_saved_experiment_with_metrics_json(client: TestClient) -> None:
+def test_create_saved_experiment_with_metrics_json(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
-    data_asset_id = _create_prepared_data_asset(client, project_id)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
     parameter_set_id = _create_parameter_set(client, project_id)
 
     response = client.post(
@@ -179,6 +220,7 @@ def test_create_saved_experiment_with_metrics_json(client: TestClient) -> None:
         "mrr": 0.7,
         "latency_ms": 250,
     }
+    assert body["data_asset_manifest_hash"].startswith("sha256:")
 
 
 def _create_project(client: TestClient) -> str:
@@ -215,6 +257,31 @@ def _create_prepared_data_asset(client: TestClient, project_id: str) -> str:
                 "output_format": "markdown",
             },
         },
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def _upload_prepared_data_asset(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+    project_id: str,
+) -> str:
+    raw_asset_id = _create_data_asset(client, project_id)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    response = client.post(
+        f"/v1/projects/{project_id}/data-assets/prepared/upload",
+        data={
+            "name": "Prepared policies",
+            "data_format": "markdown",
+            "parent_id": raw_asset_id,
+            "preparation_params_json": '{"method":"external_gpu","output_format":"markdown"}',
+        },
+        files={"files": ("policy.md", b"# Policy", "text/markdown")},
     )
     assert response.status_code == 201
     return response.json()["id"]
