@@ -82,6 +82,7 @@ def test_list_chunking_strategies_for_parameters_ui(client: TestClient) -> None:
     strategy_ids = [strategy["id"] for strategy in strategies]
     assert "heading_recursive" in strategy_ids
     assert "recursive" in strategy_ids
+    assert "langchain_recursive_character" in strategy_ids
     heading_recursive = next(
         strategy for strategy in strategies if strategy["id"] == "heading_recursive"
     )
@@ -89,6 +90,12 @@ def test_list_chunking_strategies_for_parameters_ui(client: TestClient) -> None:
     assert "chunk_size" in field_names
     assert "preserve_headings" in field_names
     assert heading_recursive["default_params"]["chunk_size"] == 900
+    langchain_recursive = next(
+        strategy for strategy in strategies if strategy["id"] == "langchain_recursive_character"
+    )
+    assert langchain_recursive["adapter"] == "langchain"
+    assert langchain_recursive["implementation"] == "RecursiveCharacterTextSplitter"
+    assert langchain_recursive["library"] == "langchain-text-splitters"
 
 
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -131,6 +138,45 @@ def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch,
     assert body["chunks"][0]["source_name"] == "policy.md"
     assert body["chunks"][0]["heading_path"]
     assert "Payment" in " ".join(chunk["text_preview"] for chunk in body["chunks"])
+
+
+def test_preview_langchain_recursive_character_chunking(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"Alpha beta gamma.\n\nDelta epsilon zeta.\n\nEta theta iota.",
+    )
+
+    response = client.post(
+        f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "langchain_recursive_character",
+                "params": {
+                    "chunk_size": 24,
+                    "chunk_overlap": 4,
+                    "separators": "\\n\\n|\\n| |",
+                    "keep_separator": True,
+                    "is_separator_regex": False,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["strategy"] == "langchain_recursive_character"
+    assert body["summary"]["chunk_count"] >= 2
+    assert body["chunks"][0]["source_name"] == "policy.md"
+    assert "Alpha" in body["chunks"][0]["text_preview"]
 
 
 def test_preview_chunking_requires_prepared_asset(client: TestClient) -> None:

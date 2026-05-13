@@ -114,6 +114,9 @@ class ChunkingStrategyResponse(BaseModel):
     id: str
     label: str
     description: str
+    adapter: str = "native"
+    implementation: str | None = None
+    library: str | None = None
     default_params: JsonObject
     fields: list[ChunkingStrategyField]
 

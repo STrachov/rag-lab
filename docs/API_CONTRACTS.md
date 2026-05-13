@@ -60,9 +60,13 @@ POST /v1/projects/{project_id}/parameter-sets/chunking/preview
 ```
 
 `chunking/strategies` is the backend-owned catalog for available chunking methods. Each strategy
-declares its id, label, description, default parameters, and UI fields. Adding a strategy in code and
-registering it in the chunking registry should make it available to the Parameters UI without a
-frontend code change.
+declares its id, label, description, adapter metadata, default parameters, and UI fields. Adding a
+strategy in code and registering it in the chunking registry should make it available to the
+Parameters UI without a frontend code change.
+
+Strategies may be native or adapter-backed. For example, `langchain_recursive_character` uses
+LangChain's `RecursiveCharacterTextSplitter` through the chunking adapter boundary while still
+returning RAG Lab chunk preview records.
 
 `chunking/preview` accepts a prepared `data_asset_id` plus chunking parameters and returns
 summary statistics, warnings, and preview chunks. It does not create a product result or saved

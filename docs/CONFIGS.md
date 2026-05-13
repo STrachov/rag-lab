@@ -44,6 +44,22 @@ preserve_tables: true
 page_boundary_mode: soft
 ```
 
+Adapter-backed chunking example:
+
+```yaml
+config_id: langchain_recursive_character_1000_200
+strategy: langchain_recursive_character
+adapter: langchain
+implementation: RecursiveCharacterTextSplitter
+library: langchain-text-splitters
+params:
+  chunk_size: 1000
+  chunk_overlap: 200
+  separators: "\\n\\n|\\n| |"
+  keep_separator: true
+  is_separator_regex: false
+```
+
 ## Embedding example
 
 ```yaml

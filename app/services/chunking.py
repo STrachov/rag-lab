@@ -53,6 +53,9 @@ class ChunkingStrategy:
     description: str
     fields: list[ChunkingParamField]
     chunker: StrategyChunker
+    adapter: str = "native"
+    implementation: str | None = None
+    library: str | None = None
 
     @property
     def defaults(self) -> dict[str, Any]:
@@ -60,11 +63,14 @@ class ChunkingStrategy:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "adapter": self.adapter,
             "default_params": self.defaults,
             "description": self.description,
             "fields": [field.to_dict() for field in self.fields],
             "id": self.id,
+            "implementation": self.implementation,
             "label": self.label,
+            "library": self.library,
         }
 
 
@@ -128,6 +134,46 @@ COMMON_FIELDS = [
     ),
 ]
 
+LANGCHAIN_RECURSIVE_CHARACTER_FIELDS = [
+    ChunkingParamField(
+        name="chunk_size",
+        label="Chunk size",
+        field_type="number",
+        default=1000,
+        help_text="Maximum chunk length passed to RecursiveCharacterTextSplitter.",
+        min_value=1,
+        max_value=20000,
+    ),
+    ChunkingParamField(
+        name="chunk_overlap",
+        label="Overlap",
+        field_type="number",
+        default=200,
+        help_text="Overlap length passed to RecursiveCharacterTextSplitter.",
+        min_value=0,
+        max_value=10000,
+    ),
+    ChunkingParamField(
+        name="separators",
+        label="Separators",
+        field_type="text",
+        default="\\n\\n|\\n| |",
+        help_text="Pipe-separated separators. Leave the trailing item empty to include an empty-string fallback.",
+    ),
+    ChunkingParamField(
+        name="keep_separator",
+        label="Keep separator",
+        field_type="boolean",
+        default=True,
+    ),
+    ChunkingParamField(
+        name="is_separator_regex",
+        label="Regex separators",
+        field_type="boolean",
+        default=False,
+    ),
+]
+
 CHUNKING_STRATEGIES: dict[str, ChunkingStrategy] = {
     "heading_recursive": ChunkingStrategy(
         id="heading_recursive",
@@ -171,6 +217,21 @@ CHUNKING_STRATEGIES: dict[str, ChunkingStrategy] = {
             source_name=source_name,
             stored_path=stored_path,
         ),
+    ),
+    "langchain_recursive_character": ChunkingStrategy(
+        id="langchain_recursive_character",
+        label="LangChain RecursiveCharacter",
+        description="Use LangChain RecursiveCharacterTextSplitter as an adapter-backed chunking strategy.",
+        fields=LANGCHAIN_RECURSIVE_CHARACTER_FIELDS,
+        chunker=lambda text, chunking, source_name, stored_path: _chunk_langchain_recursive_character(
+            text,
+            chunking=chunking,
+            source_name=source_name,
+            stored_path=stored_path,
+        ),
+        adapter="langchain",
+        implementation="RecursiveCharacterTextSplitter",
+        library="langchain-text-splitters",
     ),
 }
 
@@ -243,7 +304,7 @@ def preview_prepared_asset_chunks(
             for source_name, chunk_count in chunks_by_file.items()
         ],
         "strategy": strategy.id,
-        "token_counter": f"{params['tokenizer']}:approx_whitespace",
+        "token_counter": f"{params.get('tokenizer', 'characters')}:approx_whitespace",
     }
     return {"chunks": visible_chunks, "summary": summary, "warnings": warnings}
 
@@ -297,6 +358,55 @@ def _validate_common_params(strategy: ChunkingStrategy, params: dict[str, Any]) 
     if strategy.id == "recursive" and "preserve_headings" in params:
         warnings.append("preserve_headings only affects heading_recursive strategy.")
     return warnings
+
+
+def _chunk_langchain_recursive_character(
+    text: str,
+    *,
+    chunking: ChunkingParams,
+    source_name: str,
+    stored_path: str,
+) -> list[Chunk]:
+    try:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+    except ImportError as exc:
+        raise ValueError(
+            "langchain-text-splitters is required for langchain_recursive_character"
+        ) from exc
+
+    params = chunking.merged_params()
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_overlap=int(params["chunk_overlap"]),
+        chunk_size=int(params["chunk_size"]),
+        is_separator_regex=bool(params["is_separator_regex"]),
+        keep_separator=bool(params["keep_separator"]),
+        length_function=len,
+        separators=_parse_langchain_separators(str(params["separators"])),
+    )
+    chunks: list[Chunk] = []
+    for chunk_text_value in splitter.split_text(text):
+        if not chunk_text_value.strip():
+            continue
+        chunks.append(
+            {
+                "char_count": len(chunk_text_value),
+                "heading_path": [],
+                "page": None,
+                "section": None,
+                "source_name": source_name,
+                "stored_path": stored_path,
+                "text": chunk_text_value.strip(),
+                "token_count": _count_tokens(chunk_text_value),
+            }
+        )
+    return chunks
+
+
+def _parse_langchain_separators(raw_value: str) -> list[str]:
+    separators = raw_value.split("|")
+    if not separators:
+        return ["\n\n", "\n", " ", ""]
+    return [separator.encode("utf-8").decode("unicode_escape") for separator in separators]
 
 
 def _prepared_files(storage_path: str, manifest_json: dict[str, Any]) -> list[PreparedFile]:
