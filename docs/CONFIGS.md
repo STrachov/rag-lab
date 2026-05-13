@@ -31,6 +31,25 @@ settings:
 notes: CPU text extraction for PDFs with extractable text layers, plus text and Markdown inputs.
 ```
 
+Docling preparation example:
+
+```yaml
+config_id: docling_cpu_default
+method: docling
+tool: docling
+source_format: mixed
+output_format: markdown_json
+output_formats:
+  - markdown
+  - json
+settings:
+  do_ocr: true
+  force_ocr: false
+service:
+  base_url_env: RAG_LAB_DOCLING_BASE_URL
+notes: External Docling Serve conversion. Store Markdown and the full Docling JSON as prepared asset files.
+```
+
 ## Chunking example
 
 ```yaml

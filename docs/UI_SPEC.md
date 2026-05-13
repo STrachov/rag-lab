@@ -128,7 +128,7 @@ inspection failed
 
 These hints help users choose a preparation path such as CPU text extraction, OCR, or external GPU parsing.
 
-For source data with a text layer or plain text inputs, expose a `Prepare with PyMuPDF` action that creates a prepared Markdown version linked to the source asset.
+For source data, expose a `Prepare with` selector and an OK action rather than one button per converter. The selector should be populated from the backend preparation method catalog.
 
 Preparation controls should include converter choice and settings:
 
@@ -140,6 +140,8 @@ marker
 mineru
 custom_vlm
 ```
+
+Docling preparation should create a prepared version with Markdown and `*.docling.json` files. The JSON is preserved as a prepared data output for later context-building work; chunking is not required to consume it immediately.
 
 ## Parameters
 

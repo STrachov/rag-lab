@@ -23,6 +23,17 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  docling:
+    image: quay.io/docling-project/docling-serve-cpu:latest
+    profiles: ["docling"]
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "1"
+    ports:
+      - "5001:5001"
+    volumes:
+      - docling_data:/var/lib/docling
+
 volumes:
+  docling_data:
   postgres_data:
   qdrant_storage:

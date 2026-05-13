@@ -102,6 +102,21 @@ def test_list_chunking_strategies_for_parameters_ui(client: TestClient) -> None:
     assert "headers_to_split_on" in [field["name"] for field in langchain_markdown["fields"]]
 
 
+def test_list_preparation_methods_for_data_ui(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.get(f"/v1/projects/{project_id}/data-assets/preparation/methods")
+
+    assert response.status_code == 200
+    methods = response.json()["methods"]
+    method_ids = [method["id"] for method in methods]
+    assert "pymupdf_text" in method_ids
+    assert "docling" in method_ids
+    docling = next(method for method in methods if method["id"] == "docling")
+    assert docling["output_formats"] == ["markdown", "json"]
+    assert "docling_do_ocr" in [field["name"] for field in docling["fields"]]
+
+
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     data_asset_id = _upload_prepared_data_asset_with_content(
@@ -387,6 +402,66 @@ def test_prepare_source_asset_with_pymupdf_text(client: TestClient, monkeypatch,
     )
     assert download_response.status_code == 200
     assert "Payment is due within 30 days." in download_response.text
+
+
+def test_prepare_source_asset_with_docling_stores_markdown_and_json(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+
+    def fake_prepare_docling(**kwargs):
+        return [
+            {
+                "content": b"# Policy\n\nDocling markdown\n",
+                "content_type": "text/markdown",
+                "original_name": "policy.md",
+                "role": "prepared_markdown",
+                "source": {"original_name": "policy.pdf", "stored_path": "files/f_000001.pdf"},
+            },
+            {
+                "content": b'{"schema_name":"DoclingDocument"}\n',
+                "content_type": "application/json",
+                "original_name": "policy.docling.json",
+                "role": "docling_document_json",
+                "source": {"original_name": "policy.pdf", "stored_path": "files/f_000001.pdf"},
+            },
+        ]
+
+    monkeypatch.setattr("app.api.projects.prepare_docling", fake_prepare_docling)
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Policy PDF", "data_format": "pdf"},
+        files={"files": ("policy.pdf", b"%PDF synthetic", "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+    source_asset = upload_response.json()
+
+    prepare_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
+        json={
+            "method": "docling",
+            "output_format": "markdown_json",
+            "docling_do_ocr": True,
+            "docling_force_ocr": False,
+        },
+    )
+
+    assert prepare_response.status_code == 201
+    prepared = prepare_response.json()
+    assert prepared["asset_type"] == "prepared"
+    assert prepared["parent_id"] == source_asset["id"]
+    assert prepared["data_format"] == "mixed"
+    assert prepared["preparation_params_json"]["method"] == "docling"
+    assert prepared["preparation_params_json"]["output_formats"] == ["markdown", "json"]
+    files = prepared["current_manifest_json"]["files"]
+    assert [file["original_name"] for file in files] == ["policy.md", "policy.docling.json"]
+    assert [file["role"] for file in files] == ["prepared_markdown", "docling_document_json"]
 
 
 def test_upload_prepared_data_asset_requires_provenance(client: TestClient, monkeypatch, tmp_path) -> None:

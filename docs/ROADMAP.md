@@ -24,6 +24,8 @@
   - marker
   - mineru
   - custom_vlm
+- expose preparation methods through a backend catalog
+- store Docling Markdown and full Docling JSON as prepared asset files
 
 ## Phase 3: Basic RAG Runtime
 

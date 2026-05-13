@@ -130,7 +130,7 @@ Data assets need practical file management: source upload, add/delete files, dow
 - Uploaded and generated files are stored under generated safe filenames; original filenames live in manifest JSON.
 - Source assets can have linked prepared versions.
 - Source asset deletion also deletes linked prepared versions, but assets used by saved experiments cannot be deleted.
-- The first local preparation adapter is `pymupdf_text` for PDFs with text layers, `.txt`, and `.md`.
+- The first preparation adapters are `pymupdf_text` for PDFs with text layers, `.txt`, and `.md`, plus `docling` through an external Docling Serve endpoint.
 
 ### Consequences
 

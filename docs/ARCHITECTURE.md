@@ -35,7 +35,6 @@ data/
       source/
       prepared/
   cache/
-  manifests/
   ground_truth/
 tests/
 alembic/
@@ -50,7 +49,8 @@ Responsibilities:
 - manage projects;
 - upload, inspect, edit, and delete source and prepared data assets;
 - store data asset manifest snapshots;
-- prepare source assets into prepared assets with adapter-backed methods such as `pymupdf_text`;
+- expose a backend-owned preparation method catalog;
+- prepare source assets into prepared assets with adapter-backed methods such as `pymupdf_text` and `docling`;
 - save reusable parameter sets;
 - save optional ground truth set references;
 - save experiments with full parameter snapshots;
@@ -93,7 +93,9 @@ Settings
 
 Debug views for chunks, traces, prompts, and answers may be added later, but they should be clearly marked as derived runtime/debug data.
 
-The Data UI shows source assets as rows with linked prepared versions. Users can download files by original filename, add/delete files, delete assets, inspect PDF signals, and create prepared Markdown with `pymupdf_text`.
+The Data UI shows source assets as rows with linked prepared versions. Users can download files by original filename, add/delete files, delete assets, inspect PDF signals, and create prepared assets through a `Prepare with` method selector.
+
+Docling is integrated as an external Docling Serve endpoint. Local CPU Docker, local GPU Docker, and remote GPU machines should use the same adapter boundary and differ by `RAG_LAB_DOCLING_BASE_URL`.
 
 ## Adapters
 

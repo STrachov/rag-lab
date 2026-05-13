@@ -62,7 +62,7 @@ python -m pytest
 1. Create project
 2. Upload source data asset
 3. Inspect PDF/text-layer hints
-4. Create prepared version by upload or `pymupdf_text`
+4. Create prepared version by upload, `pymupdf_text`, or `docling`
 5. Create preparation and RAG parameter sets
 6. Register optional ground truth set
 7. Save experiment with full parameter snapshot and data manifest hash

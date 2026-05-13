@@ -115,21 +115,23 @@ def store_generated_data_asset_files(
             stored_name = f"f_{index:06d}{suffix}"
             target_path = files_dir / stored_name
             target_path.write_bytes(content)
-            manifest_files.append(
-                {
-                    "content_type": content_type,
-                    "inspection": inspect_file(
-                        target_path,
-                        content_type=content_type,
-                        original_name=original_name,
-                    ),
-                    "original_name": original_name,
-                    "sha256": hashlib.sha256(content).hexdigest(),
-                    "size_bytes": len(content),
-                    "stored_path": f"files/{stored_name}",
-                    "source": generated.get("source"),
-                }
-            )
+            manifest_entry = {
+                "content_type": content_type,
+                "inspection": inspect_file(
+                    target_path,
+                    content_type=content_type,
+                    original_name=original_name,
+                ),
+                "original_name": original_name,
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size_bytes": len(content),
+                "stored_path": f"files/{stored_name}",
+            }
+            if generated.get("role"):
+                manifest_entry["role"] = generated["role"]
+            if generated.get("source"):
+                manifest_entry["source"] = generated["source"]
+            manifest_files.append(manifest_entry)
 
         manifest_hash = write_current_manifest(base_dir, manifest)
         return {

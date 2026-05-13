@@ -400,6 +400,35 @@ h1 {
   gap: 8px;
 }
 
+.prepare-controls {
+  align-items: end;
+  display: flex;
+  gap: 8px;
+}
+
+.prepare-controls label {
+  color: #36515e;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 4px;
+}
+
+.prepare-controls select {
+  border: 1px solid #cbd8de;
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 6px 8px;
+}
+
+.prepare-controls .prepare-check {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  min-height: 36px;
+}
+
 .prepared-list h2 {
   font-size: 16px;
   margin: 4px 0 0;

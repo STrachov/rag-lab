@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db import models
 from app.db.session import get_db
 from app.models.api import (
@@ -26,6 +27,7 @@ from app.models.api import (
     ParameterSetCreate,
     ParameterSetListResponse,
     ParameterSetResponse,
+    PreparationMethodListResponse,
     ProjectCreate,
     ProjectListResponse,
     ProjectResponse,
@@ -44,6 +46,8 @@ from app.services.data_assets import (
     store_generated_data_asset_files,
     store_uploaded_data_asset_files,
 )
+from app.services.preparation import list_preparation_methods
+from app.services.preparation import prepare_docling
 from app.services.preparation import prepare_pymupdf_text
 
 router = APIRouter()
@@ -322,18 +326,12 @@ def prepare_data_asset(
             detail="Source data asset has no storage path",
         )
 
-    preparation_params = {
-        "method": payload.method,
-        "output_format": payload.output_format,
-        "settings": {"page_breaks": payload.page_breaks},
-        "source_format": source_asset.data_format,
-        "tool": "pymupdf",
-    }
+    preparation_params = _build_preparation_params(source_asset, source_manifest, payload)
     try:
-        generated_files = prepare_pymupdf_text(
-            source_storage_path=source_asset.storage_path,
+        generated_files = _prepare_generated_files(
+            payload=payload,
+            source_asset=source_asset,
             source_manifest=source_manifest,
-            page_breaks=payload.page_breaks,
         )
         asset_id = new_data_asset_id()
         stored = store_generated_data_asset_files(
@@ -350,9 +348,9 @@ def prepare_data_asset(
     asset = models.DataAsset(
         id=asset_id,
         project_id=project_id,
-        name=payload.name or f"{source_asset.name} pymupdf_text",
+        name=payload.name or f"{source_asset.name} {payload.method}",
         asset_type="prepared",
-        data_format=payload.output_format,
+        data_format="mixed" if payload.method == "docling" else "markdown",
         storage_kind="generated",
         parent_id=source_asset.id,
         storage_path=stored["storage_path"],
@@ -366,6 +364,18 @@ def prepare_data_asset(
     db.commit()
     db.refresh(asset)
     return _build_data_asset_response(db, asset)
+
+
+@router.get(
+    "/projects/{project_id}/data-assets/preparation/methods",
+    response_model=PreparationMethodListResponse,
+)
+def list_project_preparation_methods(
+    project_id: str,
+    db: Session = Depends(get_db),
+) -> PreparationMethodListResponse:
+    _get_project_or_404(db, project_id)
+    return PreparationMethodListResponse.model_validate({"methods": list_preparation_methods()})
 
 
 @router.get("/projects/{project_id}/parameter-sets", response_model=ParameterSetListResponse)
@@ -641,6 +651,63 @@ def _collect_deletable_data_assets(
             detail="Cannot delete data asset used by saved experiments",
         )
     return list(reversed(assets))
+
+
+def _build_preparation_params(
+    source_asset: models.DataAsset,
+    source_manifest: dict,
+    payload: DataAssetPrepareRequest,
+) -> dict:
+    if payload.method == "docling":
+        return {
+            "method": "docling",
+            "output_format": "markdown_json",
+            "output_formats": ["markdown", "json"],
+            "settings": {
+                "do_ocr": payload.docling_do_ocr,
+                "force_ocr": payload.docling_force_ocr,
+            },
+            "service": {"base_url": get_settings().docling_base_url},
+            "source_format": source_asset.data_format,
+            "source_manifest_hash": source_manifest.get("manifest_hash"),
+            "tool": "docling",
+        }
+
+    return {
+        "method": "pymupdf_text",
+        "output_format": "markdown",
+        "settings": {"page_breaks": payload.page_breaks},
+        "source_format": source_asset.data_format,
+        "source_manifest_hash": source_manifest.get("manifest_hash"),
+        "tool": "pymupdf",
+    }
+
+
+def _prepare_generated_files(
+    *,
+    payload: DataAssetPrepareRequest,
+    source_asset: models.DataAsset,
+    source_manifest: dict,
+) -> list[dict]:
+    if source_asset.storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source data asset has no storage path",
+        )
+
+    if payload.method == "docling":
+        return prepare_docling(
+            source_storage_path=source_asset.storage_path,
+            source_manifest=source_manifest,
+            do_ocr=payload.docling_do_ocr,
+            force_ocr=payload.docling_force_ocr,
+        )
+
+    return prepare_pymupdf_text(
+        source_storage_path=source_asset.storage_path,
+        source_manifest=source_manifest,
+        page_breaks=payload.page_breaks,
+    )
 
 
 def _validate_data_asset_payload(

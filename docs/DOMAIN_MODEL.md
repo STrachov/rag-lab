@@ -65,7 +65,7 @@ manifest_json
 created_at
 ```
 
-Manifest JSON includes generated storage paths, original filenames, content type, size, sha256 hash, and lightweight file inspection metadata for each current file.
+Manifest JSON includes generated storage paths, original filenames, content type, size, sha256 hash, optional file role/source links, and lightweight file inspection metadata for each current file.
 
 PDF inspection should record page count, encryption status, document metadata, text layer signal, image counts, and scan likelihood. Inspection failures should not block upload; store failure details in the manifest entry.
 
@@ -86,7 +86,7 @@ Prepared data must include preparation provenance in `preparation_params_json`, 
 }
 ```
 
-The first local preparation adapter is `pymupdf_text`. It creates prepared Markdown from PDFs with extractable text layers and from plain text/Markdown source files.
+The first preparation adapters are `pymupdf_text` and `docling`. `pymupdf_text` creates prepared Markdown from PDFs with extractable text layers and from plain text/Markdown source files. `docling` calls an external Docling Serve endpoint and stores both Markdown and full Docling JSON as prepared asset files.
 
 ## ParameterSet
 

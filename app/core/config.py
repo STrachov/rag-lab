@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     app_name: str = "RAG Lab"
     api_prefix: str = "/v1"
     data_dir: Path = Field(default=Path("data"))
+    docling_base_url: str = "http://localhost:5001"
+    docling_timeout_seconds: float = 120.0
     qdrant_url: str = "http://localhost:6333"
     database_url: str = Field(
         default="postgresql+psycopg://raglab:raglab@localhost:5433/raglab",

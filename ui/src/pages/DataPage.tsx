@@ -4,12 +4,14 @@ import type { ReactNode } from "react";
 import {
   DataAsset,
   DataAssetManifestFile,
+  PreparationMethod,
   Project,
   addDataAssetFiles,
   deleteDataAsset,
   deleteDataAssetFile,
   getDataAssetFileDownloadUrl,
   listDataAssets,
+  listPreparationMethods,
   prepareDataAsset,
   uploadPreparedDataAsset,
   uploadRawDataAsset,
@@ -21,11 +23,32 @@ type DataPageProps = {
 
 type ModalKind = "source" | "prepared" | null;
 
+const DEFAULT_PREPARATION_METHODS: PreparationMethod[] = [
+  {
+    description: "CPU text extraction for PDFs with extractable text layers, plus text and Markdown inputs.",
+    fields: [{ default: true, label: "Page breaks", name: "page_breaks", type: "boolean" }],
+    id: "pymupdf_text",
+    label: "PyMuPDF text",
+    output_formats: ["markdown"],
+  },
+  {
+    description: "Convert through Docling Serve and store Markdown plus Docling JSON.",
+    fields: [
+      { default: true, label: "OCR", name: "docling_do_ocr", type: "boolean" },
+      { default: false, label: "Force OCR", name: "docling_force_ocr", type: "boolean" },
+    ],
+    id: "docling",
+    label: "Docling",
+    output_formats: ["markdown", "json"],
+  },
+];
+
 export function DataPage({ currentProject }: DataPageProps) {
   const [dataAssets, setDataAssets] = useState<DataAsset[]>([]);
   const [expandedAssetIds, setExpandedAssetIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [preparationMethods, setPreparationMethods] = useState<PreparationMethod[]>([]);
   const [preparedParent, setPreparedParent] = useState<DataAsset | null>(null);
 
   const sourceAssets = useMemo(
@@ -44,6 +67,9 @@ export function DataPage({ currentProject }: DataPageProps) {
     }
 
     refreshDataAssets(currentProject.id);
+    listPreparationMethods(currentProject.id)
+      .then((result) => setPreparationMethods(result.methods))
+      .catch(() => setPreparationMethods(DEFAULT_PREPARATION_METHODS));
   }, [currentProject]);
 
   function refreshDataAssets(projectId: string) {
@@ -139,16 +165,18 @@ export function DataPage({ currentProject }: DataPageProps) {
     }
   }
 
-  async function handlePrepareWithPyMuPDF(asset: DataAsset) {
+  async function handlePrepare(asset: DataAsset, method: string, options: Record<string, boolean>) {
     if (!currentProject) {
       return;
     }
 
     try {
       const prepared = await prepareDataAsset(currentProject.id, asset.id, {
-        method: "pymupdf_text",
-        output_format: "markdown",
-        page_breaks: true,
+        docling_do_ocr: options.docling_do_ocr,
+        docling_force_ocr: options.docling_force_ocr,
+        method: method === "docling" ? "docling" : "pymupdf_text",
+        output_format: method === "docling" ? "markdown_json" : "markdown",
+        page_breaks: options.page_breaks,
       });
       upsertAsset(prepared);
       setExpandedAssetIds((current) => new Set(current).add(asset.id));
@@ -196,8 +224,9 @@ export function DataPage({ currentProject }: DataPageProps) {
               onAddPrepared={openPreparedModal}
               onDeleteAsset={handleDeleteAsset}
               onDeleteFile={handleDeleteFile}
-              onPrepareWithPyMuPDF={handlePrepareWithPyMuPDF}
+              onPrepare={handlePrepare}
               onToggle={toggleAsset}
+              preparationMethods={preparationMethods.length > 0 ? preparationMethods : DEFAULT_PREPARATION_METHODS}
               projectId={currentProject.id}
               preparedAssets={preparedAssets.filter((asset) => asset.parent_id === source.id)}
             />
@@ -234,8 +263,9 @@ function SourceAssetCard({
   onAddPrepared,
   onDeleteAsset,
   onDeleteFile,
-  onPrepareWithPyMuPDF,
+  onPrepare,
   onToggle,
+  preparationMethods,
   projectId,
   preparedAssets,
 }: {
@@ -245,8 +275,9 @@ function SourceAssetCard({
   onAddPrepared: (asset: DataAsset) => void;
   onDeleteAsset: (asset: DataAsset) => void;
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
-  onPrepareWithPyMuPDF: (asset: DataAsset) => void;
+  onPrepare: (asset: DataAsset, method: string, options: Record<string, boolean>) => void;
   onToggle: (assetId: string) => void;
+  preparationMethods: PreparationMethod[];
   projectId: string;
   preparedAssets: DataAsset[];
 }) {
@@ -276,7 +307,8 @@ function SourceAssetCard({
             onAddPrepared={() => onAddPrepared(asset)}
             onDeleteAsset={onDeleteAsset}
             onDeleteFile={onDeleteFile}
-            onPrepareWithPyMuPDF={() => onPrepareWithPyMuPDF(asset)}
+            onPrepare={(method, options) => onPrepare(asset, method, options)}
+            preparationMethods={preparationMethods}
             projectId={projectId}
           />
         </div>
@@ -290,14 +322,16 @@ function PreparedVersionList({
   onAddPrepared,
   onDeleteAsset,
   onDeleteFile,
-  onPrepareWithPyMuPDF,
+  onPrepare,
+  preparationMethods,
   projectId,
 }: {
   assets: DataAsset[];
   onAddPrepared: () => void;
   onDeleteAsset: (asset: DataAsset) => void;
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
-  onPrepareWithPyMuPDF: () => void;
+  onPrepare: (method: string, options: Record<string, boolean>) => void;
+  preparationMethods: PreparationMethod[];
   projectId: string;
 }) {
   return (
@@ -308,9 +342,7 @@ function PreparedVersionList({
           <button className="secondary-action" onClick={onAddPrepared} type="button">
             Add Prepared Version
           </button>
-          <button className="secondary-action" onClick={onPrepareWithPyMuPDF} type="button">
-            Prepare with PyMuPDF
-          </button>
+          <PrepareControls methods={preparationMethods} onPrepare={onPrepare} />
         </div>
       </div>
       {assets.length === 0 ? <div className="nested-empty">No prepared versions yet.</div> : null}
@@ -334,6 +366,67 @@ function PreparedVersionList({
         );
       })}
     </div>
+  );
+}
+
+function PrepareControls({
+  methods,
+  onPrepare,
+}: {
+  methods: PreparationMethod[];
+  onPrepare: (method: string, options: Record<string, boolean>) => void;
+}) {
+  const [method, setMethod] = useState(methods[0]?.id ?? "pymupdf_text");
+  const [options, setOptions] = useState<Record<string, boolean>>({});
+  const selectedMethod = methods.find((item) => item.id === method) ?? methods[0];
+  const fields = selectedMethod?.fields ?? [];
+
+  useEffect(() => {
+    if (!methods.some((item) => item.id === method)) {
+      setMethod(methods[0]?.id ?? "pymupdf_text");
+    }
+  }, [method, methods]);
+
+  useEffect(() => {
+    setOptions(
+      Object.fromEntries(
+        fields
+          .filter((field) => field.type === "boolean")
+          .map((field) => [field.name, Boolean(field.default)]),
+      ),
+    );
+  }, [method, fields]);
+
+  return (
+    <span className="prepare-controls">
+      <label>
+        Prepare with
+        <select value={method} onChange={(event) => setMethod(event.target.value)}>
+          {methods.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {fields
+        .filter((field) => field.type === "boolean")
+        .map((field) => (
+          <label className="prepare-check" key={field.name} title={field.help_text ?? undefined}>
+            <input
+              checked={Boolean(options[field.name])}
+              onChange={(event) =>
+                setOptions((current) => ({ ...current, [field.name]: event.target.checked }))
+              }
+              type="checkbox"
+            />
+            {field.label}
+          </label>
+        ))}
+      <button className="secondary-action" onClick={() => onPrepare(method, options)} type="button">
+        OK
+      </button>
+    </span>
   );
 }
 

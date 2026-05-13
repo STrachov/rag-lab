@@ -29,6 +29,7 @@ GET  /v1/projects/{project_id}
 ```http
 GET  /v1/projects/{project_id}/data-assets
 POST /v1/projects/{project_id}/data-assets
+GET  /v1/projects/{project_id}/data-assets/preparation/methods
 POST /v1/projects/{project_id}/data-assets/raw/upload
 POST /v1/projects/{project_id}/data-assets/prepared/upload
 POST /v1/projects/{project_id}/data-assets/{data_asset_id}/files
@@ -48,7 +49,14 @@ Deleting an individual file preserves prior manifest snapshots for that asset. D
 
 Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets, and snapshot `data_asset_manifest_hash`.
 
-The initial local preparation method is `pymupdf_text`, which converts PDFs with extractable text layers plus `.txt` and `.md` files into prepared Markdown.
+Preparation methods are backend-driven and exposed through `preparation/methods`. The first methods are:
+
+```text
+pymupdf_text -> Markdown from PDFs with text layers, text files, and Markdown files
+docling -> Markdown plus Docling JSON through an external Docling Serve endpoint
+```
+
+Docling output stores `*.md` and `*.docling.json` files in the prepared data asset manifest. No separate RAG Lab metadata JSON is created at preparation time.
 
 ## Parameter Sets
 

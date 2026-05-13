@@ -69,9 +69,14 @@ export type DataAssetManifestFile = {
   content_type?: string | null;
   inspection?: FileInspection;
   original_name: string;
+  role?: string;
   sha256: string;
   size_bytes: number;
   stored_path: string;
+  source?: {
+    original_name?: string;
+    stored_path?: string;
+  };
 };
 
 export type FileInspection = {
@@ -120,9 +125,27 @@ export type DataAssetDeleteResponse = {
 
 export type DataAssetPrepareRequest = {
   name?: string;
-  method?: "pymupdf_text";
-  output_format?: "markdown";
+  method?: "pymupdf_text" | "docling";
+  output_format?: "markdown" | "markdown_json";
   page_breaks?: boolean;
+  docling_do_ocr?: boolean;
+  docling_force_ocr?: boolean;
+};
+
+export type PreparationMethodField = {
+  name: string;
+  label: string;
+  type: "boolean" | "text";
+  default: boolean | string;
+  help_text?: string | null;
+};
+
+export type PreparationMethod = {
+  id: "pymupdf_text" | "docling" | string;
+  label: string;
+  description: string;
+  output_formats: string[];
+  fields: PreparationMethodField[];
 };
 
 export type ParameterSet = {
@@ -362,6 +385,12 @@ export async function prepareDataAsset(
     body: JSON.stringify(payload),
     method: "POST",
   });
+}
+
+export async function listPreparationMethods(
+  projectId: string,
+): Promise<{ methods: PreparationMethod[] }> {
+  return request(`/projects/${projectId}/data-assets/preparation/methods`);
 }
 
 export function getDataAssetFileDownloadUrl(

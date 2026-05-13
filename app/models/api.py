@@ -66,11 +66,33 @@ class DataAssetDeleteResponse(BaseModel):
     deleted_data_asset_ids: list[str]
 
 
+class PreparationMethodField(BaseModel):
+    name: str
+    label: str
+    type: Literal["boolean", "text"]
+    default: Any
+    help_text: str | None = None
+
+
+class PreparationMethodResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    output_formats: list[str]
+    fields: list[PreparationMethodField] = Field(default_factory=list)
+
+
+class PreparationMethodListResponse(BaseModel):
+    methods: list[PreparationMethodResponse]
+
+
 class DataAssetPrepareRequest(BaseModel):
     name: str | None = None
-    method: Literal["pymupdf_text"] = "pymupdf_text"
-    output_format: Literal["markdown"] = "markdown"
+    method: Literal["pymupdf_text", "docling"] = "pymupdf_text"
+    output_format: Literal["markdown", "markdown_json"] = "markdown"
     page_breaks: bool = True
+    docling_do_ocr: bool = True
+    docling_force_ocr: bool = False
 
 
 class ParameterSetCreate(BaseModel):
