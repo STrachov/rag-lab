@@ -168,6 +168,23 @@ LANGCHAIN_RECURSIVE_CHARACTER_FIELDS = [
     ),
 ]
 
+LANGCHAIN_MARKDOWN_HEADER_RECURSIVE_FIELDS = [
+    ChunkingParamField(
+        name="headers_to_split_on",
+        label="Headers",
+        field_type="text",
+        default="#:h1|##:h2|###:h3|####:h4",
+        help_text="Pipe-separated Markdown header mappings in marker:name format.",
+    ),
+    ChunkingParamField(
+        name="strip_headers",
+        label="Strip headers",
+        field_type="boolean",
+        default=False,
+    ),
+    *LANGCHAIN_RECURSIVE_CHARACTER_FIELDS,
+]
+
 def list_chunking_strategies() -> list[dict[str, Any]]:
     return [strategy.to_dict() for strategy in CHUNKING_STRATEGIES.values()]
 
@@ -303,17 +320,10 @@ def _chunk_langchain_recursive_character(
     except ImportError as exc:
         raise ValueError(
             "langchain-text-splitters is required for langchain_recursive_character"
-        ) from exc
+    ) from exc
 
     params = chunking.merged_params()
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_overlap=int(params["chunk_overlap"]),
-        chunk_size=int(params["chunk_size"]),
-        is_separator_regex=bool(params["is_separator_regex"]),
-        keep_separator=bool(params["keep_separator"]),
-        length_function=len,
-        separators=_parse_langchain_separators(str(params["separators"])),
-    )
+    splitter = _build_langchain_recursive_splitter(RecursiveCharacterTextSplitter, params)
     chunks: list[Chunk] = []
     for chunk_text_value in splitter.split_text(text):
         if not chunk_text_value.strip():
@@ -333,11 +343,90 @@ def _chunk_langchain_recursive_character(
     return chunks
 
 
+def _chunk_langchain_markdown_header_recursive(
+    text: str,
+    chunking: ChunkingParams,
+    source_name: str,
+    stored_path: str,
+) -> list[Chunk]:
+    try:
+        from langchain_text_splitters import MarkdownHeaderTextSplitter
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+    except ImportError as exc:
+        raise ValueError(
+            "langchain-text-splitters is required for langchain_markdown_header_recursive"
+        ) from exc
+
+    params = chunking.merged_params()
+    header_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=_parse_langchain_headers(str(params["headers_to_split_on"])),
+        strip_headers=bool(params["strip_headers"]),
+    )
+    recursive_splitter = _build_langchain_recursive_splitter(RecursiveCharacterTextSplitter, params)
+    chunks: list[Chunk] = []
+    for document in header_splitter.split_text(text):
+        heading_path = _heading_path_from_langchain_metadata(document.metadata)
+        section = heading_path[-1] if heading_path else None
+        for chunk_text_value in recursive_splitter.split_text(document.page_content):
+            if not chunk_text_value.strip():
+                continue
+            chunks.append(
+                {
+                    "char_count": len(chunk_text_value),
+                    "heading_path": heading_path,
+                    "page": None,
+                    "section": section,
+                    "source_name": source_name,
+                    "stored_path": stored_path,
+                    "text": chunk_text_value.strip(),
+                    "token_count": _count_tokens(chunk_text_value),
+                }
+            )
+    return chunks
+
+
+def _build_langchain_recursive_splitter(
+    splitter_cls: type[Any],
+    params: dict[str, Any],
+) -> Any:
+    return splitter_cls(
+        chunk_overlap=int(params["chunk_overlap"]),
+        chunk_size=int(params["chunk_size"]),
+        is_separator_regex=bool(params["is_separator_regex"]),
+        keep_separator=bool(params["keep_separator"]),
+        length_function=len,
+        separators=_parse_langchain_separators(str(params["separators"])),
+    )
+
+
 def _parse_langchain_separators(raw_value: str) -> list[str]:
     separators = raw_value.split("|")
     if not separators:
         return ["\n\n", "\n", " ", ""]
     return [separator.encode("utf-8").decode("unicode_escape") for separator in separators]
+
+
+def _parse_langchain_headers(raw_value: str) -> list[tuple[str, str]]:
+    headers: list[tuple[str, str]] = []
+    for item in raw_value.split("|"):
+        if not item.strip():
+            continue
+        marker, _, name = item.partition(":")
+        marker = marker.strip()
+        name = name.strip()
+        if marker and name:
+            headers.append((marker, name))
+    if not headers:
+        raise ValueError("headers_to_split_on must include at least one marker:name mapping")
+    return headers
+
+
+def _heading_path_from_langchain_metadata(metadata: dict[str, Any]) -> list[str]:
+    return [
+        str(value)
+        for key, value in sorted(metadata.items())
+        if str(key).startswith("h") and value
+    ]
 
 
 def _prepared_files(storage_path: str, manifest_json: dict[str, Any]) -> list[PreparedFile]:
@@ -546,5 +635,12 @@ CHUNKING_STRATEGIES: dict[str, ChunkingStrategy] = {
         description="Use LangChain RecursiveCharacterTextSplitter as an adapter-backed chunking strategy.",
         fields=LANGCHAIN_RECURSIVE_CHARACTER_FIELDS,
         chunker=_chunk_langchain_recursive_character,
+    ),
+    "langchain_markdown_header_recursive": ChunkingStrategy(
+        id="langchain_markdown_header_recursive",
+        label="LangChain MarkdownHeader + RecursiveCharacter",
+        description="Use LangChain MarkdownHeaderTextSplitter, then RecursiveCharacterTextSplitter inside each header section.",
+        fields=LANGCHAIN_MARKDOWN_HEADER_RECURSIVE_FIELDS,
+        chunker=_chunk_langchain_markdown_header_recursive,
     ),
 }

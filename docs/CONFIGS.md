@@ -57,6 +57,21 @@ params:
   is_separator_regex: false
 ```
 
+Markdown-header adapter-backed chunking example:
+
+```yaml
+config_id: langchain_markdown_header_recursive_1000_200
+strategy: langchain_markdown_header_recursive
+params:
+  headers_to_split_on: "#:h1|##:h2|###:h3|####:h4"
+  strip_headers: false
+  chunk_size: 1000
+  chunk_overlap: 200
+  separators: "\\n\\n|\\n| |"
+  keep_separator: true
+  is_separator_regex: false
+```
+
 ## Embedding example
 
 ```yaml
