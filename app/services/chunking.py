@@ -73,21 +73,6 @@ class ChunkingParams:
     strategy: str = "heading_recursive"
     params: dict[str, Any] | None = None
 
-    @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "ChunkingParams":
-        strategy = str(payload.get("strategy") or "heading_recursive")
-        params = payload.get("params") or {}
-        flat_params = {
-            key: value
-            for key, value in payload.items()
-            if key not in {"strategy", "params"} and value is not None
-        }
-        if flat_params:
-            params = {**params, **flat_params}
-        if not isinstance(params, dict):
-            raise ValueError("chunking.params must be an object")
-        return cls(strategy=strategy, params=dict(params))
-
     def merged_params(self) -> dict[str, Any]:
         strategy = get_chunking_strategy(self.strategy)
         params = strategy.defaults

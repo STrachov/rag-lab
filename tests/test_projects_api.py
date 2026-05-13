@@ -139,7 +139,10 @@ def test_preview_chunking_requires_prepared_asset(client: TestClient) -> None:
 
     response = client.post(
         f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
-        json={"data_asset_id": raw_asset_id, "chunking": {"chunk_size": 900}},
+        json={
+            "data_asset_id": raw_asset_id,
+            "chunking": {"strategy": "heading_recursive", "params": {"chunk_size": 900}},
+        },
     )
 
     assert response.status_code == 400
@@ -158,12 +161,34 @@ def test_preview_chunking_rejects_overlap_at_or_above_size(
         f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
         json={
             "data_asset_id": data_asset_id,
-            "chunking": {"chunk_size": 100, "chunk_overlap": 100},
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {"chunk_size": 100, "chunk_overlap": 100},
+            },
         },
     )
 
     assert response.status_code == 400
     assert "chunk_overlap" in response.json()["detail"]
+
+
+def test_preview_chunking_rejects_flat_params_payload(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+
+    response = client.post(
+        f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {"strategy": "heading_recursive", "chunk_size": 100},
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_upload_raw_data_asset(client: TestClient, monkeypatch, tmp_path) -> None:

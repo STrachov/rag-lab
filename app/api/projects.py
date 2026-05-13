@@ -428,15 +428,11 @@ def preview_chunking(
             detail="Prepared data asset has no storage path",
         )
 
-    chunking_payload = payload.chunking.model_dump()
-    if payload.chunking.model_extra:
-        chunking_payload.update(payload.chunking.model_extra)
-
     try:
         preview = preview_prepared_asset_chunks(
             storage_path=asset.storage_path,
             manifest_json=manifest_json,
-            chunking=ServiceChunkingParams.from_payload(chunking_payload),
+            chunking=ServiceChunkingParams(**payload.chunking.model_dump()),
             max_chunks=payload.max_chunks,
             text_preview_chars=payload.text_preview_chars,
         )

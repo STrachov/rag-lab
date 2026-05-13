@@ -96,7 +96,7 @@ class ChunkingParams(BaseModel):
     strategy: str = "heading_recursive"
     params: JsonObject = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ChunkingStrategyField(BaseModel):
