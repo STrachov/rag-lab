@@ -72,6 +72,25 @@ def test_create_parameter_set_under_project(client: TestClient) -> None:
     assert body["params_json"]["preparation"]["converter"] == "docling"
 
 
+def test_list_chunking_strategies_for_parameters_ui(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.get(f"/v1/projects/{project_id}/parameter-sets/chunking/strategies")
+
+    assert response.status_code == 200
+    strategies = response.json()["strategies"]
+    strategy_ids = [strategy["id"] for strategy in strategies]
+    assert "heading_recursive" in strategy_ids
+    assert "recursive" in strategy_ids
+    heading_recursive = next(
+        strategy for strategy in strategies if strategy["id"] == "heading_recursive"
+    )
+    field_names = [field["name"] for field in heading_recursive["fields"]]
+    assert "chunk_size" in field_names
+    assert "preserve_headings" in field_names
+    assert heading_recursive["default_params"]["chunk_size"] == 900
+
+
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     data_asset_id = _upload_prepared_data_asset_with_content(
@@ -88,18 +107,21 @@ def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch,
             "data_asset_id": data_asset_id,
             "chunking": {
                 "strategy": "heading_recursive",
-                "chunk_size": 8,
-                "chunk_overlap": 2,
-                "tokenizer": "cl100k_base",
-                "preserve_headings": True,
-                "preserve_tables": True,
-                "page_boundary_mode": "soft",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
             },
         },
     )
 
     assert response.status_code == 200
     body = response.json()
+    assert body["summary"]["strategy"] == "heading_recursive"
     assert body["summary"]["files_count"] == 1
     assert body["summary"]["chunk_count"] >= 2
     assert body["summary"]["chunks_by_file"] == [

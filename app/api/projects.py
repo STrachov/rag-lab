@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.models.api import (
     ChunkingPreviewRequest,
     ChunkingPreviewResponse,
+    ChunkingStrategyListResponse,
     DataAssetCreate,
     DataAssetDeleteResponse,
     DataAssetFileDeleteResponse,
@@ -33,6 +34,7 @@ from app.models.api import (
     SavedExperimentResponse,
 )
 from app.services.chunking import ChunkingParams as ServiceChunkingParams
+from app.services.chunking import list_chunking_strategies
 from app.services.chunking import preview_prepared_asset_chunks
 from app.services.data_assets import (
     append_uploaded_data_asset_files,
@@ -377,6 +379,18 @@ def list_parameter_sets(project_id: str, db: Session = Depends(get_db)) -> Param
     return ParameterSetListResponse(parameter_sets=parameter_sets)
 
 
+@router.get(
+    "/projects/{project_id}/parameter-sets/chunking/strategies",
+    response_model=ChunkingStrategyListResponse,
+)
+def list_project_chunking_strategies(
+    project_id: str,
+    db: Session = Depends(get_db),
+) -> ChunkingStrategyListResponse:
+    _get_project_or_404(db, project_id)
+    return ChunkingStrategyListResponse.model_validate({"strategies": list_chunking_strategies()})
+
+
 @router.post(
     "/projects/{project_id}/parameter-sets",
     response_model=ParameterSetResponse,
@@ -414,11 +428,15 @@ def preview_chunking(
             detail="Prepared data asset has no storage path",
         )
 
+    chunking_payload = payload.chunking.model_dump()
+    if payload.chunking.model_extra:
+        chunking_payload.update(payload.chunking.model_extra)
+
     try:
         preview = preview_prepared_asset_chunks(
             storage_path=asset.storage_path,
             manifest_json=manifest_json,
-            chunking=ServiceChunkingParams(**payload.chunking.model_dump()),
+            chunking=ServiceChunkingParams.from_payload(chunking_payload),
             max_chunks=payload.max_chunks,
             text_preview_chars=payload.text_preview_chars,
         )

@@ -183,6 +183,11 @@ Preview chunks are derived debug output. They are not saved experiment results. 
 store the prepared data asset reference, data manifest hash, full parameter snapshot, parameter hash,
 and metrics only.
 
+Chunking strategies are backend-driven. The UI should load the strategy catalog from the API and
+render the strategy selector plus simple parameter controls from the returned field metadata. A new
+chunking strategy should be added by registering its id, label, default params, field metadata, and
+chunking function in backend code.
+
 ## Ground Truth
 
 Show optional ground truth sets and their data asset references.

@@ -2,9 +2,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   ChunkingParams,
+  ChunkingParamValue,
   ChunkingPreviewResponse,
+  ChunkingStrategy,
   createParameterSet,
   DataAsset,
+  listChunkingStrategies,
   listDataAssets,
   listParameterSets,
   ParameterSet,
@@ -17,18 +20,21 @@ type ParametersPageProps = {
 };
 
 const DEFAULT_CHUNKING: ChunkingParams = {
-  chunk_overlap: 120,
-  chunk_size: 900,
-  page_boundary_mode: "soft",
-  preserve_headings: true,
-  preserve_tables: true,
+  params: {
+    chunk_overlap: 120,
+    chunk_size: 900,
+    page_boundary_mode: "soft",
+    preserve_headings: true,
+    preserve_tables: true,
+    tokenizer: "cl100k_base",
+  },
   strategy: "heading_recursive",
-  tokenizer: "cl100k_base",
 };
 
 export function ParametersPage({ currentProject }: ParametersPageProps) {
   const [parameterSets, setParameterSets] = useState<ParameterSet[]>([]);
   const [dataAssets, setDataAssets] = useState<DataAsset[]>([]);
+  const [strategies, setStrategies] = useState<ChunkingStrategy[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -43,29 +49,54 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     [dataAssets],
   );
   const selectedAsset = preparedAssets.find((asset) => asset.id === selectedAssetId);
+  const selectedStrategy = strategies.find((strategy) => strategy.id === chunking.strategy);
   const paramsJson = useMemo(() => ({ chunking }), [chunking]);
 
   useEffect(() => {
     if (!currentProject) {
       setParameterSets([]);
       setDataAssets([]);
+      setStrategies([]);
       setSelectedAssetId("");
       return;
     }
 
-    Promise.all([listParameterSets(currentProject.id), listDataAssets(currentProject.id)])
-      .then(([parameterResult, assetResult]) => {
+    Promise.all([
+      listParameterSets(currentProject.id),
+      listDataAssets(currentProject.id),
+      listChunkingStrategies(currentProject.id),
+    ])
+      .then(([parameterResult, assetResult, strategyResult]) => {
         setParameterSets(parameterResult.parameter_sets);
         setDataAssets(assetResult.data_assets);
+        setStrategies(strategyResult.strategies);
         const firstPrepared = assetResult.data_assets.find((asset) => asset.asset_type === "prepared");
         setSelectedAssetId((current) => current || firstPrepared?.id || "");
+        const firstStrategy = strategyResult.strategies[0];
+        if (firstStrategy) {
+          setChunking((current) => {
+            const currentStrategy = strategyResult.strategies.find((strategy) => strategy.id === current.strategy);
+            return currentStrategy
+              ? { strategy: current.strategy, params: mergeDefaults(currentStrategy, current.params) }
+              : { strategy: firstStrategy.id, params: firstStrategy.default_params };
+          });
+        }
         setError(null);
       })
       .catch((err: Error) => setError(err.message));
   }, [currentProject]);
 
-  function updateChunking<K extends keyof ChunkingParams>(key: K, value: ChunkingParams[K]) {
-    setChunking((current) => ({ ...current, [key]: value }));
+  function updateStrategy(strategyId: string) {
+    const strategy = strategies.find((item) => item.id === strategyId);
+    if (!strategy) {
+      return;
+    }
+    setChunking({ strategy: strategy.id, params: strategy.default_params });
+    setPreview(null);
+  }
+
+  function updateChunkingParam(name: string, value: ChunkingParamValue) {
+    setChunking((current) => ({ ...current, params: { ...current.params, [name]: value } }));
     setPreview(null);
   }
 
@@ -179,71 +210,27 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
                   Strategy
                   <select
                     value={chunking.strategy}
-                    onChange={(event) =>
-                      updateChunking("strategy", event.target.value as ChunkingParams["strategy"])
-                    }
+                    onChange={(event) => updateStrategy(event.target.value)}
                   >
-                    <option value="heading_recursive">Heading recursive</option>
-                    <option value="recursive">Recursive</option>
+                    {strategies.map((strategy) => (
+                      <option key={strategy.id} value={strategy.id}>
+                        {strategy.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
-                <label>
-                  Tokenizer
-                  <select
-                    value={chunking.tokenizer}
-                    onChange={(event) => updateChunking("tokenizer", event.target.value)}
-                  >
-                    <option value="cl100k_base">cl100k_base</option>
-                    <option value="approx_words">approx_words</option>
-                  </select>
-                </label>
-                <label>
-                  Chunk size
-                  <input
-                    min={1}
-                    type="number"
-                    value={chunking.chunk_size}
-                    onChange={(event) => updateChunking("chunk_size", Number(event.target.value))}
-                  />
-                </label>
-                <label>
-                  Overlap
-                  <input
-                    min={0}
-                    type="number"
-                    value={chunking.chunk_overlap}
-                    onChange={(event) => updateChunking("chunk_overlap", Number(event.target.value))}
-                  />
-                </label>
-                <label>
-                  Page boundaries
-                  <select
-                    value={chunking.page_boundary_mode}
-                    onChange={(event) =>
-                      updateChunking("page_boundary_mode", event.target.value as ChunkingParams["page_boundary_mode"])
-                    }
-                  >
-                    <option value="soft">Soft</option>
-                    <option value="ignore">Ignore</option>
-                  </select>
-                </label>
-                <label className="check-row">
-                  <input
-                    checked={chunking.preserve_headings}
-                    type="checkbox"
-                    onChange={(event) => updateChunking("preserve_headings", event.target.checked)}
-                  />
-                  Preserve headings
-                </label>
-                <label className="check-row">
-                  <input
-                    checked={chunking.preserve_tables}
-                    type="checkbox"
-                    onChange={(event) => updateChunking("preserve_tables", event.target.checked)}
-                  />
-                  Preserve tables
-                </label>
+                {selectedStrategy
+                  ? selectedStrategy.fields.map((field) => (
+                      <ChunkingFieldControl
+                        field={field}
+                        key={field.name}
+                        value={chunking.params[field.name] ?? field.default}
+                        onChange={(value) => updateChunkingParam(field.name, value)}
+                      />
+                    ))
+                  : null}
               </div>
+              {selectedStrategy ? <p className="form-note">{selectedStrategy.description}</p> : null}
               <button className="secondary-action" disabled={isPreviewing || !selectedAssetId} type="button" onClick={handlePreview}>
                 {isPreviewing ? "Previewing..." : "Preview chunks"}
               </button>
@@ -342,6 +329,62 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
+function ChunkingFieldControl({
+  field,
+  onChange,
+  value,
+}: {
+  field: ChunkingStrategy["fields"][number];
+  onChange: (value: ChunkingParamValue) => void;
+  value: ChunkingParamValue;
+}) {
+  if (field.type === "boolean") {
+    return (
+      <label className="check-row" title={field.help_text ?? undefined}>
+        <input checked={Boolean(value)} type="checkbox" onChange={(event) => onChange(event.target.checked)} />
+        {field.label}
+      </label>
+    );
+  }
+
+  if (field.type === "select") {
+    return (
+      <label title={field.help_text ?? undefined}>
+        {field.label}
+        <select value={String(value)} onChange={(event) => onChange(event.target.value)}>
+          {(field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (field.type === "number") {
+    return (
+      <label title={field.help_text ?? undefined}>
+        {field.label}
+        <input
+          max={field.max ?? undefined}
+          min={field.min ?? undefined}
+          type="number"
+          value={Number(value)}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </label>
+    );
+  }
+
+  return (
+    <label title={field.help_text ?? undefined}>
+      {field.label}
+      <input value={String(value)} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
 function SavedParameterSets({ parameterSets }: { parameterSets: ParameterSet[] }) {
   if (parameterSets.length === 0) {
     return <div className="empty-state">No parameter sets saved for this project yet.</div>;
@@ -379,6 +422,16 @@ async function sha256Hex(input: string): Promise<string> {
 
 function stableStringify(value: unknown): string {
   return JSON.stringify(sortJson(value));
+}
+
+function mergeDefaults(
+  strategy: ChunkingStrategy,
+  params: Record<string, ChunkingParamValue>,
+): Record<string, ChunkingParamValue> {
+  const fieldNames = new Set(strategy.fields.map((field) => field.name));
+  return Object.fromEntries(
+    Object.entries({ ...strategy.default_params, ...params }).filter(([key]) => fieldNames.has(key)),
+  );
 }
 
 function sortJson(value: unknown): unknown {

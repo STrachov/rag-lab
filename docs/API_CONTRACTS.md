@@ -55,13 +55,31 @@ The initial local preparation method is `pymupdf_text`, which converts PDFs with
 ```http
 GET  /v1/projects/{project_id}/parameter-sets
 POST /v1/projects/{project_id}/parameter-sets
+GET  /v1/projects/{project_id}/parameter-sets/chunking/strategies
 POST /v1/projects/{project_id}/parameter-sets/chunking/preview
 ```
+
+`chunking/strategies` is the backend-owned catalog for available chunking methods. Each strategy
+declares its id, label, description, default parameters, and UI fields. Adding a strategy in code and
+registering it in the chunking registry should make it available to the Parameters UI without a
+frontend code change.
 
 `chunking/preview` accepts a prepared `data_asset_id` plus chunking parameters and returns
 summary statistics, warnings, and preview chunks. It does not create a product result or saved
 experiment. Preview chunks are derived runtime/debug output and may be recomputed from the prepared
 data asset manifest plus chunking parameters.
+
+Canonical chunking payload:
+
+```json
+{
+  "strategy": "heading_recursive",
+  "params": {
+    "chunk_size": 900,
+    "chunk_overlap": 120
+  }
+}
+```
 
 ## Ground Truth Sets
 

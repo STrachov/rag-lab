@@ -142,14 +142,30 @@ export type ParameterSetCreate = {
   params_hash: string;
 };
 
+export type ChunkingParamValue = string | number | boolean;
+
 export type ChunkingParams = {
-  strategy: "recursive" | "heading_recursive";
-  chunk_size: number;
-  chunk_overlap: number;
-  tokenizer: string;
-  preserve_headings: boolean;
-  preserve_tables: boolean;
-  page_boundary_mode: "soft" | "ignore";
+  strategy: string;
+  params: Record<string, ChunkingParamValue>;
+};
+
+export type ChunkingStrategyField = {
+  name: string;
+  label: string;
+  type: "number" | "select" | "boolean" | "text";
+  default: ChunkingParamValue;
+  help_text?: string | null;
+  min?: number | null;
+  max?: number | null;
+  options?: Array<{ label: string; value: string }> | null;
+};
+
+export type ChunkingStrategy = {
+  id: string;
+  label: string;
+  description: string;
+  default_params: Record<string, ChunkingParamValue>;
+  fields: ChunkingStrategyField[];
 };
 
 export type ChunkingPreviewRequest = {
@@ -381,6 +397,12 @@ export async function previewChunking(
     body: JSON.stringify(payload),
     method: "POST",
   });
+}
+
+export async function listChunkingStrategies(
+  projectId: string,
+): Promise<{ strategies: ChunkingStrategy[] }> {
+  return request(`/projects/${projectId}/parameter-sets/chunking/strategies`);
 }
 
 export async function listGroundTruthSets(

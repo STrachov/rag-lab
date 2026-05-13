@@ -93,13 +93,33 @@ class ParameterSetListResponse(BaseModel):
 
 
 class ChunkingParams(BaseModel):
-    strategy: Literal["recursive", "heading_recursive"] = "heading_recursive"
-    chunk_size: int = Field(default=900, ge=1)
-    chunk_overlap: int = Field(default=120, ge=0)
-    tokenizer: str = "cl100k_base"
-    preserve_headings: bool = True
-    preserve_tables: bool = True
-    page_boundary_mode: Literal["soft", "ignore"] = "soft"
+    strategy: str = "heading_recursive"
+    params: JsonObject = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ChunkingStrategyField(BaseModel):
+    name: str
+    label: str
+    type: Literal["number", "select", "boolean", "text"]
+    default: Any
+    help_text: str | None = None
+    min: int | None = None
+    max: int | None = None
+    options: list[dict[str, str]] | None = None
+
+
+class ChunkingStrategyResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    default_params: JsonObject
+    fields: list[ChunkingStrategyField]
+
+
+class ChunkingStrategyListResponse(BaseModel):
+    strategies: list[ChunkingStrategyResponse]
 
 
 class ChunkingPreviewRequest(BaseModel):
@@ -136,6 +156,7 @@ class ChunkingPreviewSummary(BaseModel):
     avg_chars: float
     max_chars: int
     chunks_by_file: list[ChunkingPreviewSummaryFile]
+    strategy: str
     token_counter: str
 
 
