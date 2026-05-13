@@ -22,6 +22,7 @@ type DataPageProps = {
 };
 
 type ModalKind = "source" | "prepared" | null;
+type PrepareModalState = { asset: DataAsset; method: PreparationMethod } | null;
 
 const DEFAULT_PREPARATION_METHODS: PreparationMethod[] = [
   {
@@ -34,8 +35,19 @@ const DEFAULT_PREPARATION_METHODS: PreparationMethod[] = [
   {
     description: "Convert through Docling Serve and store Markdown plus Docling JSON.",
     fields: [
-      { default: true, label: "OCR", name: "docling_do_ocr", type: "boolean" },
-      { default: false, label: "Force OCR", name: "docling_force_ocr", type: "boolean" },
+      { default: true, label: "OCR", name: "do_ocr", type: "boolean" },
+      { default: false, label: "Force OCR", name: "force_ocr", type: "boolean" },
+      {
+        default: "placeholder",
+        label: "Image export mode",
+        name: "image_export_mode",
+        options: [
+          { label: "Placeholder", value: "placeholder" },
+          { label: "Embedded", value: "embedded" },
+        ],
+        type: "select",
+      },
+      { default: "http://localhost:5001", label: "Base URL", name: "base_url", type: "text" },
     ],
     id: "docling",
     label: "Docling",
@@ -48,6 +60,7 @@ export function DataPage({ currentProject }: DataPageProps) {
   const [expandedAssetIds, setExpandedAssetIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [prepareModal, setPrepareModal] = useState<PrepareModalState>(null);
   const [preparationMethods, setPreparationMethods] = useState<PreparationMethod[]>([]);
   const [preparedParent, setPreparedParent] = useState<DataAsset | null>(null);
 
@@ -100,6 +113,18 @@ export function DataPage({ currentProject }: DataPageProps) {
   function closeModal() {
     setModal(null);
     setPreparedParent(null);
+  }
+
+  function openPrepareModal(asset: DataAsset, methodId: string) {
+    const methods = preparationMethods.length > 0 ? preparationMethods : DEFAULT_PREPARATION_METHODS;
+    const method = methods.find((item) => item.id === methodId) ?? methods[0];
+    if (method) {
+      setPrepareModal({ asset, method });
+    }
+  }
+
+  function closePrepareModal() {
+    setPrepareModal(null);
   }
 
   function toggleAsset(assetId: string) {
@@ -165,22 +190,26 @@ export function DataPage({ currentProject }: DataPageProps) {
     }
   }
 
-  async function handlePrepare(asset: DataAsset, method: string, options: Record<string, boolean>) {
+  async function handlePrepare(
+    asset: DataAsset,
+    method: string,
+    settings: Record<string, unknown>,
+    name?: string,
+  ) {
     if (!currentProject) {
       return;
     }
 
     try {
       const prepared = await prepareDataAsset(currentProject.id, asset.id, {
-        docling_do_ocr: options.docling_do_ocr,
-        docling_force_ocr: options.docling_force_ocr,
         method: method === "docling" ? "docling" : "pymupdf_text",
-        output_format: method === "docling" ? "markdown_json" : "markdown",
-        page_breaks: options.page_breaks,
+        name,
+        settings,
       });
       upsertAsset(prepared);
       setExpandedAssetIds((current) => new Set(current).add(asset.id));
       setError(null);
+      closePrepareModal();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to prepare source data");
     }
@@ -224,7 +253,7 @@ export function DataPage({ currentProject }: DataPageProps) {
               onAddPrepared={openPreparedModal}
               onDeleteAsset={handleDeleteAsset}
               onDeleteFile={handleDeleteFile}
-              onPrepare={handlePrepare}
+              onConfigurePrepare={openPrepareModal}
               onToggle={toggleAsset}
               preparationMethods={preparationMethods.length > 0 ? preparationMethods : DEFAULT_PREPARATION_METHODS}
               projectId={currentProject.id}
@@ -252,6 +281,17 @@ export function DataPage({ currentProject }: DataPageProps) {
           setError={setError}
         />
       ) : null}
+
+      {prepareModal ? (
+        <PrepareDataAssetModal
+          method={prepareModal.method}
+          onClose={closePrepareModal}
+          onRun={(name, settings) =>
+            handlePrepare(prepareModal.asset, prepareModal.method.id, settings, name)
+          }
+          source={prepareModal.asset}
+        />
+      ) : null}
     </section>
   );
 }
@@ -261,9 +301,9 @@ function SourceAssetCard({
   expanded,
   onAddFiles,
   onAddPrepared,
+  onConfigurePrepare,
   onDeleteAsset,
   onDeleteFile,
-  onPrepare,
   onToggle,
   preparationMethods,
   projectId,
@@ -273,9 +313,9 @@ function SourceAssetCard({
   expanded: boolean;
   onAddFiles: (asset: DataAsset, files: File[]) => void;
   onAddPrepared: (asset: DataAsset) => void;
+  onConfigurePrepare: (asset: DataAsset, method: string) => void;
   onDeleteAsset: (asset: DataAsset) => void;
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
-  onPrepare: (asset: DataAsset, method: string, options: Record<string, boolean>) => void;
   onToggle: (assetId: string) => void;
   preparationMethods: PreparationMethod[];
   projectId: string;
@@ -305,9 +345,9 @@ function SourceAssetCard({
           <PreparedVersionList
             assets={preparedAssets}
             onAddPrepared={() => onAddPrepared(asset)}
+            onConfigurePrepare={(method) => onConfigurePrepare(asset, method)}
             onDeleteAsset={onDeleteAsset}
             onDeleteFile={onDeleteFile}
-            onPrepare={(method, options) => onPrepare(asset, method, options)}
             preparationMethods={preparationMethods}
             projectId={projectId}
           />
@@ -320,17 +360,17 @@ function SourceAssetCard({
 function PreparedVersionList({
   assets,
   onAddPrepared,
+  onConfigurePrepare,
   onDeleteAsset,
   onDeleteFile,
-  onPrepare,
   preparationMethods,
   projectId,
 }: {
   assets: DataAsset[];
   onAddPrepared: () => void;
+  onConfigurePrepare: (method: string) => void;
   onDeleteAsset: (asset: DataAsset) => void;
   onDeleteFile: (asset: DataAsset, file: DataAssetManifestFile) => void;
-  onPrepare: (method: string, options: Record<string, boolean>) => void;
   preparationMethods: PreparationMethod[];
   projectId: string;
 }) {
@@ -342,7 +382,7 @@ function PreparedVersionList({
           <button className="secondary-action" onClick={onAddPrepared} type="button">
             Add Prepared Version
           </button>
-          <PrepareControls methods={preparationMethods} onPrepare={onPrepare} />
+          <PrepareControls methods={preparationMethods} onConfigure={onConfigurePrepare} />
         </div>
       </div>
       {assets.length === 0 ? <div className="nested-empty">No prepared versions yet.</div> : null}
@@ -371,31 +411,18 @@ function PreparedVersionList({
 
 function PrepareControls({
   methods,
-  onPrepare,
+  onConfigure,
 }: {
   methods: PreparationMethod[];
-  onPrepare: (method: string, options: Record<string, boolean>) => void;
+  onConfigure: (method: string) => void;
 }) {
   const [method, setMethod] = useState(methods[0]?.id ?? "pymupdf_text");
-  const [options, setOptions] = useState<Record<string, boolean>>({});
-  const selectedMethod = methods.find((item) => item.id === method) ?? methods[0];
-  const fields = selectedMethod?.fields ?? [];
 
   useEffect(() => {
     if (!methods.some((item) => item.id === method)) {
       setMethod(methods[0]?.id ?? "pymupdf_text");
     }
   }, [method, methods]);
-
-  useEffect(() => {
-    setOptions(
-      Object.fromEntries(
-        fields
-          .filter((field) => field.type === "boolean")
-          .map((field) => [field.name, Boolean(field.default)]),
-      ),
-    );
-  }, [method, fields]);
 
   return (
     <span className="prepare-controls">
@@ -409,25 +436,132 @@ function PrepareControls({
           ))}
         </select>
       </label>
-      {fields
-        .filter((field) => field.type === "boolean")
-        .map((field) => (
-          <label className="prepare-check" key={field.name} title={field.help_text ?? undefined}>
-            <input
-              checked={Boolean(options[field.name])}
-              onChange={(event) =>
-                setOptions((current) => ({ ...current, [field.name]: event.target.checked }))
-              }
-              type="checkbox"
-            />
-            {field.label}
-          </label>
-        ))}
-      <button className="secondary-action" onClick={() => onPrepare(method, options)} type="button">
-        OK
+      <button className="secondary-action" onClick={() => onConfigure(method)} type="button">
+        Configure & Run
       </button>
     </span>
   );
+}
+
+function PrepareDataAssetModal({
+  method,
+  onClose,
+  onRun,
+  source,
+}: {
+  method: PreparationMethod;
+  onClose: () => void;
+  onRun: (name: string, settings: Record<string, unknown>) => Promise<void>;
+  source: DataAsset;
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [name, setName] = useState(`${source.name} ${method.id}`);
+  const [settings, setSettings] = useState<Record<string, unknown>>(() => defaultSettings(method));
+
+  function updateSetting(fieldName: string, value: unknown) {
+    setSettings((current) => ({ ...current, [fieldName]: value }));
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onRun(name.trim(), settings);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} title={`Prepare with ${method.label}`}>
+      <form className="modal-form two-column" onSubmit={handleSubmit}>
+        <label>
+          Prepared version name
+          <input value={name} onChange={(event) => setName(event.target.value)} required />
+        </label>
+        <label>
+          Method
+          <input readOnly value={method.id} />
+        </label>
+        <label>
+          Output
+          <input readOnly value={method.output_formats.join(", ")} />
+        </label>
+        <label>
+          Source manifest
+          <input readOnly value={shortHash(source.manifest_hash)} />
+        </label>
+        {method.fields.map((field) => {
+          if (field.type === "boolean") {
+            return (
+            <label className="check-row" key={field.name} title={field.help_text ?? undefined}>
+              <input
+                checked={Boolean(settings[field.name])}
+                onChange={(event) => updateSetting(field.name, event.target.checked)}
+                type="checkbox"
+              />
+              {field.label}
+            </label>
+            );
+          }
+          if (field.type === "select") {
+            return (
+              <label key={field.name} title={field.help_text ?? undefined}>
+                {field.label}
+                <select
+                  value={String(settings[field.name] ?? field.default)}
+                  onChange={(event) => updateSetting(field.name, event.target.value)}
+                >
+                  {(field.options ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          }
+          return (
+            <label key={field.name} title={field.help_text ?? undefined}>
+              {field.label}
+              <input
+                value={String(settings[field.name] ?? "")}
+                onChange={(event) => updateSetting(field.name, event.target.value)}
+              />
+            </label>
+          );
+        })}
+        <label className="wide-field">
+          Preparation params
+          <textarea
+            readOnly
+            rows={7}
+            value={JSON.stringify(
+              {
+                method: method.id,
+                output_formats: method.output_formats,
+                settings,
+                source_manifest_hash: source.manifest_hash,
+              },
+              null,
+              2,
+            )}
+          />
+        </label>
+        {isSubmitting ? <div className="wide-field notice">Preparation is running. This can take a while on CPU.</div> : null}
+        <button disabled={isSubmitting} type="submit">
+          {isSubmitting ? "Running..." : "Run Preparation"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+function defaultSettings(method: PreparationMethod): Record<string, unknown> {
+  return Object.fromEntries(method.fields.map((field) => [field.name, field.default]));
 }
 
 function FileList({

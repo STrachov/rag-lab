@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from app.core.config import get_settings
 
 
 def list_preparation_methods() -> list[dict[str, Any]]:
+    settings = get_settings()
     return [
         {
             "description": "CPU text extraction for PDFs with extractable text layers, plus text and Markdown inputs.",
@@ -35,15 +37,33 @@ def list_preparation_methods() -> list[dict[str, Any]]:
                     "default": True,
                     "help_text": "Ask Docling to use OCR where applicable.",
                     "label": "OCR",
-                    "name": "docling_do_ocr",
+                    "name": "do_ocr",
                     "type": "boolean",
                 },
                 {
                     "default": False,
                     "help_text": "Force OCR even when text may already be present.",
                     "label": "Force OCR",
-                    "name": "docling_force_ocr",
+                    "name": "force_ocr",
                     "type": "boolean",
+                },
+                {
+                    "default": "placeholder",
+                    "help_text": "Use placeholder for compact RAG-friendly Markdown, or embedded for base64 inline images.",
+                    "label": "Image export mode",
+                    "name": "image_export_mode",
+                    "options": [
+                        {"label": "Placeholder", "value": "placeholder"},
+                        {"label": "Embedded", "value": "embedded"},
+                    ],
+                    "type": "select",
+                },
+                {
+                    "default": settings.docling_base_url,
+                    "help_text": "Docling Serve base URL. Use a local CPU service or a remote GPU service.",
+                    "label": "Base URL",
+                    "name": "base_url",
+                    "type": "text",
                 },
             ],
             "id": "docling",
@@ -99,10 +119,13 @@ def prepare_docling(
     *,
     source_storage_path: str,
     source_manifest: dict[str, Any],
+    base_url: str | None = None,
     do_ocr: bool = True,
     force_ocr: bool = False,
+    image_export_mode: str = "placeholder",
 ) -> list[dict[str, Any]]:
     settings = get_settings()
+    service_base_url = base_url or settings.docling_base_url
     prepared_files: list[dict[str, Any]] = []
 
     with httpx.Client(timeout=settings.docling_timeout_seconds) as client:
@@ -116,13 +139,14 @@ def prepare_docling(
             if not source_path.exists():
                 raise ValueError(f"Source file is missing from storage: {original_name}")
 
-            document = _convert_with_docling(
+            document = _convert_with_docling_async(
                 client=client,
-                base_url=settings.docling_base_url,
+                base_url=service_base_url,
                 path=source_path,
                 original_name=original_name,
                 do_ocr=do_ocr,
                 force_ocr=force_ocr,
+                image_export_mode=image_export_mode,
             )
             stem = Path(original_name).stem or "document"
             source = {
@@ -163,7 +187,7 @@ def prepare_docling(
     return prepared_files
 
 
-def _convert_with_docling(
+def _convert_with_docling_async(
     *,
     client: httpx.Client,
     base_url: str,
@@ -171,11 +195,14 @@ def _convert_with_docling(
     original_name: str,
     do_ocr: bool,
     force_ocr: bool,
+    image_export_mode: str,
 ) -> dict[str, Any]:
     request_payload = {
         "options": {
+            "document_timeout": int(get_settings().docling_async_max_wait_seconds),
             "do_ocr": do_ocr,
             "force_ocr": force_ocr,
+            "image_export_mode": image_export_mode,
             "to_formats": ["md", "json"],
         },
         "sources": [
@@ -187,14 +214,82 @@ def _convert_with_docling(
         ],
     }
     try:
-        response = client.post(_docling_convert_url(base_url), json=request_payload)
+        response = client.post(_docling_convert_async_url(base_url), json=request_payload)
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as exc:
-        raise ValueError(f"Docling request failed for {original_name}: {exc}") from exc
+        raise ValueError(f"Docling async submit failed for {original_name}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ValueError(f"Docling returned non-JSON response for {original_name}") from exc
 
+    task_id = payload.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        return _extract_docling_document(payload, original_name)
+
+    result_payload = _wait_docling_task(
+        client=client,
+        base_url=base_url,
+        original_name=original_name,
+        task_id=task_id,
+    )
+    return _extract_docling_document(result_payload, original_name)
+
+
+def _wait_docling_task(
+    *,
+    client: httpx.Client,
+    base_url: str,
+    original_name: str,
+    task_id: str,
+) -> dict[str, Any]:
+    settings = get_settings()
+    deadline = time.monotonic() + settings.docling_async_max_wait_seconds
+    last_status: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        try:
+            response = client.get(_docling_status_url(base_url, task_id))
+            response.raise_for_status()
+            last_status = response.json()
+        except httpx.HTTPError as exc:
+            raise ValueError(f"Docling status request failed for {original_name}: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Docling returned non-JSON status for {original_name}") from exc
+
+        task_status = str(
+            last_status.get("task_status")
+            or last_status.get("status")
+            or last_status.get("state")
+            or ""
+        ).lower()
+        if task_status in {"success", "succeeded", "completed", "done"}:
+            return _fetch_docling_result(client, base_url, original_name, task_id)
+        if task_status in {"failure", "failed", "error"}:
+            raise ValueError(f"Docling conversion failed for {original_name}: {last_status}")
+        time.sleep(max(0.2, settings.docling_poll_interval_seconds))
+
+    raise ValueError(
+        f"Docling conversion timed out for {original_name} after "
+        f"{settings.docling_async_max_wait_seconds:g} seconds. Last status: {last_status}"
+    )
+
+
+def _fetch_docling_result(
+    client: httpx.Client,
+    base_url: str,
+    original_name: str,
+    task_id: str,
+) -> dict[str, Any]:
+    try:
+        response = client.get(_docling_result_url(base_url, task_id))
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Docling result request failed for {original_name}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Docling returned non-JSON result for {original_name}") from exc
+
+
+def _extract_docling_document(payload: dict[str, Any], original_name: str) -> dict[str, Any]:
     errors = payload.get("errors")
     if errors:
         raise ValueError(f"Docling conversion failed for {original_name}: {errors}")
@@ -210,11 +305,23 @@ def _convert_with_docling(
     raise ValueError(f"Docling response did not include a document for {original_name}")
 
 
-def _docling_convert_url(base_url: str) -> str:
+def _docling_convert_async_url(base_url: str) -> str:
+    return f"{_docling_v1_url(base_url)}/convert/source/async"
+
+
+def _docling_status_url(base_url: str, task_id: str) -> str:
+    return f"{_docling_v1_url(base_url)}/status/poll/{task_id}"
+
+
+def _docling_result_url(base_url: str, task_id: str) -> str:
+    return f"{_docling_v1_url(base_url)}/result/{task_id}"
+
+
+def _docling_v1_url(base_url: str) -> str:
     normalized = base_url.rstrip("/")
     if normalized.endswith("/v1"):
-        return f"{normalized}/convert/source"
-    return f"{normalized}/v1/convert/source"
+        return normalized
+    return f"{normalized}/v1"
 
 
 def _pdf_to_markdown(path: Path, original_name: str, *, page_breaks: bool) -> str:

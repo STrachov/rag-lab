@@ -126,18 +126,16 @@ export type DataAssetDeleteResponse = {
 export type DataAssetPrepareRequest = {
   name?: string;
   method?: "pymupdf_text" | "docling";
-  output_format?: "markdown" | "markdown_json";
-  page_breaks?: boolean;
-  docling_do_ocr?: boolean;
-  docling_force_ocr?: boolean;
+  settings?: Record<string, unknown>;
 };
 
 export type PreparationMethodField = {
   name: string;
   label: string;
-  type: "boolean" | "text";
+  type: "boolean" | "select" | "text";
   default: boolean | string;
   help_text?: string | null;
+  options?: Array<{ label: string; value: string }> | null;
 };
 
 export type PreparationMethod = {
@@ -467,10 +465,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(await responseErrorMessage(response));
   }
 
   return response.json() as Promise<T>;
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  const fallback = `API request failed: ${response.status} ${response.statusText}`;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return fallback;
+  }
+  try {
+    const payload = (await response.json()) as { detail?: unknown; error?: { message?: unknown } };
+    if (typeof payload.detail === "string") {
+      return payload.detail;
+    }
+    if (typeof payload.error?.message === "string") {
+      return payload.error.message;
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
 }
 
 function appendFiles(formData: FormData, files: File[]) {

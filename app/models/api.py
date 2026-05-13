@@ -69,9 +69,10 @@ class DataAssetDeleteResponse(BaseModel):
 class PreparationMethodField(BaseModel):
     name: str
     label: str
-    type: Literal["boolean", "text"]
+    type: Literal["boolean", "select", "text"]
     default: Any
     help_text: str | None = None
+    options: list[dict[str, str]] | None = None
 
 
 class PreparationMethodResponse(BaseModel):
@@ -89,10 +90,7 @@ class PreparationMethodListResponse(BaseModel):
 class DataAssetPrepareRequest(BaseModel):
     name: str | None = None
     method: Literal["pymupdf_text", "docling"] = "pymupdf_text"
-    output_format: Literal["markdown", "markdown_json"] = "markdown"
-    page_breaks: bool = True
-    docling_do_ocr: bool = True
-    docling_force_ocr: bool = False
+    settings: JsonObject = Field(default_factory=dict)
 
 
 class ParameterSetCreate(BaseModel):

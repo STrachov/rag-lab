@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     app_name: str = "RAG Lab"
     api_prefix: str = "/v1"
     data_dir: Path = Field(default=Path("data"))
+    docling_async_max_wait_seconds: float = 1800.0
     docling_base_url: str = "http://localhost:5001"
+    docling_poll_interval_seconds: float = 3.0
     docling_timeout_seconds: float = 120.0
     qdrant_url: str = "http://localhost:6333"
     database_url: str = Field(

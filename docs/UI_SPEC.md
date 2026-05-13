@@ -128,9 +128,11 @@ inspection failed
 
 These hints help users choose a preparation path such as CPU text extraction, OCR, or external GPU parsing.
 
-For source data, expose a `Prepare with` selector and an OK action rather than one button per converter. The selector should be populated from the backend preparation method catalog.
+For source data, expose a compact `Prepare with` selector and a `Configure & Run` action rather than one button per converter. The selector should be populated from the backend preparation method catalog.
 
-Preparation controls should include converter choice and settings:
+`Configure & Run` opens a modal for the selected method. The modal should show the prepared version name, read-only method/output/source manifest context, method-specific settings, and a read-only preview of the resulting preparation params.
+
+Preparation methods should include converter choice and settings:
 
 ```text
 pymupdf_text
@@ -142,6 +144,8 @@ custom_vlm
 ```
 
 Docling preparation should create a prepared version with Markdown and `*.docling.json` files. The JSON is preserved as a prepared data output for later context-building work; chunking is not required to consume it immediately.
+
+Expose Docling `image_export_mode` values `placeholder` and `embedded`. Default to `placeholder` so Markdown remains compact and RAG-friendly. Do not expose Docling `referenced` until RAG Lab stores referenced image files as prepared asset files.
 
 ## Parameters
 

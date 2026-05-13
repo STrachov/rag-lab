@@ -1,5 +1,6 @@
 import json
 import shutil
+from threading import Lock
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -51,6 +52,8 @@ from app.services.preparation import prepare_docling
 from app.services.preparation import prepare_pymupdf_text
 
 router = APIRouter()
+_active_preparation_jobs: set[tuple[str, str, str]] = set()
+_active_preparation_jobs_lock = Lock()
 
 
 @router.get("/projects", response_model=ProjectListResponse)
@@ -326,44 +329,49 @@ def prepare_data_asset(
             detail="Source data asset has no storage path",
         )
 
-    preparation_params = _build_preparation_params(source_asset, source_manifest, payload)
+    job_key = (project_id, source_asset.id, payload.method)
+    _claim_preparation_job(job_key)
     try:
-        generated_files = _prepare_generated_files(
-            payload=payload,
-            source_asset=source_asset,
-            source_manifest=source_manifest,
-        )
-        asset_id = new_data_asset_id()
-        stored = store_generated_data_asset_files(
-            project_id=project_id,
-            asset_id=asset_id,
-            asset_type="prepared",
-            generated_files=generated_files,
-            parent_id=source_asset.id,
-            preparation_params_json=preparation_params,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        preparation_params = _build_preparation_params(source_asset, source_manifest, payload)
+        try:
+            generated_files = _prepare_generated_files(
+                payload=payload,
+                source_asset=source_asset,
+                source_manifest=source_manifest,
+            )
+            asset_id = new_data_asset_id()
+            stored = store_generated_data_asset_files(
+                project_id=project_id,
+                asset_id=asset_id,
+                asset_type="prepared",
+                generated_files=generated_files,
+                parent_id=source_asset.id,
+                preparation_params_json=preparation_params,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    asset = models.DataAsset(
-        id=asset_id,
-        project_id=project_id,
-        name=payload.name or f"{source_asset.name} {payload.method}",
-        asset_type="prepared",
-        data_format="mixed" if payload.method == "docling" else "markdown",
-        storage_kind="generated",
-        parent_id=source_asset.id,
-        storage_path=stored["storage_path"],
-        manifest_hash=stored["manifest_hash"],
-        preparation_params_json=preparation_params,
-        metadata_json={},
-        status="ready",
-    )
-    db.add(asset)
-    _add_manifest_snapshot(db, asset_id, stored["manifest_hash"], stored["manifest_json"])
-    db.commit()
-    db.refresh(asset)
-    return _build_data_asset_response(db, asset)
+        asset = models.DataAsset(
+            id=asset_id,
+            project_id=project_id,
+            name=payload.name or f"{source_asset.name} {payload.method}",
+            asset_type="prepared",
+            data_format="mixed" if payload.method == "docling" else "markdown",
+            storage_kind="generated",
+            parent_id=source_asset.id,
+            storage_path=stored["storage_path"],
+            manifest_hash=stored["manifest_hash"],
+            preparation_params_json=preparation_params,
+            metadata_json={},
+            status="ready",
+        )
+        db.add(asset)
+        _add_manifest_snapshot(db, asset_id, stored["manifest_hash"], stored["manifest_json"])
+        db.commit()
+        db.refresh(asset)
+        return _build_data_asset_response(db, asset)
+    finally:
+        _release_preparation_job(job_key)
 
 
 @router.get(
@@ -653,21 +661,39 @@ def _collect_deletable_data_assets(
     return list(reversed(assets))
 
 
+def _claim_preparation_job(job_key: tuple[str, str, str]) -> None:
+    with _active_preparation_jobs_lock:
+        if job_key in _active_preparation_jobs:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Preparation is already running for this source asset and method",
+            )
+        _active_preparation_jobs.add(job_key)
+
+
+def _release_preparation_job(job_key: tuple[str, str, str]) -> None:
+    with _active_preparation_jobs_lock:
+        _active_preparation_jobs.discard(job_key)
+
+
 def _build_preparation_params(
     source_asset: models.DataAsset,
     source_manifest: dict,
     payload: DataAssetPrepareRequest,
 ) -> dict:
+    settings = _normalize_preparation_settings(payload)
     if payload.method == "docling":
+        base_url = _docling_base_url(settings)
         return {
             "method": "docling",
             "output_format": "markdown_json",
             "output_formats": ["markdown", "json"],
             "settings": {
-                "do_ocr": payload.docling_do_ocr,
-                "force_ocr": payload.docling_force_ocr,
+                "do_ocr": settings["do_ocr"],
+                "force_ocr": settings["force_ocr"],
+                "image_export_mode": settings["image_export_mode"],
             },
-            "service": {"base_url": get_settings().docling_base_url},
+            "service": {"base_url": base_url},
             "source_format": source_asset.data_format,
             "source_manifest_hash": source_manifest.get("manifest_hash"),
             "tool": "docling",
@@ -676,7 +702,7 @@ def _build_preparation_params(
     return {
         "method": "pymupdf_text",
         "output_format": "markdown",
-        "settings": {"page_breaks": payload.page_breaks},
+        "settings": {"page_breaks": settings["page_breaks"]},
         "source_format": source_asset.data_format,
         "source_manifest_hash": source_manifest.get("manifest_hash"),
         "tool": "pymupdf",
@@ -695,19 +721,68 @@ def _prepare_generated_files(
             detail="Source data asset has no storage path",
         )
 
+    settings = _normalize_preparation_settings(payload)
     if payload.method == "docling":
         return prepare_docling(
             source_storage_path=source_asset.storage_path,
             source_manifest=source_manifest,
-            do_ocr=payload.docling_do_ocr,
-            force_ocr=payload.docling_force_ocr,
+            base_url=_docling_base_url(settings),
+            do_ocr=settings["do_ocr"],
+            force_ocr=settings["force_ocr"],
+            image_export_mode=settings["image_export_mode"],
         )
 
     return prepare_pymupdf_text(
         source_storage_path=source_asset.storage_path,
         source_manifest=source_manifest,
-        page_breaks=payload.page_breaks,
+        page_breaks=settings["page_breaks"],
     )
+
+
+def _normalize_preparation_settings(payload: DataAssetPrepareRequest) -> dict:
+    if payload.method == "docling":
+        return {
+            "base_url": str(payload.settings.get("base_url") or get_settings().docling_base_url),
+            "do_ocr": _bool_setting(payload.settings, "do_ocr", True),
+            "force_ocr": _bool_setting(payload.settings, "force_ocr", False),
+            "image_export_mode": _choice_setting(
+                payload.settings,
+                "image_export_mode",
+                "placeholder",
+                {"placeholder", "embedded"},
+            ),
+        }
+
+    return {"page_breaks": _bool_setting(payload.settings, "page_breaks", True)}
+
+
+def _docling_base_url(settings: dict) -> str:
+    base_url = str(settings.get("base_url") or "").strip()
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Docling base_url cannot be empty",
+        )
+    return base_url
+
+
+def _bool_setting(settings: dict, name: str, default: bool) -> bool:
+    value = settings.get(name, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _choice_setting(settings: dict, name: str, default: str, allowed: set[str]) -> str:
+    value = str(settings.get(name) or default).strip().lower()
+    if value not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported value for {name}: {value}",
+        )
+    return value
 
 
 def _validate_data_asset_payload(

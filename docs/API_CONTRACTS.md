@@ -58,6 +58,25 @@ docling -> Markdown plus Docling JSON through an external Docling Serve endpoint
 
 Docling output stores `*.md` and `*.docling.json` files in the prepared data asset manifest. No separate RAG Lab metadata JSON is created at preparation time.
 
+Docling preparation uses the async Docling Serve flow internally: submit to `/v1/convert/source/async`, poll `/v1/status/poll/{task_id}`, then read `/v1/result/{task_id}`. This avoids the server-side timeout of synchronous conversion for slow CPU/OCR jobs.
+
+Preparation requests use method-specific settings rather than fixed top-level fields:
+
+```json
+{
+  "name": "Policy docling",
+  "method": "docling",
+  "settings": {
+    "base_url": "http://localhost:5001",
+    "do_ocr": true,
+    "force_ocr": false,
+    "image_export_mode": "placeholder"
+  }
+}
+```
+
+RAG Lab exposes Docling image export modes `placeholder` and `embedded`. Docling also supports `referenced`, but RAG Lab does not expose it yet because referenced image files must be captured and stored as prepared asset files.
+
 ## Parameter Sets
 
 ```http

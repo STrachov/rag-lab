@@ -1,5 +1,9 @@
 from fastapi.testclient import TestClient
 import fitz
+import httpx
+
+from app.api import projects
+from app.services.preparation import prepare_docling
 
 
 def test_create_project(client: TestClient) -> None:
@@ -114,7 +118,13 @@ def test_list_preparation_methods_for_data_ui(client: TestClient) -> None:
     assert "docling" in method_ids
     docling = next(method for method in methods if method["id"] == "docling")
     assert docling["output_formats"] == ["markdown", "json"]
-    assert "docling_do_ocr" in [field["name"] for field in docling["fields"]]
+    field_names = [field["name"] for field in docling["fields"]]
+    assert "do_ocr" in field_names
+    assert "force_ocr" in field_names
+    image_export_mode = next(field for field in docling["fields"] if field["name"] == "image_export_mode")
+    assert image_export_mode["type"] == "select"
+    assert [option["value"] for option in image_export_mode["options"]] == ["placeholder", "embedded"]
+    assert "base_url" in field_names
 
 
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -385,7 +395,7 @@ def test_prepare_source_asset_with_pymupdf_text(client: TestClient, monkeypatch,
 
     prepare_response = client.post(
         f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
-        json={"method": "pymupdf_text", "output_format": "markdown", "page_breaks": True},
+        json={"method": "pymupdf_text", "settings": {"page_breaks": True}},
     )
 
     assert prepare_response.status_code == 201
@@ -402,6 +412,38 @@ def test_prepare_source_asset_with_pymupdf_text(client: TestClient, monkeypatch,
     )
     assert download_response.status_code == 200
     assert "Payment is due within 30 days." in download_response.text
+
+
+def test_prepare_source_asset_rejects_duplicate_running_job(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Policy text", "data_format": "text"},
+        files={"files": ("policy.txt", b"Payment is due within 30 days.", "text/plain")},
+    )
+    assert upload_response.status_code == 201
+    source_asset = upload_response.json()
+    job_key = (project_id, source_asset["id"], "pymupdf_text")
+
+    projects._claim_preparation_job(job_key)
+    try:
+        response = client.post(
+            f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
+            json={"method": "pymupdf_text", "settings": {"page_breaks": True}},
+        )
+    finally:
+        projects._release_preparation_job(job_key)
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
 
 
 def test_prepare_source_asset_with_docling_stores_markdown_and_json(
@@ -446,9 +488,12 @@ def test_prepare_source_asset_with_docling_stores_markdown_and_json(
         f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
         json={
             "method": "docling",
-            "output_format": "markdown_json",
-            "docling_do_ocr": True,
-            "docling_force_ocr": False,
+            "settings": {
+                "base_url": "http://docling.local:5001",
+                "do_ocr": True,
+                "force_ocr": False,
+                "image_export_mode": "placeholder",
+            },
         },
     )
 
@@ -459,9 +504,104 @@ def test_prepare_source_asset_with_docling_stores_markdown_and_json(
     assert prepared["data_format"] == "mixed"
     assert prepared["preparation_params_json"]["method"] == "docling"
     assert prepared["preparation_params_json"]["output_formats"] == ["markdown", "json"]
+    assert prepared["preparation_params_json"]["settings"] == {
+        "do_ocr": True,
+        "force_ocr": False,
+        "image_export_mode": "placeholder",
+    }
+    assert prepared["preparation_params_json"]["service"] == {"base_url": "http://docling.local:5001"}
     files = prepared["current_manifest_json"]["files"]
     assert [file["original_name"] for file in files] == ["policy.md", "policy.docling.json"]
     assert [file["role"] for file in files] == ["prepared_markdown", "docling_document_json"]
+
+
+def test_prepare_docling_uses_async_endpoint(monkeypatch, tmp_path) -> None:
+    source_dir = tmp_path / "source"
+    files_dir = source_dir / "files"
+    files_dir.mkdir(parents=True)
+    (files_dir / "f_000001.pdf").write_bytes(b"synthetic pdf")
+
+    class FakeResponse:
+        def __init__(self, payload: dict) -> None:
+            self._payload = payload
+
+        def json(self) -> dict:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.posts: list[str] = []
+            self.gets: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> None:
+            return None
+
+        def post(self, url: str, json: dict):
+            self.posts.append(url)
+            assert url == "http://docling.test/v1/convert/source/async"
+            assert json["options"]["image_export_mode"] == "embedded"
+            assert json["options"]["to_formats"] == ["md", "json"]
+            return FakeResponse({"task_id": "task-1", "task_status": "pending"})
+
+        def get(self, url: str):
+            self.gets.append(url)
+            if url.endswith("/status/poll/task-1"):
+                return FakeResponse({"task_id": "task-1", "task_status": "success"})
+            if url.endswith("/result/task-1"):
+                return FakeResponse(
+                    {
+                        "document": {
+                            "json_content": {"schema_name": "DoclingDocument"},
+                            "md_content": "# Policy\n",
+                        }
+                    }
+                )
+            raise AssertionError(url)
+
+    fake_client = FakeClient()
+    monkeypatch.setattr(httpx, "Client", lambda *args, **kwargs: fake_client)
+    monkeypatch.setattr(
+        "app.services.preparation.get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "docling_async_max_wait_seconds": 30,
+                "docling_base_url": "http://docling.test",
+                "docling_poll_interval_seconds": 0.2,
+                "docling_timeout_seconds": 5,
+            },
+        )(),
+    )
+
+    prepared_files = prepare_docling(
+        image_export_mode="embedded",
+        source_storage_path=str(source_dir),
+        source_manifest={
+            "files": [
+                {
+                    "original_name": "policy.pdf",
+                    "stored_path": "files/f_000001.pdf",
+                }
+            ]
+        },
+    )
+
+    assert fake_client.posts == ["http://docling.test/v1/convert/source/async"]
+    assert fake_client.gets == [
+        "http://docling.test/v1/status/poll/task-1",
+        "http://docling.test/v1/result/task-1",
+    ]
+    assert [item["original_name"] for item in prepared_files] == [
+        "policy.md",
+        "policy.docling.json",
+    ]
 
 
 def test_upload_prepared_data_asset_requires_provenance(client: TestClient, monkeypatch, tmp_path) -> None:

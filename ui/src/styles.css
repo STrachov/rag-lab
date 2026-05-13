@@ -421,14 +421,6 @@ h1 {
   padding: 6px 8px;
 }
 
-.prepare-controls .prepare-check {
-  align-items: center;
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-  min-height: 36px;
-}
-
 .prepared-list h2 {
   font-size: 16px;
   margin: 4px 0 0;

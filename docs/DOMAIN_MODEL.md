@@ -86,6 +86,8 @@ Prepared data must include preparation provenance in `preparation_params_json`, 
 }
 ```
 
+Built-in preparation requests carry method-specific `settings`; the saved `preparation_params_json` records normalized settings plus service provenance such as a Docling base URL.
+
 The first preparation adapters are `pymupdf_text` and `docling`. `pymupdf_text` creates prepared Markdown from PDFs with extractable text layers and from plain text/Markdown source files. `docling` calls an external Docling Serve endpoint and stores both Markdown and full Docling JSON as prepared asset files.
 
 ## ParameterSet
