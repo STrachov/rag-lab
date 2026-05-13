@@ -32,12 +32,13 @@ Project
     prepared data versions
     manifest snapshots
   Parameter Sets
-    preparation
+    category-scoped reusable presets
     chunking
     indexing
     retrieval
     reranking
     generation
+    evaluation
   Ground Truth
     optional
   Saved Experiments
@@ -55,6 +56,14 @@ A feature is not complete unless at least one is true:
 - it creates or updates an inspectable metric, parameter snapshot, or data reference;
 - it appears in a saved experiment as metrics;
 - it is documented in the relevant markdown file.
+
+## Current Implementation Notes
+
+- Source and prepared data assets are editable and tracked with manifest snapshots.
+- Preparation provenance belongs to prepared data assets; the Parameters section should not re-edit already-applied preparation settings.
+- Parameter sets have a `category` such as `chunking`, `embedding`, `retrieval`, `generation`, `evaluation`, or `general`.
+- Chunking strategies are backend-driven. The UI must load the strategy catalog instead of hardcoding strategy names or fields.
+- Chunking preview is derived debug output, not a saved experiment result.
 
 ## Data Safety
 

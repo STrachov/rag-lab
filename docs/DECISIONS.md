@@ -144,3 +144,36 @@ Cons:
 - manifest snapshots are audit/history, not full file versioning after physical deletion;
 - delete behavior must protect saved experiments;
 - source/prepared relationships add UI complexity.
+
+---
+
+## 2026-05-13 - Use backend-driven parameter catalogs
+
+Status: accepted
+
+### Context
+
+The Parameters workflow needs to compare multiple chunking methods, including native and
+framework-backed implementations, without hardcoding method names and fields in the UI.
+
+### Decision
+
+- Parameter sets are categorized presets, starting with `chunking`.
+- The Parameters UI loads chunking strategies from a backend-owned catalog.
+- Each chunking strategy declares id, label, description, default params, field metadata, and the
+  function that implements it.
+- Framework implementations such as LangChain splitters are exposed as adapter-backed strategies
+  while returning project-native chunk preview records.
+- Chunking preview is computed debug output and is not stored as a product-facing result.
+- Parameter sets can be deleted only when not referenced by saved experiments.
+
+### Consequences
+
+Pros:
+- new chunking strategies can be added without frontend changes;
+- native and library-backed splitters can be compared under one UI contract;
+- saved parameter snapshots stay inspectable and categorized.
+
+Cons:
+- field metadata must remain stable enough for the UI;
+- adapter-backed strategies add dependency management and version drift to watch later.

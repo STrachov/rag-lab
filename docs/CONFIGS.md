@@ -56,12 +56,13 @@ notes: External Docling Serve conversion. Store Markdown and the full Docling JS
 ```yaml
 config_id: heading_recursive_900_120
 strategy: heading_recursive
-chunk_size: 900
-chunk_overlap: 120
-tokenizer: cl100k_base
-preserve_headings: true
-preserve_tables: true
-page_boundary_mode: soft
+params:
+  chunk_size: 900
+  chunk_overlap: 120
+  tokenizer: cl100k_base
+  preserve_headings: true
+  preserve_tables: true
+  page_boundary_mode: soft
 ```
 
 Adapter-backed chunking example:

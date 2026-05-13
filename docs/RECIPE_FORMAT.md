@@ -23,10 +23,11 @@ not_recommended_for:
 
 chunking:
   strategy: heading_recursive
-  chunk_size: 900
-  chunk_overlap: 120
-  preserve_headings: true
-  preserve_tables: true
+  params:
+    chunk_size: 900
+    chunk_overlap: 120
+    preserve_headings: true
+    preserve_tables: true
 
 embedding:
   provider: openai

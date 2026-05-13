@@ -51,7 +51,9 @@ Responsibilities:
 - store data asset manifest snapshots;
 - expose a backend-owned preparation method catalog;
 - prepare source assets into prepared assets with adapter-backed methods such as `pymupdf_text` and `docling`;
-- save reusable parameter sets;
+- expose a backend-owned chunking strategy catalog;
+- preview chunking over prepared data assets without storing product-facing results;
+- save and delete categorized reusable parameter sets;
 - save optional ground truth set references;
 - save experiments with full parameter snapshots;
 - store metrics-only results;

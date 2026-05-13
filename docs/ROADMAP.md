@@ -8,6 +8,7 @@
 - PostgreSQL application database foundation
 - React/Vite placeholder UI
 - project, data asset, parameter set, and saved experiment CRUD foundation
+- categorized parameter sets with protected deletion
 
 ## Phase 2: Data Preparation
 
@@ -29,6 +30,9 @@
 
 ## Phase 3: Basic RAG Runtime
 
+- backend-driven chunking strategy catalog
+- chunking preview over prepared data assets
+- native and LangChain-backed chunking strategies
 - chunk prepared data using the selected prepared data asset manifest
 - embed chunks
 - index in Qdrant

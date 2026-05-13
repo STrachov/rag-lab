@@ -63,7 +63,7 @@ python -m pytest
 2. Upload source data asset
 3. Inspect PDF/text-layer hints
 4. Create prepared version by upload, `pymupdf_text`, or `docling`
-5. Create preparation and RAG parameter sets
+5. Open Parameters and create a chunking ParameterSet with preview
 6. Register optional ground truth set
 7. Save experiment with full parameter snapshot and data manifest hash
 8. Inspect metrics

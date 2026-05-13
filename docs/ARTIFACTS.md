@@ -47,6 +47,8 @@ Chunking preview in the Parameters section is a computed API response by default
 text previews and chunk statistics, but it does not create a product-facing result. When chunking is
 needed for an experiment or a later runtime step, the same prepared data manifest and chunking
 parameter hash may be materialized under `data/cache/chunks/` and tracked through `DerivedCache`.
+Saving or deleting a ParameterSet changes only application state in PostgreSQL; it should not create,
+mutate, or delete derived cache files.
 
 These outputs can be regenerated from:
 

@@ -107,27 +107,38 @@ params_hash
 created_at
 ```
 
-Parameter sets may include:
+Parameter sets use `category` to distinguish reusable presets:
 
 ```text
-preparation
 chunking
+embedding
 indexing
 retrieval
 reranking
 generation
+evaluation
+general
 ```
 
-Preparation parameters include converter choice and settings, for example:
+Prepared data provenance is stored on `DataAsset.preparation_params_json`, not edited again from the
+Parameters screen after preparation has already run. A saved experiment may still include preparation
+provenance in its full parameter snapshot for reproducibility.
 
-```text
-pymupdf_text
-docling
-ocrmypdf_tesseract
-marker
-mineru
-custom_vlm
+Chunking parameter sets use a backend-driven strategy catalog and canonical snapshot shape:
+
+```json
+{
+  "chunking": {
+    "strategy": "heading_recursive",
+    "params": {
+      "chunk_size": 900,
+      "chunk_overlap": 120
+    }
+  }
+}
 ```
+
+Deleting a parameter set is allowed only while no saved experiment references it.
 
 ## GroundTruthSet
 

@@ -52,8 +52,10 @@ Add tests when changing:
 
 ```text
 data asset upload/delete/download
+parameter set category/create/delete protections
 file inspection
 preparation adapters
+chunking strategy catalog and preview
 chunkers
 retrievers
 rerankers

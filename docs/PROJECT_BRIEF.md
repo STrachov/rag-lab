@@ -21,12 +21,13 @@ Project
     prepared versions
     manifest snapshots
   Parameter Sets
-    preparation
+    categories
     chunking
     indexing
     retrieval
     reranking
     generation
+    evaluation
   Ground Truth Sets
     optional
   Saved Experiments
@@ -42,6 +43,8 @@ Project
 - RAG experimentation and evaluation platform
 - Project workspace for data, parameters, ground truth, and saved experiments
 - Source data upload, lightweight inspection, and prepared data versioning
+- Backend-driven preparation and chunking method catalogs
+- Chunking parameter preview before saving reusable parameter sets
 - Retrieval and answer debugging workbench
 - Metrics comparison tool
 - Production recipe generator after enough experiments are validated
