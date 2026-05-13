@@ -92,6 +92,59 @@ class ParameterSetListResponse(BaseModel):
     parameter_sets: list[ParameterSetResponse]
 
 
+class ChunkingParams(BaseModel):
+    strategy: Literal["recursive", "heading_recursive"] = "heading_recursive"
+    chunk_size: int = Field(default=900, ge=1)
+    chunk_overlap: int = Field(default=120, ge=0)
+    tokenizer: str = "cl100k_base"
+    preserve_headings: bool = True
+    preserve_tables: bool = True
+    page_boundary_mode: Literal["soft", "ignore"] = "soft"
+
+
+class ChunkingPreviewRequest(BaseModel):
+    data_asset_id: str
+    chunking: ChunkingParams = Field(default_factory=ChunkingParams)
+    max_chunks: int = Field(default=50, ge=1, le=200)
+    text_preview_chars: int = Field(default=900, ge=120, le=4000)
+
+
+class ChunkPreview(BaseModel):
+    chunk_id: str
+    source_name: str
+    stored_path: str
+    section: str | None = None
+    heading_path: list[str] = Field(default_factory=list)
+    page: int | None = None
+    token_count: int
+    char_count: int
+    text_preview: str
+
+
+class ChunkingPreviewSummaryFile(BaseModel):
+    source_name: str
+    chunk_count: int
+
+
+class ChunkingPreviewSummary(BaseModel):
+    chunk_count: int
+    files_count: int
+    min_tokens: int
+    avg_tokens: float
+    max_tokens: int
+    min_chars: int
+    avg_chars: float
+    max_chars: int
+    chunks_by_file: list[ChunkingPreviewSummaryFile]
+    token_counter: str
+
+
+class ChunkingPreviewResponse(BaseModel):
+    summary: ChunkingPreviewSummary
+    warnings: list[str] = Field(default_factory=list)
+    chunks: list[ChunkPreview] = Field(default_factory=list)
+
+
 class GroundTruthSetCreate(BaseModel):
     name: str
     data_asset_id: str | None = None

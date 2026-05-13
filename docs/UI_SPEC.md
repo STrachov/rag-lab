@@ -155,6 +155,34 @@ generation
 evaluation
 ```
 
+The first implemented Parameters workflow is a Chunking Lab:
+
+```text
+select prepared data asset
+-> edit chunking parameters
+-> preview chunk output
+-> save reusable ParameterSet
+```
+
+Preparation settings are not edited here once a prepared data asset exists. They remain provenance
+on the prepared data asset and may be included later in saved experiment snapshots as read-only
+context.
+
+Chunking preview should show:
+
+```text
+chunk count
+files count
+min/average/max token and character counts
+chunks per source file
+warnings
+preview chunks with source file, page/section metadata, token count, and text preview
+```
+
+Preview chunks are derived debug output. They are not saved experiment results. Saved experiments
+store the prepared data asset reference, data manifest hash, full parameter snapshot, parameter hash,
+and metrics only.
+
 ## Ground Truth
 
 Show optional ground truth sets and their data asset references.

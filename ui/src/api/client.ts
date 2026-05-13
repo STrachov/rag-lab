@@ -142,6 +142,54 @@ export type ParameterSetCreate = {
   params_hash: string;
 };
 
+export type ChunkingParams = {
+  strategy: "recursive" | "heading_recursive";
+  chunk_size: number;
+  chunk_overlap: number;
+  tokenizer: string;
+  preserve_headings: boolean;
+  preserve_tables: boolean;
+  page_boundary_mode: "soft" | "ignore";
+};
+
+export type ChunkingPreviewRequest = {
+  data_asset_id: string;
+  chunking: ChunkingParams;
+  max_chunks?: number;
+  text_preview_chars?: number;
+};
+
+export type ChunkPreview = {
+  chunk_id: string;
+  source_name: string;
+  stored_path: string;
+  section?: string | null;
+  heading_path: string[];
+  page?: number | null;
+  token_count: number;
+  char_count: number;
+  text_preview: string;
+};
+
+export type ChunkingPreviewSummary = {
+  chunk_count: number;
+  files_count: number;
+  min_tokens: number;
+  avg_tokens: number;
+  max_tokens: number;
+  min_chars: number;
+  avg_chars: number;
+  max_chars: number;
+  chunks_by_file: Array<{ source_name: string; chunk_count: number }>;
+  token_counter: string;
+};
+
+export type ChunkingPreviewResponse = {
+  summary: ChunkingPreviewSummary;
+  warnings: string[];
+  chunks: ChunkPreview[];
+};
+
 export type GroundTruthSet = {
   id: string;
   project_id: string;
@@ -320,6 +368,16 @@ export async function createParameterSet(
   payload: ParameterSetCreate,
 ): Promise<ParameterSet> {
   return request(`/projects/${projectId}/parameter-sets`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function previewChunking(
+  projectId: string,
+  payload: ChunkingPreviewRequest,
+): Promise<ChunkingPreviewResponse> {
+  return request(`/projects/${projectId}/parameter-sets/chunking/preview`, {
     body: JSON.stringify(payload),
     method: "POST",
   });

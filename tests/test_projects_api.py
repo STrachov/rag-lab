@@ -72,6 +72,78 @@ def test_create_parameter_set_under_project(client: TestClient) -> None:
     assert body["params_json"]["preparation"]["converter"] == "docling"
 
 
+def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\n## Page 1\n\nPayment is due within 30 days.\n\n## Page 2\n\nRefunds need approval.",
+    )
+
+    response = client.post(
+        f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "chunk_size": 8,
+                "chunk_overlap": 2,
+                "tokenizer": "cl100k_base",
+                "preserve_headings": True,
+                "preserve_tables": True,
+                "page_boundary_mode": "soft",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["files_count"] == 1
+    assert body["summary"]["chunk_count"] >= 2
+    assert body["summary"]["chunks_by_file"] == [
+        {"source_name": "policy.md", "chunk_count": body["summary"]["chunk_count"]}
+    ]
+    assert body["chunks"][0]["chunk_id"] == "preview_000001"
+    assert body["chunks"][0]["source_name"] == "policy.md"
+    assert body["chunks"][0]["heading_path"]
+    assert "Payment" in " ".join(chunk["text_preview"] for chunk in body["chunks"])
+
+
+def test_preview_chunking_requires_prepared_asset(client: TestClient) -> None:
+    project_id = _create_project(client)
+    raw_asset_id = _create_data_asset(client, project_id)
+
+    response = client.post(
+        f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
+        json={"data_asset_id": raw_asset_id, "chunking": {"chunk_size": 900}},
+    )
+
+    assert response.status_code == 400
+    assert "prepared" in response.json()["detail"]
+
+
+def test_preview_chunking_rejects_overlap_at_or_above_size(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+
+    response = client.post(
+        f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {"chunk_size": 100, "chunk_overlap": 100},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "chunk_overlap" in response.json()["detail"]
+
+
 def test_upload_raw_data_asset(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     monkeypatch.setattr(
@@ -465,6 +537,32 @@ def _upload_prepared_data_asset_with_parent(
             "preparation_params_json": '{"method":"external_gpu","output_format":"markdown"}',
         },
         files={"files": ("policy.md", b"# Policy", "text/markdown")},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def _upload_prepared_data_asset_with_content(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+    project_id: str,
+    content: bytes,
+) -> str:
+    raw_asset_id = _create_data_asset(client, project_id)
+    monkeypatch.setattr(
+        "app.services.data_assets.get_settings",
+        lambda: type("Settings", (), {"data_dir": tmp_path})(),
+    )
+    response = client.post(
+        f"/v1/projects/{project_id}/data-assets/prepared/upload",
+        data={
+            "name": "Prepared policies",
+            "data_format": "markdown",
+            "parent_id": raw_asset_id,
+            "preparation_params_json": '{"method":"external_gpu","output_format":"markdown"}',
+        },
+        files={"files": ("policy.md", content, "text/markdown")},
     )
     assert response.status_code == 201
     return response.json()["id"]

@@ -55,7 +55,13 @@ The initial local preparation method is `pymupdf_text`, which converts PDFs with
 ```http
 GET  /v1/projects/{project_id}/parameter-sets
 POST /v1/projects/{project_id}/parameter-sets
+POST /v1/projects/{project_id}/parameter-sets/chunking/preview
 ```
+
+`chunking/preview` accepts a prepared `data_asset_id` plus chunking parameters and returns
+summary statistics, warnings, and preview chunks. It does not create a product result or saved
+experiment. Preview chunks are derived runtime/debug output and may be recomputed from the prepared
+data asset manifest plus chunking parameters.
 
 ## Ground Truth Sets
 

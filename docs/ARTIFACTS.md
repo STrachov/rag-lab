@@ -43,6 +43,11 @@ retrieval_temp
 answer_temp
 ```
 
+Chunking preview in the Parameters section is a computed API response by default. It may show chunk
+text previews and chunk statistics, but it does not create a product-facing result. When chunking is
+needed for an experiment or a later runtime step, the same prepared data manifest and chunking
+parameter hash may be materialized under `data/cache/chunks/` and tracked through `DerivedCache`.
+
 These outputs can be regenerated from:
 
 ```text

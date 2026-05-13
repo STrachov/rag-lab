@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.db.session import get_db
 from app.models.api import (
+    ChunkingPreviewRequest,
+    ChunkingPreviewResponse,
     DataAssetCreate,
     DataAssetDeleteResponse,
     DataAssetFileDeleteResponse,
@@ -30,6 +32,8 @@ from app.models.api import (
     SavedExperimentListResponse,
     SavedExperimentResponse,
 )
+from app.services.chunking import ChunkingParams as ServiceChunkingParams
+from app.services.chunking import preview_prepared_asset_chunks
 from app.services.data_assets import (
     append_uploaded_data_asset_files,
     delete_data_asset_file,
@@ -389,6 +393,38 @@ def create_parameter_set(
     db.commit()
     db.refresh(parameter_set)
     return parameter_set
+
+
+@router.post(
+    "/projects/{project_id}/parameter-sets/chunking/preview",
+    response_model=ChunkingPreviewResponse,
+)
+def preview_chunking(
+    project_id: str,
+    payload: ChunkingPreviewRequest,
+    db: Session = Depends(get_db),
+) -> ChunkingPreviewResponse:
+    _get_project_or_404(db, project_id)
+    asset = _get_data_asset_or_404(db, project_id, payload.data_asset_id)
+    _require_data_asset_type(db, payload.data_asset_id, "prepared")
+    manifest_json = _get_current_manifest_json(db, asset)
+    if asset.storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Prepared data asset has no storage path",
+        )
+
+    try:
+        preview = preview_prepared_asset_chunks(
+            storage_path=asset.storage_path,
+            manifest_json=manifest_json,
+            chunking=ServiceChunkingParams(**payload.chunking.model_dump()),
+            max_chunks=payload.max_chunks,
+            text_preview_chars=payload.text_preview_chars,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return ChunkingPreviewResponse.model_validate(preview)
 
 
 @router.get("/projects/{project_id}/ground-truth-sets", response_model=GroundTruthSetListResponse)
