@@ -53,9 +53,6 @@ class ChunkingStrategy:
     description: str
     fields: list[ChunkingParamField]
     chunker: StrategyChunker
-    adapter: str = "native"
-    implementation: str | None = None
-    library: str | None = None
 
     @property
     def defaults(self) -> dict[str, Any]:
@@ -63,14 +60,11 @@ class ChunkingStrategy:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "adapter": self.adapter,
             "default_params": self.defaults,
             "description": self.description,
             "fields": [field.to_dict() for field in self.fields],
             "id": self.id,
-            "implementation": self.implementation,
             "label": self.label,
-            "library": self.library,
         }
 
 
@@ -173,68 +167,6 @@ LANGCHAIN_RECURSIVE_CHARACTER_FIELDS = [
         default=False,
     ),
 ]
-
-CHUNKING_STRATEGIES: dict[str, ChunkingStrategy] = {
-    "heading_recursive": ChunkingStrategy(
-        id="heading_recursive",
-        label="Heading recursive",
-        description="Split Markdown by headings first, then recursively split long sections.",
-        fields=[
-            *COMMON_FIELDS,
-            ChunkingParamField(
-                name="preserve_headings",
-                label="Preserve headings",
-                field_type="boolean",
-                default=True,
-                help_text="Include Markdown headings in section text before splitting.",
-            ),
-            ChunkingParamField(
-                name="preserve_tables",
-                label="Preserve tables",
-                field_type="boolean",
-                default=True,
-                help_text="Reserved for table-aware splitting; currently kept in snapshots.",
-            ),
-        ],
-        chunker=lambda text, chunking, source_name, stored_path: _chunk_sections(
-            _markdown_sections(
-                text,
-                preserve_headings=bool(chunking.merged_params()["preserve_headings"]),
-            ),
-            chunking=chunking,
-            source_name=source_name,
-            stored_path=stored_path,
-        ),
-    ),
-    "recursive": ChunkingStrategy(
-        id="recursive",
-        label="Recursive",
-        description="Split each prepared text file directly by approximate token windows.",
-        fields=COMMON_FIELDS,
-        chunker=lambda text, chunking, source_name, stored_path: _chunk_sections(
-            [{"heading_path": [], "page": None, "section": None, "text": text}],
-            chunking=chunking,
-            source_name=source_name,
-            stored_path=stored_path,
-        ),
-    ),
-    "langchain_recursive_character": ChunkingStrategy(
-        id="langchain_recursive_character",
-        label="LangChain RecursiveCharacter",
-        description="Use LangChain RecursiveCharacterTextSplitter as an adapter-backed chunking strategy.",
-        fields=LANGCHAIN_RECURSIVE_CHARACTER_FIELDS,
-        chunker=lambda text, chunking, source_name, stored_path: _chunk_langchain_recursive_character(
-            text,
-            chunking=chunking,
-            source_name=source_name,
-            stored_path=stored_path,
-        ),
-        adapter="langchain",
-        implementation="RecursiveCharacterTextSplitter",
-        library="langchain-text-splitters",
-    ),
-}
-
 
 def list_chunking_strategies() -> list[dict[str, Any]]:
     return [strategy.to_dict() for strategy in CHUNKING_STRATEGIES.values()]
@@ -362,7 +294,6 @@ def _validate_common_params(strategy: ChunkingStrategy, params: dict[str, Any]) 
 
 def _chunk_langchain_recursive_character(
     text: str,
-    *,
     chunking: ChunkingParams,
     source_name: str,
     stored_path: str,
@@ -434,6 +365,35 @@ def _prepared_files(storage_path: str, manifest_json: dict[str, Any]) -> list[Pr
                 )
             )
     return prepared_files
+
+
+def _chunk_heading_recursive(
+    text: str,
+    chunking: ChunkingParams,
+    source_name: str,
+    stored_path: str,
+) -> list[Chunk]:
+    params = chunking.merged_params()
+    return _chunk_sections(
+        _markdown_sections(text, preserve_headings=bool(params["preserve_headings"])),
+        chunking=chunking,
+        source_name=source_name,
+        stored_path=stored_path,
+    )
+
+
+def _chunk_token_window(
+    text: str,
+    chunking: ChunkingParams,
+    source_name: str,
+    stored_path: str,
+) -> list[Chunk]:
+    return _chunk_sections(
+        [{"heading_path": [], "page": None, "section": None, "text": text}],
+        chunking=chunking,
+        source_name=source_name,
+        stored_path=stored_path,
+    )
 
 
 def _chunk_sections(
@@ -547,3 +507,44 @@ def _clip(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3].rstrip() + "..."
+
+
+CHUNKING_STRATEGIES: dict[str, ChunkingStrategy] = {
+    "heading_recursive": ChunkingStrategy(
+        id="heading_recursive",
+        label="Heading recursive",
+        description="Split Markdown by headings first, then recursively split long sections.",
+        fields=[
+            *COMMON_FIELDS,
+            ChunkingParamField(
+                name="preserve_headings",
+                label="Preserve headings",
+                field_type="boolean",
+                default=True,
+                help_text="Include Markdown headings in section text before splitting.",
+            ),
+            ChunkingParamField(
+                name="preserve_tables",
+                label="Preserve tables",
+                field_type="boolean",
+                default=True,
+                help_text="Reserved for table-aware splitting; currently kept in snapshots.",
+            ),
+        ],
+        chunker=_chunk_heading_recursive,
+    ),
+    "recursive": ChunkingStrategy(
+        id="recursive",
+        label="Recursive",
+        description="Split each prepared text file directly by approximate token windows.",
+        fields=COMMON_FIELDS,
+        chunker=_chunk_token_window,
+    ),
+    "langchain_recursive_character": ChunkingStrategy(
+        id="langchain_recursive_character",
+        label="LangChain RecursiveCharacter",
+        description="Use LangChain RecursiveCharacterTextSplitter as an adapter-backed chunking strategy.",
+        fields=LANGCHAIN_RECURSIVE_CHARACTER_FIELDS,
+        chunker=_chunk_langchain_recursive_character,
+    ),
+}

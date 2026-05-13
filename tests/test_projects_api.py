@@ -93,9 +93,7 @@ def test_list_chunking_strategies_for_parameters_ui(client: TestClient) -> None:
     langchain_recursive = next(
         strategy for strategy in strategies if strategy["id"] == "langchain_recursive_character"
     )
-    assert langchain_recursive["adapter"] == "langchain"
-    assert langchain_recursive["implementation"] == "RecursiveCharacterTextSplitter"
-    assert langchain_recursive["library"] == "langchain-text-splitters"
+    assert "RecursiveCharacterTextSplitter" in langchain_recursive["description"]
 
 
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:

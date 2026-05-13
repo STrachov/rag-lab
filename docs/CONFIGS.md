@@ -49,9 +49,6 @@ Adapter-backed chunking example:
 ```yaml
 config_id: langchain_recursive_character_1000_200
 strategy: langchain_recursive_character
-adapter: langchain
-implementation: RecursiveCharacterTextSplitter
-library: langchain-text-splitters
 params:
   chunk_size: 1000
   chunk_overlap: 200
