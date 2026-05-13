@@ -82,9 +82,14 @@ RAG Lab exposes Docling image export modes `placeholder` and `embedded`. Docling
 ```http
 GET  /v1/projects/{project_id}/parameter-sets
 POST /v1/projects/{project_id}/parameter-sets
+DELETE /v1/projects/{project_id}/parameter-sets/{parameter_set_id}
 GET  /v1/projects/{project_id}/parameter-sets/chunking/strategies
 POST /v1/projects/{project_id}/parameter-sets/chunking/preview
 ```
+
+Parameter sets include a `category` field such as `chunking`, `embedding`, `retrieval`,
+`generation`, `evaluation`, or `general`. Deleting a parameter set used by a saved experiment is
+blocked.
 
 `chunking/strategies` is the backend-owned catalog for available chunking methods. Each strategy
 declares its id, label, description, default parameters, and UI fields. Adding a strategy in code and

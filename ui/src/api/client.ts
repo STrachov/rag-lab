@@ -151,6 +151,7 @@ export type ParameterSet = {
   project_id: string;
   name: string;
   description?: string | null;
+  category: string;
   params_json: Record<string, unknown>;
   params_hash: string;
   created_at: string;
@@ -159,8 +160,13 @@ export type ParameterSet = {
 export type ParameterSetCreate = {
   name: string;
   description?: string;
+  category?: string;
   params_json: Record<string, unknown>;
   params_hash: string;
+};
+
+export type ParameterSetDeleteResponse = {
+  deleted_parameter_set_id: string;
 };
 
 export type ChunkingParamValue = string | number | boolean;
@@ -413,6 +419,15 @@ export async function createParameterSet(
   return request(`/projects/${projectId}/parameter-sets`, {
     body: JSON.stringify(payload),
     method: "POST",
+  });
+}
+
+export async function deleteParameterSet(
+  projectId: string,
+  parameterSetId: string,
+): Promise<ParameterSetDeleteResponse> {
+  return request(`/projects/${projectId}/parameter-sets/${parameterSetId}`, {
+    method: "DELETE",
   });
 }
 

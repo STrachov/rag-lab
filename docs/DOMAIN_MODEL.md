@@ -101,6 +101,7 @@ id
 project_id
 name
 description
+category
 params_json
 params_hash
 created_at

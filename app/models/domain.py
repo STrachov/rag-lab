@@ -33,6 +33,7 @@ class ParameterSet(BaseModel):
     project_id: str
     name: str
     description: str | None = None
+    category: str = "general"
     params_json: dict[str, Any]
     params_hash: str
     created_at: datetime

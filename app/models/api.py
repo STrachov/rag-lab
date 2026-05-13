@@ -96,6 +96,7 @@ class DataAssetPrepareRequest(BaseModel):
 class ParameterSetCreate(BaseModel):
     name: str
     description: str | None = None
+    category: str = "general"
     params_json: JsonObject
     params_hash: str
 
@@ -110,6 +111,10 @@ class ParameterSetResponse(ParameterSetCreate):
 
 class ParameterSetListResponse(BaseModel):
     parameter_sets: list[ParameterSetResponse]
+
+
+class ParameterSetDeleteResponse(BaseModel):
+    deleted_parameter_set_id: str
 
 
 class ChunkingParams(BaseModel):

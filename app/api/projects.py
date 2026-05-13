@@ -26,6 +26,7 @@ from app.models.api import (
     GroundTruthSetListResponse,
     GroundTruthSetResponse,
     ParameterSetCreate,
+    ParameterSetDeleteResponse,
     ParameterSetListResponse,
     ParameterSetResponse,
     PreparationMethodListResponse,
@@ -427,6 +428,33 @@ def create_parameter_set(
     return parameter_set
 
 
+@router.delete(
+    "/projects/{project_id}/parameter-sets/{parameter_set_id}",
+    response_model=ParameterSetDeleteResponse,
+)
+def delete_parameter_set(
+    project_id: str,
+    parameter_set_id: str,
+    db: Session = Depends(get_db),
+) -> ParameterSetDeleteResponse:
+    _get_project_or_404(db, project_id)
+    parameter_set = _get_parameter_set_or_404(db, project_id, parameter_set_id)
+    used_by_experiment = db.scalar(
+        select(models.SavedExperiment.id)
+        .where(models.SavedExperiment.project_id == project_id)
+        .where(models.SavedExperiment.parameter_set_id == parameter_set_id)
+    )
+    if used_by_experiment is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete parameter set used by saved experiments",
+        )
+
+    db.delete(parameter_set)
+    db.commit()
+    return ParameterSetDeleteResponse(deleted_parameter_set_id=parameter_set_id)
+
+
 @router.post(
     "/projects/{project_id}/parameter-sets/chunking/preview",
     response_model=ChunkingPreviewResponse,
@@ -581,6 +609,17 @@ def _get_data_asset_or_404(db: Session, project_id: str, data_asset_id: str) -> 
     if asset is None or asset.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data asset not found")
     return asset
+
+
+def _get_parameter_set_or_404(
+    db: Session,
+    project_id: str,
+    parameter_set_id: str,
+) -> models.ParameterSet:
+    parameter_set = db.get(models.ParameterSet, parameter_set_id)
+    if parameter_set is None or parameter_set.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parameter set not found")
+    return parameter_set
 
 
 def _build_data_asset_response(db: Session, asset: models.DataAsset) -> DataAssetResponse:

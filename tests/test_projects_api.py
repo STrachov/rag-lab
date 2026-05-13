@@ -61,6 +61,7 @@ def test_create_parameter_set_under_project(client: TestClient) -> None:
         f"/v1/projects/{project_id}/parameter-sets",
         json={
             "name": "Docling hybrid baseline",
+            "category": "retrieval",
             "description": "Preparation plus retrieval baseline",
             "params_hash": "sha256:test-params",
             "params_json": {
@@ -73,7 +74,24 @@ def test_create_parameter_set_under_project(client: TestClient) -> None:
     assert response.status_code == 201
     body = response.json()
     assert body["project_id"] == project_id
+    assert body["category"] == "retrieval"
     assert body["params_json"]["preparation"]["converter"] == "docling"
+
+
+def test_delete_parameter_set_under_project(client: TestClient) -> None:
+    project_id = _create_project(client)
+    parameter_set_id = _create_parameter_set(client, project_id)
+
+    response = client.delete(f"/v1/projects/{project_id}/parameter-sets/{parameter_set_id}")
+
+    assert response.status_code == 200
+    assert response.json()["deleted_parameter_set_id"] == parameter_set_id
+
+    list_response = client.get(f"/v1/projects/{project_id}/parameter-sets")
+    assert list_response.status_code == 200
+    assert parameter_set_id not in [
+        parameter_set["id"] for parameter_set in list_response.json()["parameter_sets"]
+    ]
 
 
 def test_list_chunking_strategies_for_parameters_ui(client: TestClient) -> None:
@@ -729,6 +747,32 @@ def test_delete_experiment_data_asset_is_blocked(client: TestClient, monkeypatch
     assert response.status_code == 201
 
     delete_response = client.delete(f"/v1/projects/{project_id}/data-assets/{data_asset_id}")
+
+    assert delete_response.status_code == 400
+    assert "saved experiments" in delete_response.json()["detail"]
+
+
+def test_delete_experiment_parameter_set_is_blocked(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+    parameter_set_id = _create_parameter_set(client, project_id)
+    response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "name": "Uses parameter set",
+            "data_asset_id": data_asset_id,
+            "parameter_set_id": parameter_set_id,
+            "params_hash": "sha256:test-params",
+            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
+        },
+    )
+    assert response.status_code == 201
+
+    delete_response = client.delete(f"/v1/projects/{project_id}/parameter-sets/{parameter_set_id}")
 
     assert delete_response.status_code == 400
     assert "saved experiments" in delete_response.json()["detail"]

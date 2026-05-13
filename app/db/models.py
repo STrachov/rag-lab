@@ -85,6 +85,7 @@ class ParameterSet(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
     params_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     params_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

@@ -161,6 +161,11 @@ generation
 evaluation
 ```
 
+Parameter set rows should show category/type, name, description, hash, created date, and available
+actions. Categories distinguish chunking presets from future embedding, indexing, retrieval,
+generation, and evaluation presets. Parameter sets can be deleted unless they are referenced by a
+saved experiment.
+
 The first implemented Parameters workflow is a Chunking Lab:
 
 ```text

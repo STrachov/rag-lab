@@ -7,6 +7,7 @@ import {
   ChunkingStrategy,
   createParameterSet,
   DataAsset,
+  deleteParameterSet,
   listChunkingStrategies,
   listDataAssets,
   listParameterSets,
@@ -132,6 +133,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     try {
       const paramsHash = `sha256:${await sha256Hex(stableStringify(paramsJson))}`;
       const parameterSet = await createParameterSet(currentProject.id, {
+        category: "chunking",
         description: description.trim() || undefined,
         name: name.trim(),
         params_hash: paramsHash,
@@ -143,6 +145,24 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       setError(err instanceof Error ? err.message : "Failed to save chunking parameters");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleDelete(parameterSet: ParameterSet) {
+    if (!currentProject) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete parameter set "${parameterSet.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteParameterSet(currentProject.id, parameterSet.id);
+      setParameterSets((current) => current.filter((item) => item.id !== parameterSet.id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete parameter set");
     }
   }
 
@@ -268,7 +288,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
         </div>
       )}
 
-      <SavedParameterSets parameterSets={parameterSets} />
+      <SavedParameterSets parameterSets={parameterSets} onDelete={handleDelete} />
     </section>
   );
 }
@@ -385,7 +405,13 @@ function ChunkingFieldControl({
   );
 }
 
-function SavedParameterSets({ parameterSets }: { parameterSets: ParameterSet[] }) {
+function SavedParameterSets({
+  onDelete,
+  parameterSets,
+}: {
+  onDelete: (parameterSet: ParameterSet) => void;
+  parameterSets: ParameterSet[];
+}) {
   if (parameterSets.length === 0) {
     return <div className="empty-state">No parameter sets saved for this project yet.</div>;
   }
@@ -395,17 +421,25 @@ function SavedParameterSets({ parameterSets }: { parameterSets: ParameterSet[] }
       <div className="table-row parameter-table table-head">
         <span>ID</span>
         <span>Name</span>
+        <span>Category</span>
         <span>Description</span>
         <span>Hash</span>
         <span>Created</span>
+        <span>Actions</span>
       </div>
       {parameterSets.map((parameterSet) => (
         <div className="table-row parameter-table" key={parameterSet.id}>
           <span>{parameterSet.id}</span>
           <span>{parameterSet.name}</span>
+          <span>{parameterSet.category}</span>
           <span>{parameterSet.description ?? "-"}</span>
           <span>{parameterSet.params_hash.slice(0, 18)}</span>
           <span>{new Date(parameterSet.created_at).toLocaleString()}</span>
+          <span>
+            <button className="text-action danger" onClick={() => onDelete(parameterSet)} type="button">
+              Delete
+            </button>
+          </span>
         </div>
       ))}
     </div>
