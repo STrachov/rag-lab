@@ -132,6 +132,7 @@ GET  /v1/projects/{project_id}/embedding/models
 GET  /v1/projects/{project_id}/sparse/models
 GET  /v1/projects/{project_id}/reranking/models
 POST /v1/projects/{project_id}/chunks/materialize
+GET  /v1/projects/{project_id}/chunks/{chunks_cache_id}/gt-authoring-pack
 POST /v1/projects/{project_id}/indexes/qdrant
 POST /v1/projects/{project_id}/retrieve/preview
 POST /v1/projects/{project_id}/rerank/preview
@@ -167,6 +168,22 @@ ms_marco_minilm_l6_v2 -> cross-encoder/ms-marco-MiniLM-L6-v2
 normalized chunk JSONL under `data/cache/chunks/{cache_key}/`. It creates or reuses
 `DerivedCache(cache_type="chunks")`. Docling JSON files are recorded as sidecar metadata, not indexed
 as chunk text by default.
+
+`gt-authoring-pack` downloads a zip for offline/manual or ChatGPT-assisted ground truth authoring.
+The pack includes:
+
+```text
+manifest.json
+chunks.jsonl
+chunks_manifest.json
+prepared_text/
+ground_truth.schema.json
+ground_truth.template.jsonl
+instructions.md
+```
+
+This endpoint requires a materialized chunks cache. It is a debug/export affordance, not a saved
+experiment result.
 
 Qdrant index creation accepts a chunks cache plus indexing options:
 

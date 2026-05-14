@@ -205,6 +205,10 @@ chunking function in backend code.
 The chunking workflow may offer a `Next` action that materializes the current chunking snapshot and
 opens the Indexing page with the resulting chunk cache selected.
 
+The chunking workflow should also offer `Download GT authoring pack`. This action materializes the
+current chunking snapshot if needed and downloads a zip containing prepared text, normalized chunks,
+ground truth schema/template, and instructions for authoring `ground_truth.jsonl` outside the app.
+
 ## Indexing
 
 The Indexing page is the first runtime workbench after chunking. It should support:

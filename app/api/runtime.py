@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,7 @@ from app.models.api import (
 )
 from app.services.hashing import short_hash, stable_sha256
 from app.services.embeddings import list_embedding_models
+from app.services.gt_authoring_pack import build_gt_authoring_pack
 from app.services.rerankers import list_reranker_models
 from app.services.sparse import list_sparse_models
 from app.services.runtime_cache import (
@@ -148,6 +149,47 @@ def materialize_project_chunks(
     db.commit()
     db.refresh(cache)
     return cache
+
+
+@router.get(
+    "/projects/{project_id}/chunks/{chunks_cache_id}/gt-authoring-pack",
+)
+def download_gt_authoring_pack(
+    project_id: str,
+    chunks_cache_id: str,
+    db: Session = Depends(get_db),
+) -> Response:
+    _get_project_or_404(db, project_id)
+    chunks_cache = _get_cache_or_404(db, project_id, chunks_cache_id)
+    if chunks_cache.cache_type != "chunks":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="chunks_cache_id must reference a chunks cache",
+        )
+    if chunks_cache.data_asset_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chunks cache is not linked to a data asset",
+        )
+    data_asset = _get_data_asset_or_404(db, project_id, chunks_cache.data_asset_id)
+    manifest_json = _get_current_manifest_json(db, data_asset)
+    try:
+        payload = build_gt_authoring_pack(
+            chunks_cache=chunks_cache,
+            data_asset=data_asset,
+            manifest_json=manifest_json,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    chunks_cache.last_used_at = datetime.now(UTC)
+    db.commit()
+    filename = f"raglab_gt_authoring_pack_{chunks_cache.cache_key}.zip"
+    return Response(
+        content=payload,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        media_type="application/zip",
+    )
 
 
 @router.post(

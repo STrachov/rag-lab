@@ -56,6 +56,11 @@ Materialized chunk caches use `raglab.chunks.v1` JSONL with stable fields such a
 outputs such as Docling JSON are preserved as sidecar metadata rather than becoming the internal
 source of truth.
 
+Ground truth authoring packs are downloadable zip exports derived from a chunks cache. They include
+prepared text files, `chunks.jsonl`, `chunks_manifest.json`, `ground_truth.schema.json`,
+`ground_truth.template.jsonl`, and `instructions.md`. These packs contain derived text and should be
+treated as sensitive local artifacts, not committed project state.
+
 Sparse retrieval stats, such as local BM25 document frequencies and average document length, are
 stored under `data/cache/sparse/` and referenced from the Qdrant index cache metadata.
 

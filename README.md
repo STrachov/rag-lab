@@ -32,6 +32,7 @@ Current implemented foundation:
 - backend-driven chunking strategy catalog;
 - Chunking Lab with preview over prepared data assets;
 - materialized chunk caches with normalized chunk metadata;
+- downloadable ground-truth authoring packs with prepared text, chunks, schema, template, and instructions;
 - backend-driven embedding and sparse retrieval model catalogs;
 - backend-driven reranker model catalog;
 - Qdrant indexing with dense and local BM25-style sparse vectors for dense, sparse, and hybrid retrieval preview;

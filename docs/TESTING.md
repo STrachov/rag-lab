@@ -35,6 +35,7 @@ Use for:
 source upload -> inspection -> prepared version
 document ingest -> chunk -> index -> retrieve
 chunk materialization -> Qdrant index cache -> retrieval preview
+chunk materialization -> GT authoring pack download
 retrieval preview -> rerank candidates
 retrieve -> answer trace
 experiment run -> saved metrics
@@ -72,6 +73,7 @@ Qdrant collection/index behavior
 retrieval preview payloads and score fields
 reranking catalog and rerank score fields
 failed derived cache records
+GT authoring pack contents
 retrievers
 rerankers
 citation builder

@@ -64,16 +64,17 @@ python -m pytest
 3. Inspect PDF/text-layer hints
 4. Create prepared version by upload, `pymupdf_text`, or `docling`
 5. Open Parameters and create a chunking ParameterSet with preview
-6. Click Next or open Indexing to materialize chunks
-7. Choose embedding, sparse, and Qdrant index settings
-8. Create a dense, sparse, or hybrid Qdrant index cache
-9. Run retrieval preview, creating a retrieval cache for the candidate set
-10. Optionally rerank the current retrieval cache with different models or params
-11. Register optional ground truth set
-12. Save experiment with full parameter snapshot and data manifest hash
-13. Inspect metrics
-14. Compare saved experiments
-15. Promote validated parameter snapshot later
+6. Optionally download a GT authoring pack from the current chunking snapshot
+7. Click Next or open Indexing to materialize chunks
+8. Choose embedding, sparse, and Qdrant index settings
+9. Create a dense, sparse, or hybrid Qdrant index cache
+10. Run retrieval preview, creating a retrieval cache for the candidate set
+11. Optionally rerank the current retrieval cache with different models or params
+12. Register optional ground truth set
+13. Save experiment with full parameter snapshot and data manifest hash
+14. Inspect metrics
+15. Compare saved experiments
+16. Promote validated parameter snapshot later
 ```
 
 The first local embedding and reranking models are SentenceTransformers models and may download model

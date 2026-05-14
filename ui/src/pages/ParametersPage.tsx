@@ -9,6 +9,7 @@ import {
   createParameterSet,
   DataAsset,
   deleteParameterSet,
+  downloadGroundTruthAuthoringPack,
   listChunkingStrategies,
   listDataAssets,
   listParameterSets,
@@ -42,6 +43,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
+  const [isDownloadingPack, setIsDownloadingPack] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [name, setName] = useState("Dense chunking baseline");
   const [description, setDescription] = useState("");
@@ -171,6 +173,33 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     }
   }
 
+  async function handleDownloadAuthoringPack() {
+    if (!currentProject || !selectedAssetId) {
+      return;
+    }
+    setIsDownloadingPack(true);
+    try {
+      const cache = await materializeChunks(currentProject.id, {
+        chunking,
+        data_asset_id: selectedAssetId,
+      });
+      const blob = await downloadGroundTruthAuthoringPack(currentProject.id, cache.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `raglab_gt_authoring_pack_${cache.cache_key}.zip`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download authoring pack");
+    } finally {
+      setIsDownloadingPack(false);
+    }
+  }
+
   async function handleDelete(parameterSet: ParameterSet) {
     if (!currentProject) {
       return;
@@ -276,6 +305,14 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
               {selectedStrategy ? <p className="form-note">{selectedStrategy.description}</p> : null}
               <button className="secondary-action" disabled={isPreviewing || !selectedAssetId} type="button" onClick={handlePreview}>
                 {isPreviewing ? "Previewing..." : "Preview chunks"}
+              </button>
+              <button
+                className="secondary-action"
+                disabled={isDownloadingPack || !selectedAssetId}
+                type="button"
+                onClick={handleDownloadAuthoringPack}
+              >
+                {isDownloadingPack ? "Preparing pack..." : "Download GT authoring pack"}
               </button>
               <button
                 className="primary-action"

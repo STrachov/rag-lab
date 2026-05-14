@@ -589,6 +589,13 @@ export async function materializeChunks(
   });
 }
 
+export async function downloadGroundTruthAuthoringPack(
+  projectId: string,
+  chunksCacheId: string,
+): Promise<Blob> {
+  return requestBlob(`/projects/${projectId}/chunks/${chunksCacheId}/gt-authoring-pack`);
+}
+
 export async function listEmbeddingModels(
   projectId: string,
 ): Promise<{ models: EmbeddingModel[] }> {
@@ -696,6 +703,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response));
+  }
+  return response.blob();
 }
 
 async function responseErrorMessage(response: Response): Promise<string> {

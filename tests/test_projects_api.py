@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 import fitz
 import httpx
+import io
 from pathlib import Path
+from zipfile import ZipFile
 
 from app.api import projects
 from app.services.preparation import prepare_docling
@@ -266,6 +268,61 @@ def test_materialize_chunks_creates_derived_cache_with_docling_sidecar(
     first_chunk = chunks_path.read_text(encoding="utf-8").splitlines()[0]
     assert '"chunk_id":"chunk_000001"' in first_chunk
     assert "Payment is due within 30 days" in first_chunk
+
+
+def test_download_gt_authoring_pack_contains_chunks_schema_and_prepared_text(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    chunks_cache = chunks_response.json()
+
+    pack_response = client.get(
+        f"/v1/projects/{project_id}/chunks/{chunks_cache['id']}/gt-authoring-pack",
+    )
+
+    assert pack_response.status_code == 200
+    assert pack_response.headers["content-type"] == "application/zip"
+    assert chunks_cache["cache_key"] in pack_response.headers["content-disposition"]
+    with ZipFile(io.BytesIO(pack_response.content)) as archive:
+        names = set(archive.namelist())
+        assert "manifest.json" in names
+        assert "chunks.jsonl" in names
+        assert "ground_truth.schema.json" in names
+        assert "ground_truth.template.jsonl" in names
+        assert "instructions.md" in names
+        assert "prepared_text/policy.md" in names
+        assert "Payment is due within 30 days" in archive.read("chunks.jsonl").decode("utf-8")
+        manifest = archive.read("manifest.json").decode("utf-8")
+        assert '"schema_version": "raglab.gt_authoring_pack.v1"' in manifest
 
 
 def test_qdrant_index_and_retrieval_preview_use_cache_contract(

@@ -79,6 +79,10 @@ not commit derived cache files or paste full retrieved chunks into logs. Reranke
 materialized chunk text locally for scoring; do not send it to remote reranker APIs unless a project
 explicitly opts into that behavior.
 
+GT authoring packs contain prepared text and full chunk text. Treat them like derived client cache:
+keep them local, do not commit them, and do not upload them to external tools unless the data owner
+has approved that workflow.
+
 ## Anonymization
 
 Replace names, addresses, account numbers, emails, signatures, and phone numbers before using documents in demos.
