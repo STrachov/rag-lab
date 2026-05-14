@@ -34,6 +34,7 @@ Project
   Parameter Sets
     category-scoped reusable presets
     chunking
+    embedding
     indexing
     retrieval
     reranking
@@ -61,9 +62,13 @@ A feature is not complete unless at least one is true:
 
 - Source and prepared data assets are editable and tracked with manifest snapshots.
 - Preparation provenance belongs to prepared data assets; the Parameters section should not re-edit already-applied preparation settings.
-- Parameter sets have a `category` such as `chunking`, `embedding`, `retrieval`, `generation`, `evaluation`, or `general`.
+- Parameter sets have a `category` such as `chunking`, `embedding`, `indexing`, `retrieval`, `generation`, `evaluation`, or `general`.
 - Chunking strategies are backend-driven. The UI must load the strategy catalog instead of hardcoding strategy names or fields.
-- Chunking preview is derived debug output, not a saved experiment result.
+- Chunking preview is derived debug output, not a saved experiment result. A chunking snapshot may also be materialized into `DerivedCache(cache_type="chunks")` for later indexing.
+- Embedding and sparse retrieval models are backend-driven catalogs. Current local models include `intfloat/multilingual-e5-small`, `BAAI/bge-small-en-v1.5`, and `bm25_local`.
+- Qdrant indexes are derived cache entries. Current Qdrant collections use named vectors (`dense`, optional `sparse`) and support `dense`, `sparse`, and `hybrid` retrieval previews.
+- Retrieval preview is derived debug output. It may show source metadata, scores, and clipped chunk text, but it is not a saved experiment result.
+- Runtime failures that matter for reproducibility, such as failed Qdrant indexing, should be recorded as `DerivedCache(status="failed")` with inspectable error metadata.
 
 ## Data Safety
 

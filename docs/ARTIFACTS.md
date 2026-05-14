@@ -25,6 +25,7 @@ data/
   cache/
     chunks/
     embeddings/
+    sparse/
     qdrant_indexes/
     retrieval_temp/
     answer_temp/
@@ -49,6 +50,22 @@ needed for an experiment or a later runtime step, the same prepared data manifes
 parameter hash may be materialized under `data/cache/chunks/` and tracked through `DerivedCache`.
 Saving or deleting a ParameterSet changes only application state in PostgreSQL; it should not create,
 mutate, or delete derived cache files.
+
+Materialized chunk caches use `raglab.chunks.v1` JSONL with stable fields such as `chunk_id`,
+`source_name`, `stored_path`, `heading_path`, token counts, character counts, and text. Parser-specific
+outputs such as Docling JSON are preserved as sidecar metadata rather than becoming the internal
+source of truth.
+
+Sparse retrieval stats, such as local BM25 document frequencies and average document length, are
+stored under `data/cache/sparse/` and referenced from the Qdrant index cache metadata.
+
+Qdrant indexes are tracked as `DerivedCache(cache_type="qdrant_index")`. Current collections use
+named vectors: `dense` for embedding vectors and `sparse` for BM25-style sparse vectors. Failed index
+attempts should be tracked as `DerivedCache(status="failed")` with error metadata so the UI can show
+what happened after navigation.
+
+Retrieval preview may return clipped chunk text as `text_preview`, plus source metadata and dense or
+sparse scores. It is still debug output, not a saved experiment result.
 
 These outputs can be regenerated from:
 

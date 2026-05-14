@@ -7,16 +7,20 @@ Use when the document set fits into model context. This is a required baseline w
 ## Naive dense-vector RAG
 
 ```text
-chunk → embed → vector search → answer
+chunk -> embed -> vector search -> answer
 ```
 
 Use only as a baseline.
 
 ## Hybrid search
 
-Dense vector search + keyword/BM25 search.
+Dense vector search plus keyword/BM25 search.
 
 Best for acronyms, legal references, product codes, exact terms, and accounting terminology.
+
+Current RAG Lab hybrid retrieval uses Qdrant named vectors: `dense` for embeddings and `sparse` for a
+local BM25-style sparse vector. Dense and sparse result lists are merged in the application layer with
+reciprocal rank fusion for retrieval preview.
 
 ## Reranking
 

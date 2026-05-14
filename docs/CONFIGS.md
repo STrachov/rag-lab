@@ -9,6 +9,7 @@ Configs make experiments reproducible.
 ```text
 configs/chunking/
 configs/embedding/
+configs/indexing/
 configs/retrieval/
 configs/prompts/
 configs/eval/
@@ -96,25 +97,73 @@ params:
 ## Embedding example
 
 ```yaml
-config_id: openai_text_embedding_3_small
-provider: openai
-model: text-embedding-3-small
-dimensions: 1536
-batch_size: 64
+config_id: intfloat_multilingual_e5_small_cpu
+provider: sentence_transformers
+model_id: intfloat_multilingual_e5_small
+model_name: intfloat/multilingual-e5-small
+dimensions: 384
+device: cpu
 normalize: true
+query_prefix: "query: "
+passage_prefix: "passage: "
+```
+
+```yaml
+config_id: baai_bge_small_en_v1_5_cpu
+provider: sentence_transformers
+model_id: baai_bge_small_en_v1_5
+model_name: BAAI/bge-small-en-v1.5
+dimensions: 384
+device: cpu
+normalize: true
+```
+
+## Sparse retrieval example
+
+```yaml
+config_id: bm25_local_default
+provider: rag_lab
+model_id: bm25_local
+params:
+  lowercase: true
+  min_token_len: 2
+  k1: 1.2
+  b: 0.75
+```
+
+## Qdrant index example
+
+```yaml
+config_id: qdrant_hybrid_e5_bm25
+vector_store: qdrant
+index_mode: hybrid
+collection_name: ""
+distance: Cosine
+dense_vector_name: dense
+sparse_vector_name: sparse
+embedding:
+  model_id: intfloat_multilingual_e5_small
+  params:
+    device: cpu
+sparse:
+  model_id: bm25_local
+  params:
+    lowercase: true
+    min_token_len: 2
+    k1: 1.2
+    b: 0.75
 ```
 
 ## Retrieval example
 
 ```yaml
-config_id: hybrid_top8_rerank20
+config_id: hybrid_rrf_top8
 mode: hybrid
 top_k: 8
-score_threshold: 0.30
-hybrid_alpha: 0.5
+fusion: rrf
+rrf_k: 60
 reranker:
-  enabled: true
-  rerank_top_n: 20
+  enabled: false
 ```
 
 ## Prompt config example

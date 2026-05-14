@@ -14,7 +14,7 @@ Windows PowerShell:
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .[dev]
+python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
 ```
 
@@ -64,12 +64,19 @@ python -m pytest
 3. Inspect PDF/text-layer hints
 4. Create prepared version by upload, `pymupdf_text`, or `docling`
 5. Open Parameters and create a chunking ParameterSet with preview
-6. Register optional ground truth set
-7. Save experiment with full parameter snapshot and data manifest hash
-8. Inspect metrics
-9. Compare saved experiments
-10. Promote validated parameter snapshot later
+6. Click Next or open Indexing to materialize chunks
+7. Choose embedding, sparse, and Qdrant index settings
+8. Create a dense, sparse, or hybrid Qdrant index cache
+9. Run retrieval preview and inspect retrieved chunk text, metadata, and scores
+10. Register optional ground truth set
+11. Save experiment with full parameter snapshot and data manifest hash
+12. Inspect metrics
+13. Compare saved experiments
+14. Promote validated parameter snapshot later
 ```
+
+The first local embedding models are SentenceTransformers models and may download model weights on
+first use. Qdrant must be running before creating or previewing indexes.
 
 ## Review checklist
 

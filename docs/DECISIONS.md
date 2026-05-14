@@ -3,7 +3,7 @@
 ## Template
 
 ```markdown
-## YYYY-MM-DD — Decision title
+## YYYY-MM-DD - Decision title
 
 Status: proposed / accepted / deprecated
 
@@ -29,7 +29,7 @@ What should be revisited later?
 
 ---
 
-## 2026-05-10 — Build RAG as a separate lab project
+## 2026-05-10 - Build RAG as a separate lab project
 
 Status: accepted
 
@@ -54,7 +54,7 @@ Cons:
 
 ---
 
-## 2026-05-10 — Use frameworks as adapters
+## 2026-05-10 - Use frameworks as adapters
 
 Status: accepted
 
@@ -78,7 +78,7 @@ Cons:
 
 ---
 
-## 2026-05-11 â€” Use project-oriented model with metrics-only results
+## 2026-05-11 - Use project-oriented model with metrics-only results
 
 Status: accepted
 
@@ -177,3 +177,44 @@ Pros:
 Cons:
 - field metadata must remain stable enough for the UI;
 - adapter-backed strategies add dependency management and version drift to watch later.
+
+---
+
+## 2026-05-14 - Use derived runtime caches for hybrid Qdrant retrieval
+
+Status: accepted
+
+### Context
+
+After preparation and chunking, the lab needs an inspectable vertical slice for indexing and retrieval
+without turning chunks, embeddings, indexes, or retrieval traces into product-facing experiment
+results.
+
+### Decision
+
+- Materialize chunking snapshots into `DerivedCache(cache_type="chunks")` with normalized
+  `raglab.chunks.v1` JSONL.
+- Preserve parser-specific files such as Docling JSON as sidecar metadata rather than making them the
+  internal chunk source of truth.
+- Expose embedding and sparse model catalogs from the backend.
+- Start with local SentenceTransformers embeddings for `intfloat/multilingual-e5-small` and
+  `BAAI/bge-small-en-v1.5`, both CPU-capable.
+- Start sparse retrieval with an inspectable local BM25-style model, `bm25_local`.
+- Store Qdrant indexes as `DerivedCache(cache_type="qdrant_index")`.
+- Use named Qdrant vectors: `dense` for embeddings and `sparse` for sparse vectors.
+- Support dense, sparse, and hybrid retrieval preview; merge hybrid results with reciprocal rank
+  fusion in application code.
+- Record failed index creation attempts as `DerivedCache(status="failed")` with error metadata.
+
+### Consequences
+
+Pros:
+- the UI can restore existing and failed indexes after navigation;
+- dense, sparse, and hybrid retrieval can be compared before generation/evaluation exists;
+- Qdrant remains a cache backend while PostgreSQL remains the application database;
+- model and sparse params are inspectable and can later become saved experiment snapshots.
+
+Cons:
+- local embedding models introduce first-run model downloads and CPU latency;
+- app-layer fusion is simple and transparent, but advanced hybrid tuning remains future work;
+- Qdrant collection compatibility is intentionally not preserved for old experimental collections.

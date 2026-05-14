@@ -10,6 +10,7 @@ The UI is a project-oriented RAG experimentation workbench, not a generic chatbo
 Projects
 Data
 Parameters
+Indexing
 Ground Truth
 Saved Experiments
 Comparison
@@ -26,6 +27,7 @@ Flow:
 create/open project
 -> Data loads for current project
 -> Parameters load for current project
+-> Indexing loads derived chunk and Qdrant caches for current project
 -> Ground Truth loads for current project
 -> Saved Experiments load for current project
 -> Comparison uses saved experiments from current project
@@ -40,6 +42,7 @@ Project routes should keep the selected project in the address bar:
 /projects/{project_id}
 /projects/{project_id}/data
 /projects/{project_id}/parameters
+/projects/{project_id}/indexing
 /projects/{project_id}/ground-truth
 /projects/{project_id}/saved-experiments
 /projects/{project_id}/comparison
@@ -152,8 +155,8 @@ Expose Docling `image_export_mode` values `placeholder` and `embedded`. Default 
 Show reusable parameter sets for:
 
 ```text
-preparation
 chunking
+embedding
 indexing
 retrieval
 reranking
@@ -162,8 +165,8 @@ evaluation
 ```
 
 Parameter set rows should show category/type, name, description, hash, created date, and available
-actions. Categories distinguish chunking presets from future embedding, indexing, retrieval,
-generation, and evaluation presets. Parameter sets can be deleted unless they are referenced by a
+actions. Categories distinguish chunking presets from embedding, indexing, retrieval, generation,
+and evaluation presets. Parameter sets can be deleted unless they are referenced by a
 saved experiment.
 
 The first implemented Parameters workflow is a Chunking Lab:
@@ -198,6 +201,45 @@ Chunking strategies are backend-driven. The UI should load the strategy catalog 
 render the strategy selector plus simple parameter controls from the returned field metadata. A new
 chunking strategy should be added by registering its id, label, default params, field metadata, and
 chunking function in backend code.
+
+The chunking workflow may offer a `Next` action that materializes the current chunking snapshot and
+opens the Indexing page with the resulting chunk cache selected.
+
+## Indexing
+
+The Indexing page is the first runtime workbench after chunking. It should support:
+
+```text
+select or materialize a chunks DerivedCache
+load existing Qdrant index DerivedCache rows
+show ready and failed index caches
+select dense embedding model and params from the backend catalog
+select sparse model and params from the backend catalog
+choose index mode: dense, sparse, hybrid
+create a Qdrant index cache
+run retrieval preview against an index cache
+```
+
+Existing indexes should remain visible after navigation because they are loaded from
+`DerivedCache(cache_type="qdrant_index")`, not kept only in component state.
+
+Failed index creation should be visible in the same list with the recorded error message. Runtime
+errors should not silently disappear.
+
+Retrieval preview result cards should show:
+
+```text
+chunk_id
+score
+dense_score when available
+sparse_score when available
+source filename
+token count
+chunk text preview
+```
+
+Embedding and sparse controls must be backend-driven. The UI should not hardcode model ids or sparse
+parameter ranges. BM25-style `k1` and `b` are floats, so numeric inputs must support decimal steps.
 
 ## Ground Truth
 

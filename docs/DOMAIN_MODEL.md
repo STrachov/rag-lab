@@ -221,6 +221,46 @@ created_at
 last_used_at
 ```
 
+Current cache types:
+
+```text
+chunks
+qdrant_index
+retrieval_temp
+answer_temp
+```
+
+`chunks` caches materialize prepared data into `raglab.chunks.v1` JSONL. Each chunk record uses stable project-native fields:
+
+```text
+chunk_id
+source_name
+stored_path
+section
+heading_path
+page
+token_count
+char_count
+text
+```
+
+Docling JSON files are not indexed as chunk text by default. They are preserved as prepared asset files and recorded as sidecar metadata on the chunk cache so later structure-aware chunking, tables, pages, or citation work can use a parser-independent shape.
+
+`qdrant_index` caches store Qdrant collection references and index metadata. Current indexes use named dense vectors and, for sparse or hybrid indexes, local BM25-style sparse vectors. Metadata should include:
+
+```text
+collection_name
+index_mode: dense | sparse | hybrid
+embedding model snapshot
+sparse model snapshot
+sparse_stats_path
+chunk_count
+data_asset_manifest_hash
+chunks_cache_id
+```
+
+Failed index attempts should be visible as `DerivedCache(status="failed")` with `metadata_json.error_json` instead of disappearing from the UI.
+
 ## Results
 
 Results mean metrics only:

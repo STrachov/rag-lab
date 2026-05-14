@@ -62,11 +62,19 @@ document_id
 chunk_id
 experiment_id
 config_id
+cache_key
+collection_name
+index_mode
 counts
 hashes
 latency
 metrics
+dense_score
+sparse_score
 ```
+
+Chunk text is sensitive derived data. It may be shown as a clipped preview in local debug UI, but do
+not commit derived cache files or paste full retrieved chunks into logs.
 
 ## Anonymization
 

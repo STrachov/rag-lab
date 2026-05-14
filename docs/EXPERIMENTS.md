@@ -32,6 +32,7 @@ The saved experiment stores the full parameter snapshot used at execution time. 
 ```text
 preparation
 chunking
+embedding
 indexing
 retrieval
 reranking
@@ -40,6 +41,9 @@ evaluation
 ```
 
 Preparation includes PDF-to-Markdown, OCR, or document conversion method and settings.
+
+Indexing and retrieval snapshots should include the embedding model, sparse model, Qdrant collection
+settings, index mode, retrieval mode, and fusion settings used for the run.
 
 ## Results
 
@@ -62,7 +66,7 @@ llm_judge_score
 
 ## Derived Runtime Outputs
 
-Chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and generated answers are derived cache/debug outputs. They should not be persisted as core results unless the saved experiment uses an explicit debug level:
+Chunks, embeddings, sparse stats, Qdrant indexes, retrieval traces, prompts, and generated answers are derived cache/debug outputs. They should not be persisted as core results unless the saved experiment uses an explicit debug level:
 
 ```text
 none
@@ -70,15 +74,19 @@ summary
 full
 ```
 
+Current derived runtime outputs include materialized chunk JSONL, local BM25 stats, Qdrant indexes
+with named dense/sparse vectors, and retrieval previews with clipped chunk text.
+
 ## Baseline Matrix
 
 For each new project and data asset, compare at least:
 
 1. Full-context baseline if feasible.
 2. Naive dense retrieval.
-3. Hybrid retrieval.
-4. Hybrid + reranking.
-5. Strict not-found generation parameters.
+3. Sparse BM25-style retrieval.
+4. Hybrid retrieval.
+5. Hybrid + reranking.
+6. Strict not-found generation parameters.
 
 ## Promotion Rule
 

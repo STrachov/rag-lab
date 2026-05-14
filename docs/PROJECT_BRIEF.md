@@ -22,6 +22,7 @@ Project
     manifest snapshots
   Parameter Sets
     chunking
+    embedding
     indexing
     retrieval
     reranking
@@ -44,7 +45,10 @@ Project
 - Source data upload, lightweight inspection, and prepared data versioning
 - Backend-driven preparation and chunking method catalogs
 - Chunking parameter preview before saving reusable parameter sets
-- Retrieval and answer debugging workbench
+- Backend-driven embedding and sparse retrieval model catalogs
+- Derived chunk materialization and Qdrant index caches
+- Dense, sparse, and hybrid retrieval debugging workbench
+- Retrieval preview with retrieved chunk text previews and score breakdowns
 - Metrics comparison tool
 - Production recipe generator after enough experiments are validated
 
@@ -67,6 +71,8 @@ Saved experiment results are metrics only:
 - optional manual or LLM-judge scores
 
 Chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and generated answers are derived runtime/cache/debug outputs by default. Persist them only when a debug mode explicitly requests it.
+
+Materialized chunks and Qdrant indexes are tracked as `DerivedCache` entries. Current Qdrant indexes store named dense vectors and optional local BM25-style sparse vectors so dense, sparse, and hybrid retrieval can be compared before saved experiment metrics exist.
 
 ## Relationship to OCRlty Main
 

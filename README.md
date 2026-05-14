@@ -12,13 +12,16 @@ Project
 -> Prepared Data Asset
 -> Data Asset Manifest snapshot
 -> categorized Parameter Set
+-> DerivedCache chunks
+-> Qdrant index cache
+-> retrieval preview
 -> optional Ground Truth Set
 -> Saved Experiment
 -> metrics comparison
 -> validated recipe
 ```
 
-In the UI, create or open a project first. The Data, Parameters, Ground Truth, Saved Experiments, and Comparison sections then operate inside that current project context.
+In the UI, create or open a project first. The Data, Parameters, Indexing, Ground Truth, Saved Experiments, and Comparison sections then operate inside that current project context.
 
 Current implemented foundation:
 
@@ -26,6 +29,9 @@ Current implemented foundation:
 - preparation through upload, `pymupdf_text`, or Docling Serve;
 - backend-driven chunking strategy catalog;
 - Chunking Lab with preview over prepared data assets;
+- materialized chunk caches with normalized chunk metadata;
+- backend-driven embedding and sparse retrieval model catalogs;
+- Qdrant indexing with dense and local BM25-style sparse vectors for dense, sparse, and hybrid retrieval preview;
 - categorized parameter sets with protected deletion;
 - saved experiments that snapshot prepared data manifest hashes and parameter snapshots.
 

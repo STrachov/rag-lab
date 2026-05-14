@@ -33,11 +33,15 @@
 - backend-driven chunking strategy catalog
 - chunking preview over prepared data assets
 - native and LangChain-backed chunking strategies
-- chunk prepared data using the selected prepared data asset manifest
-- embed chunks
-- index in Qdrant
-- retrieve top-k chunks
-- track derived cache entries
+- materialize chunks from a prepared data asset and chunking snapshot
+- store normalized chunk JSONL as `DerivedCache(cache_type="chunks")`
+- expose backend-driven embedding and sparse model catalogs
+- embed chunks with local SentenceTransformers models
+- build local BM25-style sparse vectors and stats
+- index in Qdrant with named dense and sparse vectors
+- retrieve top-k chunks in dense, sparse, or hybrid mode
+- merge hybrid retrieval previews with reciprocal rank fusion
+- track ready and failed derived cache entries
 
 ## Phase 4: Answer Generation And Citations
 
@@ -64,7 +68,7 @@
 ## Later
 
 - reports derived from saved experiment metrics
-- hybrid search
+- advanced hybrid search variants
 - reranking
 - contextual chunks
 - parent-child retrieval

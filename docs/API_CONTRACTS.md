@@ -87,9 +87,9 @@ GET  /v1/projects/{project_id}/parameter-sets/chunking/strategies
 POST /v1/projects/{project_id}/parameter-sets/chunking/preview
 ```
 
-Parameter sets include a `category` field such as `chunking`, `embedding`, `retrieval`,
-`generation`, `evaluation`, or `general`. Deleting a parameter set used by a saved experiment is
-blocked.
+Parameter sets include a `category` field such as `chunking`, `embedding`, `indexing`,
+`retrieval`, `generation`, `evaluation`, or `general`. Deleting a parameter set used by a saved
+experiment is blocked.
 
 `chunking/strategies` is the backend-owned catalog for available chunking methods. Each strategy
 declares its id, label, description, default parameters, and UI fields. Adding a strategy in code and
@@ -124,6 +124,85 @@ GET  /v1/projects/{project_id}/ground-truth-sets
 POST /v1/projects/{project_id}/ground-truth-sets
 ```
 
+## Runtime Caches, Indexing, And Retrieval
+
+```http
+GET  /v1/projects/{project_id}/derived-cache?cache_type=...
+GET  /v1/projects/{project_id}/embedding/models
+GET  /v1/projects/{project_id}/sparse/models
+POST /v1/projects/{project_id}/chunks/materialize
+POST /v1/projects/{project_id}/indexes/qdrant
+POST /v1/projects/{project_id}/retrieve/preview
+```
+
+`derived-cache` returns project-scoped `DerivedCache` entries. The Indexing UI uses it to restore
+existing Qdrant index caches after navigation and to show failed index attempts.
+
+`embedding/models` and `sparse/models` are backend-owned catalogs. The first embedding models are
+local SentenceTransformers models:
+
+```text
+intfloat_multilingual_e5_small -> intfloat/multilingual-e5-small
+baai_bge_small_en_v1_5 -> BAAI/bge-small-en-v1.5
+```
+
+The first sparse model is `bm25_local`. Its user-tunable params include `k1` and `b` as floats:
+
+```text
+k1: 0.0..4.0, default 1.2, step 0.05
+b:  0.0..1.0, default 0.75, step 0.05
+```
+
+`chunks/materialize` accepts a prepared `data_asset_id` plus a canonical chunking snapshot and writes
+normalized chunk JSONL under `data/cache/chunks/{cache_key}/`. It creates or reuses
+`DerivedCache(cache_type="chunks")`. Docling JSON files are recorded as sidecar metadata, not indexed
+as chunk text by default.
+
+Qdrant index creation accepts a chunks cache plus indexing options:
+
+```json
+{
+  "chunks_cache_id": "uuid",
+  "index_mode": "hybrid",
+  "collection_name": "optional_collection_name",
+  "embedding": {
+    "model_id": "intfloat_multilingual_e5_small",
+    "params": {
+      "device": "cpu"
+    }
+  },
+  "sparse": {
+    "model_id": "bm25_local",
+    "params": {
+      "lowercase": true,
+      "min_token_len": 2,
+      "k1": 1.2,
+      "b": 0.75
+    }
+  },
+  "distance": "Cosine"
+}
+```
+
+Current Qdrant collections use named vectors: `dense` for dense embeddings and `sparse` for BM25-style
+sparse vectors. `index_mode` may be `dense`, `sparse`, or `hybrid`. Failed Qdrant indexing should
+return an HTTP error and also create `DerivedCache(status="failed")` with `metadata_json.error_json`.
+
+Retrieval preview accepts a Qdrant index cache, query, mode, and `top_k`:
+
+```json
+{
+  "index_cache_id": "uuid",
+  "query": "What is the policy?",
+  "mode": "hybrid",
+  "top_k": 5
+}
+```
+
+Response rows include source metadata, `score`, optional `dense_score`, optional `sparse_score`, and a
+clipped `text_preview`. Hybrid preview currently merges dense and sparse Qdrant searches in the
+application layer with reciprocal rank fusion.
+
 ## Saved Experiments
 
 ```http
@@ -144,7 +223,9 @@ MetricValue rows
 
 ## Derived Cache
 
-Chunks, embeddings, Qdrant indexes, traces, prompts, and generated answers are not core API results. Future debug endpoints should make the cache/debug status explicit.
+Chunks, embeddings, sparse statistics, Qdrant indexes, traces, prompts, and generated answers are not
+core API results. Debug/runtime endpoints must keep the cache/debug status explicit and must not turn
+retrieval previews into saved experiment metrics.
 
 ## Breaking-Change Rule
 

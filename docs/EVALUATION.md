@@ -64,6 +64,9 @@ Always record:
 latency_ms
 model
 embedding_model
+sparse_model
+index_mode
+retrieval_mode
 prompt_tokens
 completion_tokens
 estimated_cost

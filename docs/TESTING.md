@@ -11,6 +11,11 @@ Use for:
 ```text
 chunking
 token counting
+embedding model registry
+sparse model registry
+BM25 sparse vector building
+Qdrant vector store adapter
+hybrid retrieval fusion
 citation building
 eval metrics
 config loading
@@ -27,6 +32,7 @@ Use for:
 ```text
 source upload -> inspection -> prepared version
 document ingest -> chunk -> index -> retrieve
+chunk materialization -> Qdrant index cache -> retrieval preview
 retrieve -> answer trace
 experiment run -> saved metrics
 recipe promotion
@@ -57,6 +63,11 @@ file inspection
 preparation adapters
 chunking strategy catalog and preview
 chunkers
+embedding catalog or encoder behavior
+sparse catalog or BM25 params
+Qdrant collection/index behavior
+retrieval preview payloads and score fields
+failed derived cache records
 retrievers
 rerankers
 citation builder
@@ -72,8 +83,9 @@ artifact writers
 synthetic source data
 -> prepare markdown
 -> chunk
--> index
--> retrieve known answer
+-> materialize chunks
+-> create Qdrant index
+-> retrieve known answer with dense, sparse, or hybrid preview
 -> generate answer
 -> evaluate hit@k
 ```

@@ -30,21 +30,36 @@ chunking:
     preserve_tables: true
 
 embedding:
-  provider: openai
-  model: text-embedding-3-small
-  dimensions: 1536
+  provider: sentence_transformers
+  model_id: intfloat_multilingual_e5_small
+  model_name: intfloat/multilingual-e5-small
+  dimensions: 384
+  device: cpu
+  normalize: true
+
+sparse:
+  provider: rag_lab
+  model_id: bm25_local
+  params:
+    lowercase: true
+    min_token_len: 2
+    k1: 1.2
+    b: 0.75
 
 vector_store:
   backend: qdrant
+  index_mode: hybrid
   distance: cosine
+  dense_vector_name: dense
+  sparse_vector_name: sparse
 
 retrieval:
   mode: hybrid
   top_k: 8
-  score_threshold: 0.30
+  fusion: rrf
+  rrf_k: 60
   reranker:
-    enabled: true
-    rerank_top_n: 20
+    enabled: false
 
 generation:
   model: gpt-4.1-mini
