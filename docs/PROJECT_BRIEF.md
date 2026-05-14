@@ -21,7 +21,6 @@ Project
     prepared versions
     manifest snapshots
   Parameter Sets
-    categories
     chunking
     indexing
     retrieval

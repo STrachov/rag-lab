@@ -15,6 +15,7 @@ import { AppShell, PageKey } from "./layout/AppShell";
 import { ComparisonPage } from "./pages/ComparisonPage";
 import { DataPage } from "./pages/DataPage";
 import { GroundTruthPage } from "./pages/GroundTruthPage";
+import { IndexingPage } from "./pages/IndexingPage";
 import { ParametersPage } from "./pages/ParametersPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SavedExperimentsPage } from "./pages/SavedExperimentsPage";
@@ -25,6 +26,7 @@ const SELECTED_PROJECT_STORAGE_KEY = "rag-lab:selected-project-id";
 const pagePathByKey: Record<Exclude<PageKey, "projects">, string> = {
   comparison: "comparison",
   data: "data",
+  indexing: "indexing",
   groundTruth: "ground-truth",
   parameters: "parameters",
   savedExperiments: "saved-experiments",
@@ -111,6 +113,10 @@ export default function App() {
           path="/projects/:projectId/parameters"
         />
         <Route
+          element={projectScopedPage(<IndexingPage currentProject={currentProject} />)}
+          path="/projects/:projectId/indexing"
+        />
+        <Route
           element={projectScopedPage(<GroundTruthPage currentProject={currentProject} />)}
           path="/projects/:projectId/ground-truth"
         />
@@ -161,6 +167,9 @@ function getActivePage(pathname: string): PageKey {
   }
   if (matchPath("/projects/:projectId/parameters", pathname)) {
     return "parameters";
+  }
+  if (matchPath("/projects/:projectId/indexing", pathname)) {
+    return "indexing";
   }
   if (matchPath("/projects/:projectId/ground-truth", pathname)) {
     return "groundTruth";

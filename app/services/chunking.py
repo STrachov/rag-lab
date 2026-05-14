@@ -204,6 +204,32 @@ def preview_prepared_asset_chunks(
     max_chunks: int = 50,
     text_preview_chars: int = 900,
 ) -> dict[str, Any]:
+    materialized = chunk_prepared_asset(
+        storage_path=storage_path,
+        manifest_json=manifest_json,
+        chunking=chunking,
+    )
+    chunks = materialized["chunks"]
+    warnings = list(materialized["warnings"])
+
+    for index, chunk in enumerate(chunks, start=1):
+        chunk["chunk_id"] = f"preview_{index:06d}"
+        chunk_text_value = str(chunk.pop("text"))
+        chunk["text_preview"] = _clip(chunk_text_value, text_preview_chars)
+
+    visible_chunks = chunks[:max_chunks]
+    if len(chunks) > max_chunks:
+        warnings.append(f"Preview truncated to {max_chunks} of {len(chunks)} chunks.")
+
+    return {"chunks": visible_chunks, "summary": materialized["summary"], "warnings": warnings}
+
+
+def chunk_prepared_asset(
+    *,
+    storage_path: str,
+    manifest_json: dict[str, Any],
+    chunking: ChunkingParams,
+) -> dict[str, Any]:
     strategy = get_chunking_strategy(chunking.strategy)
     params = chunking.merged_params()
     warnings = _validate_common_params(strategy, params)
@@ -229,13 +255,7 @@ def preview_prepared_asset_chunks(
         warnings.append("Chunking produced no chunks.")
 
     for index, chunk in enumerate(chunks, start=1):
-        chunk["chunk_id"] = f"preview_{index:06d}"
-        chunk_text_value = str(chunk.pop("text"))
-        chunk["text_preview"] = _clip(chunk_text_value, text_preview_chars)
-
-    visible_chunks = chunks[:max_chunks]
-    if len(chunks) > max_chunks:
-        warnings.append(f"Preview truncated to {max_chunks} of {len(chunks)} chunks.")
+        chunk["chunk_id"] = f"chunk_{index:06d}"
 
     token_counts = [int(chunk["token_count"]) for chunk in chunks]
     char_counts = [int(chunk["char_count"]) for chunk in chunks]
@@ -255,7 +275,7 @@ def preview_prepared_asset_chunks(
         "strategy": strategy.id,
         "token_counter": f"{params.get('tokenizer', 'characters')}:approx_whitespace",
     }
-    return {"chunks": visible_chunks, "summary": summary, "warnings": warnings}
+    return {"chunks": chunks, "summary": summary, "warnings": warnings}
 
 
 def chunk_text(

@@ -6,6 +6,7 @@ export type PageKey =
   | "projects"
   | "data"
   | "parameters"
+  | "indexing"
   | "groundTruth"
   | "savedExperiments"
   | "comparison"
@@ -15,6 +16,7 @@ const navItems: Array<{ key: PageKey; label: string }> = [
   { key: "projects", label: "Projects" },
   { key: "data", label: "Data" },
   { key: "parameters", label: "Parameters" },
+  { key: "indexing", label: "Indexing" },
   { key: "groundTruth", label: "Ground Truth" },
   { key: "savedExperiments", label: "Saved Experiments" },
   { key: "comparison", label: "Comparison" },

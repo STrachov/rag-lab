@@ -233,6 +233,72 @@ export type ChunkingPreviewResponse = {
   chunks: ChunkPreview[];
 };
 
+export type DerivedCache = {
+  id: string;
+  project_id: string;
+  data_asset_id?: string | null;
+  params_hash: string;
+  cache_type: "chunks" | "embeddings" | "qdrant_index" | "retrieval_temp" | "answer_temp";
+  cache_key: string;
+  status: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  last_used_at?: string | null;
+};
+
+export type EmbeddingParamValue = string | number | boolean;
+
+export type EmbeddingModelField = {
+  name: string;
+  label: string;
+  type: "number" | "select" | "boolean" | "text";
+  default: EmbeddingParamValue;
+  help_text?: string | null;
+  min?: number | null;
+  max?: number | null;
+  options?: Array<{ label: string; value: string }> | null;
+};
+
+export type EmbeddingModel = {
+  id: string;
+  label: string;
+  description: string;
+  provider: string;
+  model_name: string;
+  vector_size: number;
+  default_params: Record<string, EmbeddingParamValue>;
+  fields: EmbeddingModelField[];
+};
+
+export type QdrantIndexRequest = {
+  chunks_cache_id: string;
+  embedding: {
+    model_id: string;
+    params: Record<string, EmbeddingParamValue>;
+  };
+  collection_name?: string | null;
+  distance?: "Cosine" | "Dot" | "Euclid";
+};
+
+export type RetrievedChunk = {
+  chunk_id?: string | null;
+  score?: number | null;
+  source_name?: string | null;
+  stored_path?: string | null;
+  section?: string | null;
+  heading_path?: string[];
+  page?: number | null;
+  token_count?: number | null;
+  char_count?: number | null;
+};
+
+export type RetrievalPreviewResponse = {
+  index_cache_id: string;
+  query: string;
+  top_k: number;
+  retrieved_chunks: RetrievedChunk[];
+};
+
 export type GroundTruthSet = {
   id: string;
   project_id: string;
@@ -445,6 +511,45 @@ export async function listChunkingStrategies(
   projectId: string,
 ): Promise<{ strategies: ChunkingStrategy[] }> {
   return request(`/projects/${projectId}/parameter-sets/chunking/strategies`);
+}
+
+export async function materializeChunks(
+  projectId: string,
+  payload: ChunkingPreviewRequest,
+): Promise<DerivedCache> {
+  return request(`/projects/${projectId}/chunks/materialize`, {
+    body: JSON.stringify({
+      chunking: payload.chunking,
+      data_asset_id: payload.data_asset_id,
+    }),
+    method: "POST",
+  });
+}
+
+export async function listEmbeddingModels(
+  projectId: string,
+): Promise<{ models: EmbeddingModel[] }> {
+  return request(`/projects/${projectId}/embedding/models`);
+}
+
+export async function createQdrantIndex(
+  projectId: string,
+  payload: QdrantIndexRequest,
+): Promise<DerivedCache> {
+  return request(`/projects/${projectId}/indexes/qdrant`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function previewRetrieval(
+  projectId: string,
+  payload: { index_cache_id: string; query: string; top_k?: number },
+): Promise<RetrievalPreviewResponse> {
+  return request(`/projects/${projectId}/retrieve/preview`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
 }
 
 export async function listGroundTruthSets(

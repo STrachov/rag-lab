@@ -191,6 +191,91 @@ class ChunkingPreviewResponse(BaseModel):
     chunks: list[ChunkPreview] = Field(default_factory=list)
 
 
+class DerivedCacheResponse(BaseModel):
+    id: str
+    project_id: str
+    data_asset_id: str | None = None
+    params_hash: str
+    cache_type: Literal["chunks", "embeddings", "qdrant_index", "retrieval_temp", "answer_temp"]
+    cache_key: str
+    status: str
+    metadata_json: JsonObject
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChunkMaterializeRequest(BaseModel):
+    data_asset_id: str
+    chunking: ChunkingParams = Field(default_factory=ChunkingParams)
+
+
+class EmbeddingModelField(BaseModel):
+    name: str
+    label: str
+    type: Literal["number", "select", "boolean", "text"]
+    default: Any
+    help_text: str | None = None
+    min: int | None = None
+    max: int | None = None
+    options: list[dict[str, str]] | None = None
+
+
+class EmbeddingModelResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    provider: str
+    model_name: str
+    vector_size: int
+    default_params: JsonObject
+    fields: list[EmbeddingModelField]
+
+
+class EmbeddingModelListResponse(BaseModel):
+    models: list[EmbeddingModelResponse]
+
+
+class EmbeddingParams(BaseModel):
+    model_id: str = "intfloat_multilingual_e5_small"
+    params: JsonObject = Field(default_factory=dict)
+
+
+class QdrantIndexRequest(BaseModel):
+    chunks_cache_id: str
+    embedding: EmbeddingParams = Field(default_factory=EmbeddingParams)
+    collection_name: str | None = None
+    distance: Literal["Cosine", "Dot", "Euclid"] = "Cosine"
+
+
+class RetrievalPreviewRequest(BaseModel):
+    index_cache_id: str
+    query: str
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+class RetrievedChunk(BaseModel):
+    chunk_id: str | None = None
+    score: float | None = None
+    source_name: str | None = None
+    stored_path: str | None = None
+    section: str | None = None
+    heading_path: list[str] = Field(default_factory=list)
+    page: int | None = None
+    token_count: int | None = None
+    char_count: int | None = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RetrievalPreviewResponse(BaseModel):
+    index_cache_id: str
+    query: str
+    top_k: int
+    retrieved_chunks: list[RetrievedChunk]
+
+
 class GroundTruthSetCreate(BaseModel):
     name: str
     data_asset_id: str | None = None

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   ChunkingParams,
@@ -11,6 +12,7 @@ import {
   listChunkingStrategies,
   listDataAssets,
   listParameterSets,
+  materializeChunks,
   ParameterSet,
   previewChunking,
   Project,
@@ -39,6 +41,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isContinuing, setIsContinuing] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [name, setName] = useState("Dense chunking baseline");
   const [description, setDescription] = useState("");
@@ -52,6 +55,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   const selectedAsset = preparedAssets.find((asset) => asset.id === selectedAssetId);
   const selectedStrategy = strategies.find((strategy) => strategy.id === chunking.strategy);
   const paramsJson = useMemo(() => ({ chunking }), [chunking]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!currentProject) {
@@ -145,6 +149,25 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       setError(err instanceof Error ? err.message : "Failed to save chunking parameters");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleContinueToIndexing() {
+    if (!currentProject || !selectedAssetId) {
+      return;
+    }
+    setIsContinuing(true);
+    try {
+      const cache = await materializeChunks(currentProject.id, {
+        chunking,
+        data_asset_id: selectedAssetId,
+      });
+      setError(null);
+      navigate(`/projects/${currentProject.id}/indexing?chunks_cache_id=${cache.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to materialize chunks");
+    } finally {
+      setIsContinuing(false);
     }
   }
 
@@ -253,6 +276,14 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
               {selectedStrategy ? <p className="form-note">{selectedStrategy.description}</p> : null}
               <button className="secondary-action" disabled={isPreviewing || !selectedAssetId} type="button" onClick={handlePreview}>
                 {isPreviewing ? "Previewing..." : "Preview chunks"}
+              </button>
+              <button
+                className="primary-action"
+                disabled={isContinuing || !selectedAssetId}
+                type="button"
+                onClick={handleContinueToIndexing}
+              >
+                {isContinuing ? "Materializing..." : "Next: Embedding & Qdrant"}
               </button>
             </div>
 

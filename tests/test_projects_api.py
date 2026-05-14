@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 import fitz
 import httpx
+from pathlib import Path
 
 from app.api import projects
 from app.services.preparation import prepare_docling
@@ -143,6 +144,157 @@ def test_list_preparation_methods_for_data_ui(client: TestClient) -> None:
     assert image_export_mode["type"] == "select"
     assert [option["value"] for option in image_export_mode["options"]] == ["placeholder", "embedded"]
     assert "base_url" in field_names
+
+
+def test_list_embedding_models_for_indexing_ui(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.get(f"/v1/projects/{project_id}/embedding/models")
+
+    assert response.status_code == 200
+    models = response.json()["models"]
+    model_ids = [model["id"] for model in models]
+    assert "intfloat_multilingual_e5_small" in model_ids
+    assert "baai_bge_small_en_v1_5" in model_ids
+    e5 = next(model for model in models if model["id"] == "intfloat_multilingual_e5_small")
+    assert e5["provider"] == "sentence_transformers"
+    assert e5["model_name"] == "intfloat/multilingual-e5-small"
+    assert e5["default_params"]["device"] == "cpu"
+
+
+def test_materialize_chunks_creates_derived_cache_with_docling_sidecar(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    raw_asset_id = _create_data_asset(client, project_id)
+    _patch_data_dirs(monkeypatch, tmp_path)
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/data-assets/prepared/upload",
+        data={
+            "name": "Docling prepared policies",
+            "data_format": "mixed",
+            "parent_id": raw_asset_id,
+            "preparation_params_json": '{"method":"docling","output_format":"markdown_json"}',
+        },
+        files=[
+            ("files", ("policy.md", b"# Policy\n\nPayment is due within 30 days.", "text/markdown")),
+            (
+                "files",
+                (
+                    "policy.docling.json",
+                    b'{"schema_name":"DoclingDocument"}',
+                    "application/json",
+                ),
+            ),
+        ],
+    )
+    assert upload_response.status_code == 201
+    data_asset_id = upload_response.json()["id"]
+
+    response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["cache_type"] == "chunks"
+    assert body["status"] == "ready"
+    metadata = body["metadata_json"]
+    assert metadata["schema_version"] == "raglab.chunks.v1"
+    assert metadata["summary"]["chunk_count"] >= 1
+    assert metadata["sidecar_files"][0]["original_name"] == "policy.docling.json"
+    chunks_path = Path(metadata["chunks_path"])
+    assert chunks_path.exists()
+    first_chunk = chunks_path.read_text(encoding="utf-8").splitlines()[0]
+    assert '"chunk_id":"chunk_000001"' in first_chunk
+    assert "Payment is due within 30 days" in first_chunk
+
+
+def test_qdrant_index_and_retrieval_preview_use_cache_contract(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    chunks_cache_id = chunks_response.json()["id"]
+    fake_qdrant = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_cache_id,
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+
+    assert index_response.status_code == 201
+    index_cache = index_response.json()
+    assert index_cache["cache_type"] == "qdrant_index"
+    assert index_cache["metadata_json"]["collection_name"].startswith("raglab_qdrant_")
+    assert index_cache["metadata_json"]["embedding"]["model"] == "intfloat/multilingual-e5-small"
+    assert fake_qdrant.points
+
+    retrieve_response = client.post(
+        f"/v1/projects/{project_id}/retrieve/preview",
+        json={
+            "index_cache_id": index_cache["id"],
+            "query": "When is payment due?",
+            "top_k": 1,
+        },
+    )
+
+    assert retrieve_response.status_code == 200
+    retrieved = retrieve_response.json()["retrieved_chunks"]
+    assert retrieved[0]["chunk_id"] == "chunk_000001"
+    assert retrieved[0]["source_name"] == "policy.md"
+    assert retrieved[0]["score"] == 0.99
 
 
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -846,6 +998,58 @@ def _create_project(client: TestClient) -> str:
     response = client.post("/v1/projects", json={"name": "Policy RAG"})
     assert response.status_code == 201
     return response.json()["id"]
+
+
+class FakeEmbedder:
+    def embed_passages(self, texts: list[str]) -> list[list[float]]:
+        return [[float(index + 1), float(len(text))] for index, text in enumerate(texts)]
+
+    def embed_query(self, query: str) -> list[float]:
+        return [1.0, float(len(query))]
+
+
+class FakeQdrantStore:
+    def __init__(self) -> None:
+        self.collection_name = ""
+        self.points: list[dict] = []
+
+    def ensure_collection(self, *, collection_name: str, vector_size: int, distance: str) -> None:
+        self.collection_name = collection_name
+        assert vector_size == 384
+        assert distance == "Cosine"
+
+    def upsert_points(self, *, collection_name: str, points: list[dict]) -> None:
+        assert collection_name == self.collection_name
+        self.points = points
+
+    def search(self, *, collection_name: str, query_vector: list[float], top_k: int) -> list[dict]:
+        assert collection_name == self.collection_name
+        assert query_vector
+        return [
+            {
+                "payload": self.points[0]["payload"],
+                "score": 0.99,
+            }
+        ][:top_k]
+
+
+def fake_create_embedder(model_id: str, params: dict | None = None) -> FakeEmbedder:
+    assert model_id == "intfloat_multilingual_e5_small"
+    assert params is not None
+    return FakeEmbedder()
+
+
+def _patch_data_dirs(monkeypatch, tmp_path) -> None:
+    settings = type(
+        "Settings",
+        (),
+        {
+            "data_dir": tmp_path,
+            "qdrant_url": "http://localhost:6333",
+        },
+    )()
+    monkeypatch.setattr("app.services.data_assets.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.runtime_cache.get_settings", lambda: settings)
 
 
 def _make_text_pdf_bytes(text: str) -> bytes:
