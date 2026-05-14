@@ -12,11 +12,13 @@ import {
   listDerivedCaches,
   listEmbeddingModels,
   listParameterSets,
+  listRerankerModels,
   listSparseModels,
   materializeChunks,
   ParameterSet,
   previewRetrieval,
   Project,
+  RerankerModel,
   RetrievalPreviewResponse,
   SparseModel,
 } from "../api/client";
@@ -43,6 +45,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [parameterSets, setParameterSets] = useState<ParameterSet[]>([]);
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModel[]>([]);
   const [sparseModels, setSparseModels] = useState<SparseModel[]>([]);
+  const [rerankerModels, setRerankerModels] = useState<RerankerModel[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [selectedParameterSetId, setSelectedParameterSetId] = useState("");
   const [chunksCacheId, setChunksCacheId] = useState(searchParams.get("chunks_cache_id") ?? "");
@@ -56,6 +59,10 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [retrievalMode, setRetrievalMode] = useState<"dense" | "sparse" | "hybrid">("hybrid");
   const [query, setQuery] = useState("Where from is Wayne Xin Zhao?");
   const [topK, setTopK] = useState(5);
+  const [candidateK, setCandidateK] = useState(30);
+  const [rerankingEnabled, setRerankingEnabled] = useState(false);
+  const [rerankerModelId, setRerankerModelId] = useState("baai_bge_reranker_v2_m3");
+  const [rerankerParams, setRerankerParams] = useState<Record<string, EmbeddingParamValue>>({});
   const [retrieval, setRetrieval] = useState<RetrievalPreviewResponse | null>(null);
   const [isMaterializing, setIsMaterializing] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
@@ -72,6 +79,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   );
   const selectedModel = embeddingModels.find((model) => model.id === embeddingModelId);
   const selectedSparseModel = sparseModels.find((model) => model.id === sparseModelId);
+  const selectedRerankerModel = rerankerModels.find((model) => model.id === rerankerModelId);
   const selectedParameterSet = chunkingParameterSets.find((set) => set.id === selectedParameterSetId);
   const selectedIndexCache = indexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? null;
 
@@ -81,6 +89,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       setParameterSets([]);
       setEmbeddingModels([]);
       setSparseModels([]);
+      setRerankerModels([]);
       return;
     }
 
@@ -90,13 +99,15 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       listParameterSets(currentProject.id),
       listEmbeddingModels(currentProject.id),
       listSparseModels(currentProject.id),
+      listRerankerModels(currentProject.id),
     ])
-      .then(([assetResult, cacheResult, parameterResult, modelResult, sparseResult]) => {
+      .then(([assetResult, cacheResult, parameterResult, modelResult, sparseResult, rerankerResult]) => {
         setDataAssets(assetResult.data_assets);
         setIndexCaches(cacheResult.derived_caches);
         setParameterSets(parameterResult.parameter_sets);
         setEmbeddingModels(modelResult.models);
         setSparseModels(sparseResult.models);
+        setRerankerModels(rerankerResult.models);
         setSelectedAssetId((current) => current || firstPreparedId(assetResult.data_assets));
         const firstChunkingSet = parameterResult.parameter_sets.find((set) => set.category === "chunking");
         setSelectedParameterSetId((current) => current || firstChunkingSet?.id || "");
@@ -112,6 +123,13 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
           setSparseModelId((current) => current || firstSparseModel.id);
           setSparseParams((current) =>
             Object.keys(current).length > 0 ? current : firstSparseModel.default_params,
+          );
+        }
+        const firstRerankerModel = rerankerResult.models[0];
+        if (firstRerankerModel) {
+          setRerankerModelId((current) => current || firstRerankerModel.id);
+          setRerankerParams((current) =>
+            Object.keys(current).length > 0 ? current : firstRerankerModel.default_params,
           );
         }
         const firstReadyIndex = cacheResult.derived_caches.find((cache) => cache.status === "ready");
@@ -134,6 +152,13 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       setSparseParams(model.default_params);
     }
   }, [sparseModelId, sparseModels]);
+
+  useEffect(() => {
+    const model = rerankerModels.find((item) => item.id === rerankerModelId);
+    if (model) {
+      setRerankerParams(model.default_params);
+    }
+  }, [rerankerModelId, rerankerModels]);
 
   async function handleMaterialize() {
     if (!currentProject || !selectedAssetId) {
@@ -198,9 +223,15 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     setIsRetrieving(true);
     try {
       const result = await previewRetrieval(currentProject.id, {
+        candidate_k: rerankingEnabled ? candidateK : null,
         index_cache_id: selectedIndexCache.id,
         mode: retrievalMode,
         query: query.trim(),
+        reranking: {
+          enabled: rerankingEnabled,
+          model_id: rerankerModelId,
+          params: rerankerParams,
+        },
         top_k: topK,
       });
       setRetrieval(result);
@@ -429,6 +460,63 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                     />
                   </label>
                 </div>
+                <div className="rerank-panel">
+                  <label className="check-row">
+                    <input
+                      checked={rerankingEnabled}
+                      type="checkbox"
+                      onChange={(event) => setRerankingEnabled(event.target.checked)}
+                    />
+                    Rerank candidates
+                  </label>
+                  {rerankingEnabled && selectedRerankerModel ? (
+                    <>
+                      <div className="parameter-grid">
+                        <label>
+                          Candidate K
+                          <input
+                            max={100}
+                            min={topK}
+                            type="number"
+                            value={candidateK}
+                            onChange={(event) => setCandidateK(Number(event.target.value))}
+                          />
+                        </label>
+                        <label>
+                          Reranker
+                          <select
+                            value={rerankerModelId}
+                            onChange={(event) => setRerankerModelId(event.target.value)}
+                          >
+                            {rerankerModels.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="asset-mini-summary">
+                        <span>{selectedRerankerModel.provider}</span>
+                        <span>{selectedRerankerModel.model_name}</span>
+                        <span>{selectedRerankerModel.backend}</span>
+                      </div>
+                      <div className="parameter-grid">
+                        {selectedRerankerModel.fields.map((field) => (
+                          <EmbeddingFieldControl
+                            field={field}
+                            key={field.name}
+                            value={rerankerParams[field.name] ?? field.default}
+                            onChange={(value) =>
+                              setRerankerParams((current) => ({ ...current, [field.name]: value }))
+                            }
+                          />
+                        ))}
+                      </div>
+                      <p className="form-note">{selectedRerankerModel.description}</p>
+                    </>
+                  ) : null}
+                </div>
                 <button
                   className="secondary-action"
                   disabled={isRetrieving || selectedIndexCache.status !== "ready"}
@@ -527,6 +615,13 @@ function RetrievalResult({ retrieval }: { retrieval: RetrievalPreviewResponse })
             {chunk.sparse_score !== undefined && chunk.sparse_score !== null ? (
               <span>sparse {chunk.sparse_score.toFixed(4)}</span>
             ) : null}
+            {chunk.rerank_score !== undefined && chunk.rerank_score !== null ? (
+              <span>rerank {chunk.rerank_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.original_score !== undefined && chunk.original_score !== null ? (
+              <span>original {chunk.original_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
             {chunk.source_name ? <span>{chunk.source_name}</span> : null}
             {chunk.token_count ? <span>{chunk.token_count} tokens</span> : null}
           </div>

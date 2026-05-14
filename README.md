@@ -15,6 +15,7 @@ Project
 -> DerivedCache chunks
 -> Qdrant index cache
 -> retrieval preview
+-> optional reranking preview
 -> optional Ground Truth Set
 -> Saved Experiment
 -> metrics comparison
@@ -31,7 +32,9 @@ Current implemented foundation:
 - Chunking Lab with preview over prepared data assets;
 - materialized chunk caches with normalized chunk metadata;
 - backend-driven embedding and sparse retrieval model catalogs;
+- backend-driven reranker model catalog;
 - Qdrant indexing with dense and local BM25-style sparse vectors for dense, sparse, and hybrid retrieval preview;
+- optional reranking over retrieved candidates with local cross-encoder models;
 - categorized parameter sets with protected deletion;
 - saved experiments that snapshot prepared data manifest hashes and parameter snapshots.
 

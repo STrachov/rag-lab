@@ -41,6 +41,8 @@
 - index in Qdrant with named dense and sparse vectors
 - retrieve top-k chunks in dense, sparse, or hybrid mode
 - merge hybrid retrieval previews with reciprocal rank fusion
+- expose backend-driven reranker model catalogs
+- rerank retrieval preview candidates with local cross-encoder models
 - track ready and failed derived cache entries
 
 ## Phase 4: Answer Generation And Citations
@@ -69,7 +71,7 @@
 
 - reports derived from saved experiment metrics
 - advanced hybrid search variants
-- reranking
+- advanced reranking calibration
 - contextual chunks
 - parent-child retrieval
 - OCR-to-RAG bridge

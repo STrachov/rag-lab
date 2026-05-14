@@ -696,6 +696,13 @@ h1 {
   gap: 8px;
 }
 
+.rerank-panel {
+  border-top: 1px solid #edf1f3;
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+}
+
 .cache-item {
   background: #f8fafb;
   border: 1px solid #dce3e7;

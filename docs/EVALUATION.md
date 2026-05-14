@@ -67,6 +67,8 @@ embedding_model
 sparse_model
 index_mode
 retrieval_mode
+reranker_model
+candidate_k
 prompt_tokens
 completion_tokens
 estimated_cost

@@ -42,8 +42,9 @@ evaluation
 
 Preparation includes PDF-to-Markdown, OCR, or document conversion method and settings.
 
-Indexing and retrieval snapshots should include the embedding model, sparse model, Qdrant collection
-settings, index mode, retrieval mode, and fusion settings used for the run.
+Indexing, retrieval, and reranking snapshots should include the embedding model, sparse model, Qdrant
+collection settings, index mode, retrieval mode, candidate count, reranker model, reranker params, and
+fusion settings used for the run.
 
 ## Results
 
@@ -75,7 +76,8 @@ full
 ```
 
 Current derived runtime outputs include materialized chunk JSONL, local BM25 stats, Qdrant indexes
-with named dense/sparse vectors, and retrieval previews with clipped chunk text.
+with named dense/sparse vectors, retrieval previews with clipped chunk text, and optional reranked
+candidate traces.
 
 ## Baseline Matrix
 

@@ -295,6 +295,29 @@ export type SparseModel = {
   fields: SparseModelField[];
 };
 
+export type RerankerModelField = {
+  name: string;
+  label: string;
+  type: "number" | "select" | "boolean" | "text";
+  default: EmbeddingParamValue;
+  help_text?: string | null;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  options?: Array<{ label: string; value: string }> | null;
+};
+
+export type RerankerModel = {
+  id: string;
+  label: string;
+  description: string;
+  provider: string;
+  model_name: string;
+  backend: string;
+  default_params: Record<string, EmbeddingParamValue>;
+  fields: RerankerModelField[];
+};
+
 export type QdrantIndexRequest = {
   chunks_cache_id: string;
   embedding: {
@@ -315,6 +338,9 @@ export type RetrievedChunk = {
   score?: number | null;
   dense_score?: number | null;
   sparse_score?: number | null;
+  rerank_score?: number | null;
+  original_score?: number | null;
+  original_rank?: number | null;
   source_name?: string | null;
   stored_path?: string | null;
   section?: string | null;
@@ -330,6 +356,8 @@ export type RetrievalPreviewResponse = {
   mode: "dense" | "sparse" | "hybrid";
   query: string;
   top_k: number;
+  candidate_k?: number | null;
+  reranking?: Record<string, unknown> | null;
   retrieved_chunks: RetrievedChunk[];
 };
 
@@ -572,6 +600,12 @@ export async function listSparseModels(
   return request(`/projects/${projectId}/sparse/models`);
 }
 
+export async function listRerankerModels(
+  projectId: string,
+): Promise<{ models: RerankerModel[] }> {
+  return request(`/projects/${projectId}/reranking/models`);
+}
+
 export async function listDerivedCaches(
   projectId: string,
   cacheType?: DerivedCache["cache_type"],
@@ -592,7 +626,18 @@ export async function createQdrantIndex(
 
 export async function previewRetrieval(
   projectId: string,
-  payload: { index_cache_id: string; mode?: "dense" | "sparse" | "hybrid"; query: string; top_k?: number },
+  payload: {
+    candidate_k?: number | null;
+    index_cache_id: string;
+    mode?: "dense" | "sparse" | "hybrid";
+    query: string;
+    reranking?: {
+      enabled: boolean;
+      model_id: string;
+      params: Record<string, EmbeddingParamValue>;
+    };
+    top_k?: number;
+  },
 ): Promise<RetrievalPreviewResponse> {
   return request(`/projects/${projectId}/retrieve/preview`, {
     body: JSON.stringify(payload),

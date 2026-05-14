@@ -64,8 +64,10 @@ named vectors: `dense` for embedding vectors and `sparse` for BM25-style sparse 
 attempts should be tracked as `DerivedCache(status="failed")` with error metadata so the UI can show
 what happened after navigation.
 
-Retrieval preview may return clipped chunk text as `text_preview`, plus source metadata and dense or
-sparse scores. It is still debug output, not a saved experiment result.
+Retrieval preview may return clipped chunk text as `text_preview`, plus source metadata, dense or
+sparse scores, and optional rerank scores. Reranking reads full materialized chunk text locally from
+the chunks cache, but it does not add full text to Qdrant payloads. It is still debug output, not a
+saved experiment result.
 
 These outputs can be regenerated from:
 

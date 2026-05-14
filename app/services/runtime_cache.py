@@ -21,6 +21,11 @@ from app.services.sparse import (
     get_sparse_model,
     normalize_sparse_params,
 )
+from app.services.rerankers import (
+    get_reranker_model,
+    normalize_reranker_params,
+    rerank_chunks,
+)
 
 PIPELINE_VERSION = "runtime-v1"
 RETRIEVAL_TEXT_PREVIEW_CHARS = 1200
@@ -50,6 +55,20 @@ def build_sparse_snapshot(model_id: str, params: dict[str, Any] | None = None) -
     normalized = normalize_sparse_params(model_id, params)
     return {
         "sparse": {
+            "model_id": spec.id,
+            "params": normalized,
+            "provider": spec.provider,
+        }
+    }
+
+
+def build_reranking_snapshot(model_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    spec = get_reranker_model(model_id)
+    normalized = normalize_reranker_params(model_id, params)
+    return {
+        "reranking": {
+            "backend": spec.backend,
+            "model": spec.model_name,
             "model_id": spec.id,
             "params": normalized,
             "provider": spec.provider,
@@ -210,8 +229,10 @@ def index_chunks_in_qdrant(
 def retrieve_from_qdrant(
     *,
     index_cache: models.DerivedCache,
+    candidate_k: int | None = None,
     query: str,
     mode: str,
+    reranking_snapshot: dict[str, Any] | None = None,
     top_k: int,
     vector_store: Any,
 ) -> dict[str, Any]:
@@ -223,13 +244,14 @@ def retrieve_from_qdrant(
     embedder = create_embedder(embedding["model_id"], embedding["params"])
     query_vector = embedder.embed_query(query)
     collection_name = str(metadata["collection_name"])
-    candidate_k = min(100, max(top_k, top_k * 5))
+    base_candidate_k = candidate_k or (top_k * 5 if mode == "hybrid" else top_k)
+    effective_candidate_k = min(100, max(top_k, base_candidate_k))
     if mode == "dense":
         retrieved = _format_results(
             vector_store.search_dense(
                 collection_name=collection_name,
                 query_vector=query_vector,
-                top_k=top_k,
+                top_k=effective_candidate_k,
             ),
             score_key="dense_score",
         )
@@ -239,7 +261,7 @@ def retrieve_from_qdrant(
             vector_store.search_sparse(
                 collection_name=collection_name,
                 query_vector=sparse_query,
-                top_k=top_k,
+                top_k=effective_candidate_k,
             ),
             score_key="sparse_score",
         )
@@ -248,19 +270,30 @@ def retrieve_from_qdrant(
         dense_results = vector_store.search_dense(
             collection_name=collection_name,
             query_vector=query_vector,
-            top_k=candidate_k,
+            top_k=effective_candidate_k,
         )
         sparse_results = vector_store.search_sparse(
             collection_name=collection_name,
             query_vector=sparse_query,
-            top_k=candidate_k,
+            top_k=effective_candidate_k,
         )
-        retrieved = _rrf_merge(dense_results, sparse_results)[:top_k]
+        retrieved = _rrf_merge(dense_results, sparse_results)
+    if reranking_snapshot is not None:
+        reranking = reranking_snapshot["reranking"]
+        retrieved = rerank_chunks(
+            chunks=retrieved,
+            model_id=reranking["model_id"],
+            params=reranking["params"],
+            query=query,
+            text_by_chunk_id=_full_text_by_chunk_id(metadata),
+        )
     return {
+        "candidate_k": effective_candidate_k,
         "index_cache_id": index_cache.id,
         "mode": mode,
         "query": query,
-        "retrieved_chunks": retrieved,
+        "reranking": reranking_snapshot["reranking"] if reranking_snapshot else None,
+        "retrieved_chunks": retrieved[:top_k],
         "top_k": top_k,
     }
 
@@ -342,6 +375,21 @@ def _encode_sparse_query(query: str, metadata: dict[str, Any]) -> dict[str, list
         raise ValueError("Selected index does not include sparse statistics")
     sparse_stats = json.loads(Path(str(stats_path)).read_text(encoding="utf-8"))
     return encode_bm25_query(query, sparse_stats)
+
+
+def _full_text_by_chunk_id(metadata: dict[str, Any]) -> dict[str, str]:
+    chunks_cache_key = metadata.get("chunks_cache_key")
+    if not chunks_cache_key:
+        return {}
+    chunks_path = _cache_root() / "chunks" / str(chunks_cache_key) / "chunks.jsonl"
+    if not chunks_path.exists():
+        return {}
+    chunks = [
+        json.loads(line)
+        for line in chunks_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return {str(chunk["chunk_id"]): str(chunk["text"]) for chunk in chunks}
 
 
 def _format_results(results: list[dict[str, Any]], *, score_key: str) -> list[dict[str, Any]]:

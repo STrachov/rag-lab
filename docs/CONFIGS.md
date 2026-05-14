@@ -11,6 +11,7 @@ configs/chunking/
 configs/embedding/
 configs/indexing/
 configs/retrieval/
+configs/reranking/
 configs/prompts/
 configs/eval/
 ```
@@ -163,7 +164,25 @@ top_k: 8
 fusion: rrf
 rrf_k: 60
 reranker:
-  enabled: false
+  enabled: true
+  candidate_k: 30
+  model_id: qwen3_reranker_0_6b
+```
+
+## Reranking example
+
+```yaml
+config_id: qwen3_reranker_0_6b_cpu
+provider: sentence_transformers
+backend: cross_encoder
+model_id: qwen3_reranker_0_6b
+model_name: Qwen/Qwen3-Reranker-0.6B
+params:
+  device: cpu
+  batch_size: 8
+  max_length: 512
+  normalize_scores: true
+  instruction: Given a web search query, retrieve relevant passages that answer the query
 ```
 
 ## Prompt config example

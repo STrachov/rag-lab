@@ -71,10 +71,13 @@ latency
 metrics
 dense_score
 sparse_score
+rerank_score
 ```
 
 Chunk text is sensitive derived data. It may be shown as a clipped preview in local debug UI, but do
-not commit derived cache files or paste full retrieved chunks into logs.
+not commit derived cache files or paste full retrieved chunks into logs. Rerankers may read full
+materialized chunk text locally for scoring; do not send it to remote reranker APIs unless a project
+explicitly opts into that behavior.
 
 ## Anonymization
 

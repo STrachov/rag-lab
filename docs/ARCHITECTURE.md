@@ -19,7 +19,7 @@ Source data assets hold uploaded source files. Prepared data assets are RAG-read
 
 The runtime pipeline may create chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and answers. These are derived cache/debug outputs, not product-facing results.
 
-The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Retrieval preview returns retrieved chunk metadata, text previews, and score breakdowns; it is debug output, not experiment results.
+The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder models. It returns retrieved chunk metadata, text previews, retrieval scores, and rerank score breakdowns; it is debug output, not experiment results.
 
 ## Recommended Structure
 
@@ -67,6 +67,8 @@ Responsibilities:
 - expose backend-owned embedding and sparse model catalogs;
 - build Qdrant index caches with named dense vectors and optional BM25-style sparse vectors;
 - preview dense, sparse, and hybrid retrieval over Qdrant index caches;
+- expose backend-owned reranker model catalogs;
+- rerank retrieval preview candidates from full materialized chunk text;
 - save and delete categorized reusable parameter sets;
 - save optional ground truth set references;
 - save experiments with full parameter snapshots;
@@ -112,7 +114,7 @@ Debug views for chunks, traces, prompts, and answers may be added later, but the
 
 The Data UI shows source assets as rows with linked prepared versions. Users can download files by original filename, add/delete files, delete assets, inspect PDF signals, and create prepared assets through a `Prepare with` method selector.
 
-The Parameters UI owns chunking preview and reusable chunking `ParameterSet` creation. The Indexing UI materializes chunks, selects embedding and sparse model parameters, creates Qdrant index caches, lists existing/failed index caches, and previews retrieval.
+The Parameters UI owns chunking preview and reusable chunking `ParameterSet` creation. The Indexing UI materializes chunks, selects embedding, sparse, and reranker model parameters, creates Qdrant index caches, lists existing/failed index caches, and previews retrieval.
 
 Docling is integrated as an external Docling Serve endpoint. Local CPU Docker, local GPU Docker, and remote GPU machines should use the same adapter boundary and differ by `RAG_LAB_DOCLING_BASE_URL`.
 

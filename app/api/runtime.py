@@ -16,16 +16,19 @@ from app.models.api import (
     DerivedCacheResponse,
     EmbeddingModelListResponse,
     QdrantIndexRequest,
+    RerankerModelListResponse,
     RetrievalPreviewRequest,
     RetrievalPreviewResponse,
     SparseModelListResponse,
 )
 from app.services.hashing import short_hash, stable_sha256
 from app.services.embeddings import list_embedding_models
+from app.services.rerankers import list_reranker_models
 from app.services.sparse import list_sparse_models
 from app.services.runtime_cache import (
     build_chunking_snapshot,
     build_embedding_snapshot,
+    build_reranking_snapshot,
     build_sparse_snapshot,
     index_chunks_in_qdrant,
     materialize_chunks,
@@ -74,6 +77,18 @@ def list_project_sparse_models(
 ) -> SparseModelListResponse:
     _get_project_or_404(db, project_id)
     return SparseModelListResponse.model_validate({"models": list_sparse_models()})
+
+
+@router.get(
+    "/projects/{project_id}/reranking/models",
+    response_model=RerankerModelListResponse,
+)
+def list_project_reranker_models(
+    project_id: str,
+    db: Session = Depends(get_db),
+) -> RerankerModelListResponse:
+    _get_project_or_404(db, project_id)
+    return RerankerModelListResponse.model_validate({"models": list_reranker_models()})
 
 
 @router.post(
@@ -237,10 +252,17 @@ def preview_project_retrieval(
             detail="index_cache_id must reference a qdrant_index cache",
         )
     try:
+        reranking_snapshot = (
+            build_reranking_snapshot(payload.reranking.model_id, payload.reranking.params)
+            if payload.reranking.enabled
+            else None
+        )
         result = retrieve_from_qdrant(
+            candidate_k=payload.candidate_k,
             index_cache=index_cache,
             mode=payload.mode,
             query=payload.query,
+            reranking_snapshot=reranking_snapshot,
             top_k=payload.top_k,
             vector_store=_qdrant_store(),
         )

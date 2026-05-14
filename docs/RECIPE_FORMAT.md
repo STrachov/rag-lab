@@ -56,10 +56,22 @@ vector_store:
 retrieval:
   mode: hybrid
   top_k: 8
+  candidate_k: 30
   fusion: rrf
   rrf_k: 60
-  reranker:
-    enabled: false
+
+reranking:
+  enabled: true
+  provider: sentence_transformers
+  backend: cross_encoder
+  model_id: qwen3_reranker_0_6b
+  model_name: Qwen/Qwen3-Reranker-0.6B
+  params:
+    device: cpu
+    batch_size: 8
+    max_length: 512
+    normalize_scores: true
+    instruction: Given a web search query, retrieve relevant passages that answer the query
 
 generation:
   model: gpt-4.1-mini

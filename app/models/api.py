@@ -265,6 +265,33 @@ class SparseModelListResponse(BaseModel):
     models: list[SparseModelResponse]
 
 
+class RerankerModelField(BaseModel):
+    name: str
+    label: str
+    type: Literal["number", "select", "boolean", "text"]
+    default: Any
+    help_text: str | None = None
+    min: int | None = None
+    max: int | None = None
+    step: int | None = None
+    options: list[dict[str, str]] | None = None
+
+
+class RerankerModelResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    provider: str
+    model_name: str
+    backend: str
+    default_params: JsonObject
+    fields: list[RerankerModelField]
+
+
+class RerankerModelListResponse(BaseModel):
+    models: list[RerankerModelResponse]
+
+
 class EmbeddingParams(BaseModel):
     model_id: str = "intfloat_multilingual_e5_small"
     params: JsonObject = Field(default_factory=dict)
@@ -272,6 +299,12 @@ class EmbeddingParams(BaseModel):
 
 class SparseParams(BaseModel):
     model_id: str = "bm25_local"
+    params: JsonObject = Field(default_factory=dict)
+
+
+class RerankingParams(BaseModel):
+    enabled: bool = False
+    model_id: str = "baai_bge_reranker_v2_m3"
     params: JsonObject = Field(default_factory=dict)
 
 
@@ -289,6 +322,8 @@ class RetrievalPreviewRequest(BaseModel):
     query: str
     mode: Literal["dense", "sparse", "hybrid"] = "hybrid"
     top_k: int = Field(default=5, ge=1, le=50)
+    candidate_k: int | None = Field(default=None, ge=1, le=100)
+    reranking: RerankingParams = Field(default_factory=RerankingParams)
 
 
 class RetrievedChunk(BaseModel):
@@ -296,6 +331,9 @@ class RetrievedChunk(BaseModel):
     score: float | None = None
     dense_score: float | None = None
     sparse_score: float | None = None
+    rerank_score: float | None = None
+    original_score: float | None = None
+    original_rank: int | None = None
     source_name: str | None = None
     stored_path: str | None = None
     section: str | None = None
@@ -313,6 +351,8 @@ class RetrievalPreviewResponse(BaseModel):
     mode: Literal["dense", "sparse", "hybrid"]
     query: str
     top_k: int
+    candidate_k: int | None = None
+    reranking: JsonObject | None = None
     retrieved_chunks: list[RetrievedChunk]
 
 

@@ -204,6 +204,7 @@ results.
 - Use named Qdrant vectors: `dense` for embeddings and `sparse` for sparse vectors.
 - Support dense, sparse, and hybrid retrieval preview; merge hybrid results with reciprocal rank
   fusion in application code.
+- Support optional reranking as a retrieval preview runtime step over materialized chunk text.
 - Record failed index creation attempts as `DerivedCache(status="failed")` with error metadata.
 
 ### Consequences
@@ -217,4 +218,5 @@ Pros:
 Cons:
 - local embedding models introduce first-run model downloads and CPU latency;
 - app-layer fusion is simple and transparent, but advanced hybrid tuning remains future work;
+- local cross-encoder rerankers improve quality inspection but add latency and first-run model downloads;
 - Qdrant collection compatibility is intentionally not preserved for old experimental collections.

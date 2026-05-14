@@ -28,6 +28,10 @@ Retrieve many candidates, rerank, then pass the best chunks to the prompt.
 
 Tradeoff: better quality, higher latency/cost.
 
+Current RAG Lab reranking is a retrieval preview step over materialized chunk text. The first local
+rerankers are `BAAI/bge-reranker-v2-m3`, `Qwen/Qwen3-Reranker-0.6B`, and
+`cross-encoder/ms-marco-MiniLM-L6-v2`.
+
 ## Contextual chunks
 
 Add document and section context to chunks before indexing.

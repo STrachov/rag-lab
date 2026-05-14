@@ -68,15 +68,16 @@ python -m pytest
 7. Choose embedding, sparse, and Qdrant index settings
 8. Create a dense, sparse, or hybrid Qdrant index cache
 9. Run retrieval preview and inspect retrieved chunk text, metadata, and scores
-10. Register optional ground truth set
-11. Save experiment with full parameter snapshot and data manifest hash
-12. Inspect metrics
-13. Compare saved experiments
-14. Promote validated parameter snapshot later
+10. Optionally enable reranking and compare rerank scores against original retrieval scores
+11. Register optional ground truth set
+12. Save experiment with full parameter snapshot and data manifest hash
+13. Inspect metrics
+14. Compare saved experiments
+15. Promote validated parameter snapshot later
 ```
 
-The first local embedding models are SentenceTransformers models and may download model weights on
-first use. Qdrant must be running before creating or previewing indexes.
+The first local embedding and reranking models are SentenceTransformers models and may download model
+weights on first use. Qdrant must be running before creating or previewing indexes.
 
 ## Review checklist
 

@@ -16,6 +16,8 @@ sparse model registry
 BM25 sparse vector building
 Qdrant vector store adapter
 hybrid retrieval fusion
+reranker model registry
+reranked retrieval ordering
 citation building
 eval metrics
 config loading
@@ -33,6 +35,7 @@ Use for:
 source upload -> inspection -> prepared version
 document ingest -> chunk -> index -> retrieve
 chunk materialization -> Qdrant index cache -> retrieval preview
+retrieval preview -> rerank candidates
 retrieve -> answer trace
 experiment run -> saved metrics
 recipe promotion
@@ -67,6 +70,7 @@ embedding catalog or encoder behavior
 sparse catalog or BM25 params
 Qdrant collection/index behavior
 retrieval preview payloads and score fields
+reranking catalog and rerank score fields
 failed derived cache records
 retrievers
 rerankers
@@ -86,6 +90,7 @@ synthetic source data
 -> materialize chunks
 -> create Qdrant index
 -> retrieve known answer with dense, sparse, or hybrid preview
+-> rerank retrieved candidates
 -> generate answer
 -> evaluate hit@k
 ```

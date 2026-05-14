@@ -130,6 +130,7 @@ POST /v1/projects/{project_id}/ground-truth-sets
 GET  /v1/projects/{project_id}/derived-cache?cache_type=...
 GET  /v1/projects/{project_id}/embedding/models
 GET  /v1/projects/{project_id}/sparse/models
+GET  /v1/projects/{project_id}/reranking/models
 POST /v1/projects/{project_id}/chunks/materialize
 POST /v1/projects/{project_id}/indexes/qdrant
 POST /v1/projects/{project_id}/retrieve/preview
@@ -151,6 +152,14 @@ The first sparse model is `bm25_local`. Its user-tunable params include `k1` and
 ```text
 k1: 0.0..4.0, default 1.2, step 0.05
 b:  0.0..1.0, default 0.75, step 0.05
+```
+
+The first reranker models are local cross-encoders exposed through a backend-owned catalog:
+
+```text
+baai_bge_reranker_v2_m3 -> BAAI/bge-reranker-v2-m3
+qwen3_reranker_0_6b -> Qwen/Qwen3-Reranker-0.6B
+ms_marco_minilm_l6_v2 -> cross-encoder/ms-marco-MiniLM-L6-v2
 ```
 
 `chunks/materialize` accepts a prepared `data_asset_id` plus a canonical chunking snapshot and writes
@@ -195,13 +204,29 @@ Retrieval preview accepts a Qdrant index cache, query, mode, and `top_k`:
   "index_cache_id": "uuid",
   "query": "What is the policy?",
   "mode": "hybrid",
-  "top_k": 5
+  "top_k": 5,
+  "candidate_k": 30,
+  "reranking": {
+    "enabled": true,
+    "model_id": "qwen3_reranker_0_6b",
+    "params": {
+      "device": "cpu",
+      "batch_size": 8,
+      "max_length": 512,
+      "normalize_scores": true
+    }
+  }
 }
 ```
 
 Response rows include source metadata, `score`, optional `dense_score`, optional `sparse_score`, and a
 clipped `text_preview`. Hybrid preview currently merges dense and sparse Qdrant searches in the
 application layer with reciprocal rank fusion.
+
+When reranking is enabled, retrieval first fetches `candidate_k` candidates, loads full chunk text
+from the materialized chunks cache, scores query/chunk pairs with the selected reranker, and returns
+the final `top_k`. Result rows then include `rerank_score`, `original_score`, and `original_rank`.
+Full chunk text is not stored in Qdrant payloads.
 
 ## Saved Experiments
 

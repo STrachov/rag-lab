@@ -184,6 +184,26 @@ def test_list_sparse_models_for_hybrid_indexing_ui(client: TestClient) -> None:
     assert fields["b"]["step"] == 0.05
 
 
+def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.get(f"/v1/projects/{project_id}/reranking/models")
+
+    assert response.status_code == 200
+    models = response.json()["models"]
+    model_ids = [model["id"] for model in models]
+    assert "baai_bge_reranker_v2_m3" in model_ids
+    assert "qwen3_reranker_0_6b" in model_ids
+    assert "ms_marco_minilm_l6_v2" in model_ids
+    qwen = next(model for model in models if model["id"] == "qwen3_reranker_0_6b")
+    assert qwen["provider"] == "sentence_transformers"
+    assert qwen["model_name"] == "Qwen/Qwen3-Reranker-0.6B"
+    fields = {field["name"]: field for field in qwen["fields"]}
+    assert fields["device"]["default"] == "cpu"
+    assert fields["max_length"]["max"] == 8192
+    assert "instruction" in fields
+
+
 def test_materialize_chunks_creates_derived_cache_with_docling_sidecar(
     client: TestClient,
     monkeypatch,
@@ -332,6 +352,82 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     assert retrieved[0]["dense_score"] == 0.99
     assert retrieved[0]["sparse_score"] == 0.88
     assert "Payment is due within 30 days" in retrieved[0]["text_preview"]
+
+
+def test_retrieval_preview_can_rerank_candidates(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nAlpha is a weak candidate.\n\n# Payment\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 0,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    fake_qdrant = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.rerankers.create_reranker", lambda model_id, params=None: FakeReranker())
+
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_response.json()["id"],
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+    assert index_response.status_code == 201
+
+    retrieve_response = client.post(
+        f"/v1/projects/{project_id}/retrieve/preview",
+        json={
+            "candidate_k": 10,
+            "index_cache_id": index_response.json()["id"],
+            "mode": "dense",
+            "query": "When is payment due?",
+            "reranking": {
+                "enabled": True,
+                "model_id": "qwen3_reranker_0_6b",
+                "params": {"batch_size": 2, "device": "cpu", "max_length": 512, "normalize_scores": True},
+            },
+            "top_k": 1,
+        },
+    )
+
+    assert retrieve_response.status_code == 200
+    body = retrieve_response.json()
+    assert body["candidate_k"] == 10
+    assert body["reranking"]["model_id"] == "qwen3_reranker_0_6b"
+    retrieved = body["retrieved_chunks"]
+    assert "Payment is due within 30 days" in retrieved[0]["text_preview"]
+    assert retrieved[0]["rerank_score"] == 0.9
+    assert retrieved[0]["original_score"] is not None
+    assert retrieved[0]["original_rank"] is not None
 
 
 def test_qdrant_index_failure_is_visible_in_derived_cache(
@@ -1134,9 +1230,10 @@ class FakeQdrantStore:
         assert query_vector
         return [
             {
-                "payload": self.points[0]["payload"],
-                "score": 0.99,
+                "payload": point["payload"],
+                "score": 0.99 - (index * 0.1),
             }
+            for index, point in enumerate(self.points)
         ][:top_k]
 
     def search_sparse(self, *, collection_name: str, query_vector: dict, top_k: int) -> list[dict]:
@@ -1144,9 +1241,10 @@ class FakeQdrantStore:
         assert query_vector["indices"]
         return [
             {
-                "payload": self.points[0]["payload"],
-                "score": 0.88,
+                "payload": point["payload"],
+                "score": 0.88 - (index * 0.1),
             }
+            for index, point in enumerate(self.points)
         ][:top_k]
 
 
@@ -1166,6 +1264,12 @@ def fake_create_embedder(model_id: str, params: dict | None = None) -> FakeEmbed
     assert model_id == "intfloat_multilingual_e5_small"
     assert params is not None
     return FakeEmbedder()
+
+
+class FakeReranker:
+    def score(self, query: str, passages: list[str]) -> list[float]:
+        assert query
+        return [0.9 if "Payment is due within 30 days" in passage else 0.1 for passage in passages]
 
 
 def _patch_data_dirs(monkeypatch, tmp_path) -> None:

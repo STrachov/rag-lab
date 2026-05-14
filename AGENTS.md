@@ -66,8 +66,9 @@ A feature is not complete unless at least one is true:
 - Chunking strategies are backend-driven. The UI must load the strategy catalog instead of hardcoding strategy names or fields.
 - Chunking preview is derived debug output, not a saved experiment result. A chunking snapshot may also be materialized into `DerivedCache(cache_type="chunks")` for later indexing.
 - Embedding and sparse retrieval models are backend-driven catalogs. Current local models include `intfloat/multilingual-e5-small`, `BAAI/bge-small-en-v1.5`, and `bm25_local`.
+- Reranking models are backend-driven catalogs. Current local rerankers include `BAAI/bge-reranker-v2-m3`, `Qwen/Qwen3-Reranker-0.6B`, and `cross-encoder/ms-marco-MiniLM-L6-v2`.
 - Qdrant indexes are derived cache entries. Current Qdrant collections use named vectors (`dense`, optional `sparse`) and support `dense`, `sparse`, and `hybrid` retrieval previews.
-- Retrieval preview is derived debug output. It may show source metadata, scores, and clipped chunk text, but it is not a saved experiment result.
+- Retrieval preview is derived debug output. It may show source metadata, retrieval scores, rerank scores, and clipped chunk text, but it is not a saved experiment result.
 - Runtime failures that matter for reproducibility, such as failed Qdrant indexing, should be recorded as `DerivedCache(status="failed")` with inspectable error metadata.
 
 ## Data Safety

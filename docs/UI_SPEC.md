@@ -218,6 +218,7 @@ select sparse model and params from the backend catalog
 choose index mode: dense, sparse, hybrid
 create a Qdrant index cache
 run retrieval preview against an index cache
+optionally rerank retrieved candidates with a backend-driven reranker catalog
 ```
 
 Existing indexes should remain visible after navigation because they are loaded from
@@ -233,6 +234,8 @@ chunk_id
 score
 dense_score when available
 sparse_score when available
+rerank_score when available
+original_score and original_rank when reranking is enabled
 source filename
 token count
 chunk text preview
@@ -240,6 +243,8 @@ chunk text preview
 
 Embedding and sparse controls must be backend-driven. The UI should not hardcode model ids or sparse
 parameter ranges. BM25-style `k1` and `b` are floats, so numeric inputs must support decimal steps.
+Reranker controls must follow the same registry pattern and should support candidate count, device,
+batch size, max length, score normalization, and model-specific fields such as Qwen instructions.
 
 ## Ground Truth
 
