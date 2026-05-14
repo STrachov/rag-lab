@@ -691,6 +691,12 @@ h1 {
   padding-right: 4px;
 }
 
+.chunk-list h3 {
+  color: #425864;
+  font-size: 13px;
+  margin: 0;
+}
+
 .index-cache-list {
   display: grid;
   gap: 8px;

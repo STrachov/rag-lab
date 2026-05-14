@@ -326,6 +326,12 @@ class RetrievalPreviewRequest(BaseModel):
     reranking: RerankingParams = Field(default_factory=RerankingParams)
 
 
+class RerankPreviewRequest(BaseModel):
+    retrieval_cache_id: str
+    top_k: int = Field(default=5, ge=1, le=50)
+    reranking: RerankingParams = Field(default_factory=lambda: RerankingParams(enabled=True))
+
+
 class RetrievedChunk(BaseModel):
     chunk_id: str | None = None
     score: float | None = None
@@ -348,6 +354,7 @@ class RetrievedChunk(BaseModel):
 
 class RetrievalPreviewResponse(BaseModel):
     index_cache_id: str
+    retrieval_cache_id: str | None = None
     mode: Literal["dense", "sparse", "hybrid"]
     query: str
     top_k: int

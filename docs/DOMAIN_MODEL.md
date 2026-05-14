@@ -262,8 +262,10 @@ chunks_cache_id
 Failed index attempts should be visible as `DerivedCache(status="failed")` with `metadata_json.error_json` instead of disappearing from the UI.
 
 Reranking is currently a retrieval preview runtime step, not a separate cache type. It should be
-represented in parameter snapshots through a reranking model id, params, candidate count, and final
-top-k. If debug persistence is later enabled, reranked traces belong in `retrieval_temp`.
+run from a `retrieval_temp` cache that stores the query, retrieval mode, candidate count, index cache
+reference, and retrieved candidate metadata. It should be represented in parameter snapshots through a
+reranking model id, params, candidate count, and final top-k. Reranked traces also belong in
+`retrieval_temp` if debug persistence is later expanded.
 
 ## Results
 

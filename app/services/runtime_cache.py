@@ -278,6 +278,7 @@ def retrieve_from_qdrant(
             top_k=effective_candidate_k,
         )
         retrieved = _rrf_merge(dense_results, sparse_results)
+    candidate_chunks = retrieved
     if reranking_snapshot is not None:
         reranking = reranking_snapshot["reranking"]
         retrieved = rerank_chunks(
@@ -288,12 +289,77 @@ def retrieve_from_qdrant(
             text_by_chunk_id=_full_text_by_chunk_id(metadata),
         )
     return {
+        "candidate_chunks": candidate_chunks,
         "candidate_k": effective_candidate_k,
         "index_cache_id": index_cache.id,
         "mode": mode,
         "query": query,
         "reranking": reranking_snapshot["reranking"] if reranking_snapshot else None,
         "retrieved_chunks": retrieved[:top_k],
+        "top_k": top_k,
+    }
+
+
+def build_retrieval_temp_payload(
+    *,
+    index_cache: models.DerivedCache,
+    query: str,
+    mode: str,
+    candidate_k: int,
+    candidate_chunks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    params_hash = stable_sha256(
+        {
+            "candidate_k": candidate_k,
+            "index_cache_key": index_cache.cache_key,
+            "mode": mode,
+            "pipeline_version": PIPELINE_VERSION,
+            "query": query,
+        }
+    )
+    cache_key = f"retrieval_{short_hash(params_hash, 20)}"
+    metadata = {
+        "cache_key": cache_key,
+        "candidate_k": candidate_k,
+        "collection_name": index_cache.metadata_json.get("collection_name"),
+        "data_asset_id": index_cache.data_asset_id,
+        "index_cache_id": index_cache.id,
+        "index_cache_key": index_cache.cache_key,
+        "mode": mode,
+        "params_hash": params_hash,
+        "pipeline_version": PIPELINE_VERSION,
+        "query": query,
+        "retrieved_chunks": candidate_chunks,
+        "schema_version": "raglab.retrieval_temp.v1",
+    }
+    return {"cache_key": cache_key, "metadata_json": metadata, "params_hash": params_hash}
+
+
+def rerank_retrieval_candidates(
+    *,
+    retrieval_cache: models.DerivedCache,
+    index_cache: models.DerivedCache,
+    reranking_snapshot: dict[str, Any],
+    top_k: int,
+) -> dict[str, Any]:
+    metadata = retrieval_cache.metadata_json
+    reranking = reranking_snapshot["reranking"]
+    candidate_chunks = list(metadata.get("retrieved_chunks") or [])
+    reranked = rerank_chunks(
+        chunks=candidate_chunks,
+        model_id=reranking["model_id"],
+        params=reranking["params"],
+        query=str(metadata["query"]),
+        text_by_chunk_id=_full_text_by_chunk_id(index_cache.metadata_json),
+    )
+    return {
+        "candidate_k": int(metadata.get("candidate_k") or len(candidate_chunks)),
+        "index_cache_id": str(metadata["index_cache_id"]),
+        "mode": str(metadata["mode"]),
+        "query": str(metadata["query"]),
+        "reranking": reranking,
+        "retrieval_cache_id": retrieval_cache.id,
+        "retrieved_chunks": reranked[:top_k],
         "top_k": top_k,
     }
 

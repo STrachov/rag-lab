@@ -353,6 +353,7 @@ export type RetrievedChunk = {
 
 export type RetrievalPreviewResponse = {
   index_cache_id: string;
+  retrieval_cache_id?: string | null;
   mode: "dense" | "sparse" | "hybrid";
   query: string;
   top_k: number;
@@ -631,7 +632,20 @@ export async function previewRetrieval(
     index_cache_id: string;
     mode?: "dense" | "sparse" | "hybrid";
     query: string;
-    reranking?: {
+    top_k?: number;
+  },
+): Promise<RetrievalPreviewResponse> {
+  return request(`/projects/${projectId}/retrieve/preview`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function previewRerank(
+  projectId: string,
+  payload: {
+    retrieval_cache_id: string;
+    reranking: {
       enabled: boolean;
       model_id: string;
       params: Record<string, EmbeddingParamValue>;
@@ -639,7 +653,7 @@ export async function previewRetrieval(
     top_k?: number;
   },
 ): Promise<RetrievalPreviewResponse> {
-  return request(`/projects/${projectId}/retrieve/preview`, {
+  return request(`/projects/${projectId}/rerank/preview`, {
     body: JSON.stringify(payload),
     method: "POST",
   });

@@ -218,7 +218,8 @@ select sparse model and params from the backend catalog
 choose index mode: dense, sparse, hybrid
 create a Qdrant index cache
 run retrieval preview against an index cache
-optionally rerank retrieved candidates with a backend-driven reranker catalog
+store the retrieval candidate set as a retrieval_temp cache
+rerank the current retrieval cache with a backend-driven reranker catalog
 ```
 
 Existing indexes should remain visible after navigation because they are loaded from
@@ -226,6 +227,10 @@ Existing indexes should remain visible after navigation because they are loaded 
 
 Failed index creation should be visible in the same list with the recorded error message. Runtime
 errors should not silently disappear.
+
+Retrieval and reranking should be separate UI actions. A user should be able to retrieve candidates
+once, receive a `retrieval_cache_id`, and then rerun reranking with different models or params without
+creating a new Qdrant retrieval.
 
 Retrieval preview result cards should show:
 

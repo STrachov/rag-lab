@@ -16,6 +16,7 @@ import {
   listSparseModels,
   materializeChunks,
   ParameterSet,
+  previewRerank,
   previewRetrieval,
   Project,
   RerankerModel,
@@ -60,13 +61,15 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [query, setQuery] = useState("Where from is Wayne Xin Zhao?");
   const [topK, setTopK] = useState(5);
   const [candidateK, setCandidateK] = useState(30);
-  const [rerankingEnabled, setRerankingEnabled] = useState(false);
+  const [retrievalCacheId, setRetrievalCacheId] = useState("");
   const [rerankerModelId, setRerankerModelId] = useState("baai_bge_reranker_v2_m3");
   const [rerankerParams, setRerankerParams] = useState<Record<string, EmbeddingParamValue>>({});
-  const [retrieval, setRetrieval] = useState<RetrievalPreviewResponse | null>(null);
+  const [retrievalResult, setRetrievalResult] = useState<RetrievalPreviewResponse | null>(null);
+  const [rerankResult, setRerankResult] = useState<RetrievalPreviewResponse | null>(null);
   const [isMaterializing, setIsMaterializing] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isRetrieving, setIsRetrieving] = useState(false);
+  const [isReranking, setIsReranking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const preparedAssets = useMemo(
@@ -206,7 +209,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       });
       setIndexCaches((current) => upsertCache(current, cache));
       setSelectedIndexCacheId(cache.id);
-      setRetrieval(null);
+      setRetrievalResult(null);
+      setRerankResult(null);
+      setRetrievalCacheId("");
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create Qdrant index");
@@ -223,23 +228,44 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     setIsRetrieving(true);
     try {
       const result = await previewRetrieval(currentProject.id, {
-        candidate_k: rerankingEnabled ? candidateK : null,
+        candidate_k: candidateK,
         index_cache_id: selectedIndexCache.id,
         mode: retrievalMode,
         query: query.trim(),
-        reranking: {
-          enabled: rerankingEnabled,
-          model_id: rerankerModelId,
-          params: rerankerParams,
-        },
         top_k: topK,
       });
-      setRetrieval(result);
+      setRetrievalResult(result);
+      setRerankResult(null);
+      setRetrievalCacheId(result.retrieval_cache_id ?? "");
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to retrieve chunks");
     } finally {
       setIsRetrieving(false);
+    }
+  }
+
+  async function handleRerank() {
+    if (!currentProject || !retrievalCacheId) {
+      return;
+    }
+    setIsReranking(true);
+    try {
+      const result = await previewRerank(currentProject.id, {
+        retrieval_cache_id: retrievalCacheId,
+        reranking: {
+          enabled: true,
+          model_id: rerankerModelId,
+          params: rerankerParams,
+        },
+        top_k: topK,
+      });
+      setRerankResult(result);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rerank chunks");
+    } finally {
+      setIsReranking(false);
     }
   }
 
@@ -402,7 +428,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                     key={cache.id}
                     onClick={() => {
                       setSelectedIndexCacheId(cache.id);
-                      setRetrieval(null);
+                      setRetrievalResult(null);
+                      setRerankResult(null);
+                      setRetrievalCacheId("");
                     }}
                     type="button"
                   >
@@ -459,77 +487,86 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       onChange={(event) => setTopK(Number(event.target.value))}
                     />
                   </label>
-                </div>
-                <div className="rerank-panel">
-                  <label className="check-row">
+                  <label>
+                    Candidate K
                     <input
-                      checked={rerankingEnabled}
-                      type="checkbox"
-                      onChange={(event) => setRerankingEnabled(event.target.checked)}
+                      max={100}
+                      min={topK}
+                      type="number"
+                      value={candidateK}
+                      onChange={(event) => setCandidateK(Number(event.target.value))}
                     />
-                    Rerank candidates
                   </label>
-                  {rerankingEnabled && selectedRerankerModel ? (
-                    <>
-                      <div className="parameter-grid">
-                        <label>
-                          Candidate K
-                          <input
-                            max={100}
-                            min={topK}
-                            type="number"
-                            value={candidateK}
-                            onChange={(event) => setCandidateK(Number(event.target.value))}
-                          />
-                        </label>
-                        <label>
-                          Reranker
-                          <select
-                            value={rerankerModelId}
-                            onChange={(event) => setRerankerModelId(event.target.value)}
-                          >
-                            {rerankerModels.map((model) => (
-                              <option key={model.id} value={model.id}>
-                                {model.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                      <div className="asset-mini-summary">
-                        <span>{selectedRerankerModel.provider}</span>
-                        <span>{selectedRerankerModel.model_name}</span>
-                        <span>{selectedRerankerModel.backend}</span>
-                      </div>
-                      <div className="parameter-grid">
-                        {selectedRerankerModel.fields.map((field) => (
-                          <EmbeddingFieldControl
-                            field={field}
-                            key={field.name}
-                            value={rerankerParams[field.name] ?? field.default}
-                            onChange={(value) =>
-                              setRerankerParams((current) => ({ ...current, [field.name]: value }))
-                            }
-                          />
-                        ))}
-                      </div>
-                      <p className="form-note">{selectedRerankerModel.description}</p>
-                    </>
-                  ) : null}
                 </div>
                 <button
                   className="secondary-action"
-                  disabled={isRetrieving || selectedIndexCache.status !== "ready"}
+                  disabled={isRetrieving || isReranking || selectedIndexCache.status !== "ready"}
                   onClick={handleRetrieve}
                   type="button"
                 >
                   {isRetrieving ? "Retrieving..." : "Retrieve"}
                 </button>
+                {retrievalCacheId ? <div className="nested-empty">Retrieval cache: {retrievalCacheId}</div> : null}
+                {retrievalResult ? <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" /> : null}
               </>
             ) : (
               <div className="nested-empty">Create a Qdrant index before retrieval preview.</div>
             )}
-            {retrieval ? <RetrievalResult retrieval={retrieval} /> : null}
+          </div>
+
+          <div className="parameter-section">
+            <h2>Reranking Preview</h2>
+            {selectedRerankerModel ? (
+              <>
+                <div className="parameter-grid">
+                  <label>
+                    Reranker
+                    <select
+                      value={rerankerModelId}
+                      onChange={(event) => setRerankerModelId(event.target.value)}
+                    >
+                      {rerankerModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="asset-mini-summary">
+                  <span>{selectedRerankerModel.provider}</span>
+                  <span>{selectedRerankerModel.model_name}</span>
+                  <span>{selectedRerankerModel.backend}</span>
+                </div>
+                <div className="parameter-grid">
+                  {selectedRerankerModel.fields.map((field) => (
+                    <EmbeddingFieldControl
+                      field={field}
+                      key={field.name}
+                      value={rerankerParams[field.name] ?? field.default}
+                      onChange={(value) =>
+                        setRerankerParams((current) => ({ ...current, [field.name]: value }))
+                      }
+                    />
+                  ))}
+                </div>
+                <p className="form-note">{selectedRerankerModel.description}</p>
+                <button
+                  className="secondary-action"
+                  disabled={isRetrieving || isReranking || !retrievalCacheId}
+                  onClick={handleRerank}
+                  type="button"
+                >
+                  {isReranking ? "Reranking..." : "Rerank current candidates"}
+                </button>
+              </>
+            ) : (
+              <div className="nested-empty">No reranker models are available.</div>
+            )}
+            {!retrievalCacheId ? (
+              <div className="nested-empty">Run retrieval first, then rerank the current candidate cache.</div>
+            ) : null}
+            {rerankResult ? <RetrievalResult retrieval={rerankResult} title="Reranked Chunks" /> : null}
           </div>
 
           <div className="parameter-section">
@@ -601,9 +638,10 @@ function EmbeddingFieldControl({
   );
 }
 
-function RetrievalResult({ retrieval }: { retrieval: RetrievalPreviewResponse }) {
+function RetrievalResult({ retrieval, title }: { retrieval: RetrievalPreviewResponse; title: string }) {
   return (
     <div className="chunk-list">
+      <h3>{title}</h3>
       {retrieval.retrieved_chunks.map((chunk, index) => (
         <article className="chunk-card" key={`${chunk.chunk_id ?? "chunk"}-${index}`}>
           <div className="chunk-meta">

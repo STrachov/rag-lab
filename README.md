@@ -15,6 +15,7 @@ Project
 -> DerivedCache chunks
 -> Qdrant index cache
 -> retrieval preview
+-> retrieval_temp candidate cache
 -> optional reranking preview
 -> optional Ground Truth Set
 -> Saved Experiment

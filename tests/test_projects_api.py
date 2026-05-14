@@ -346,12 +346,22 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     )
 
     assert retrieve_response.status_code == 200
-    retrieved = retrieve_response.json()["retrieved_chunks"]
+    retrieve_body = retrieve_response.json()
+    assert retrieve_body["retrieval_cache_id"]
+    retrieved = retrieve_body["retrieved_chunks"]
     assert retrieved[0]["chunk_id"] == "chunk_000001"
     assert retrieved[0]["source_name"] == "policy.md"
     assert retrieved[0]["dense_score"] == 0.99
     assert retrieved[0]["sparse_score"] == 0.88
     assert "Payment is due within 30 days" in retrieved[0]["text_preview"]
+    retrieval_cache_response = client.get(
+        f"/v1/projects/{project_id}/derived-cache",
+        params={"cache_type": "retrieval_temp"},
+    )
+    assert retrieval_cache_response.status_code == 200
+    retrieval_caches = retrieval_cache_response.json()["derived_caches"]
+    assert retrieval_caches[0]["id"] == retrieve_body["retrieval_cache_id"]
+    assert retrieval_caches[0]["metadata_json"]["retrieved_chunks"]
 
 
 def test_retrieval_preview_can_rerank_candidates(
@@ -410,6 +420,19 @@ def test_retrieval_preview_can_rerank_candidates(
             "index_cache_id": index_response.json()["id"],
             "mode": "dense",
             "query": "When is payment due?",
+            "top_k": 1,
+        },
+    )
+
+    assert retrieve_response.status_code == 200
+    retrieval_body = retrieve_response.json()
+    assert retrieval_body["candidate_k"] == 10
+    assert retrieval_body["retrieval_cache_id"]
+
+    rerank_response = client.post(
+        f"/v1/projects/{project_id}/rerank/preview",
+        json={
+            "retrieval_cache_id": retrieval_body["retrieval_cache_id"],
             "reranking": {
                 "enabled": True,
                 "model_id": "qwen3_reranker_0_6b",
@@ -419,9 +442,9 @@ def test_retrieval_preview_can_rerank_candidates(
         },
     )
 
-    assert retrieve_response.status_code == 200
-    body = retrieve_response.json()
-    assert body["candidate_k"] == 10
+    assert rerank_response.status_code == 200
+    body = rerank_response.json()
+    assert body["retrieval_cache_id"] == retrieval_body["retrieval_cache_id"]
     assert body["reranking"]["model_id"] == "qwen3_reranker_0_6b"
     retrieved = body["retrieved_chunks"]
     assert "Payment is due within 30 days" in retrieved[0]["text_preview"]

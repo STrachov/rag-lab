@@ -67,8 +67,8 @@ python -m pytest
 6. Click Next or open Indexing to materialize chunks
 7. Choose embedding, sparse, and Qdrant index settings
 8. Create a dense, sparse, or hybrid Qdrant index cache
-9. Run retrieval preview and inspect retrieved chunk text, metadata, and scores
-10. Optionally enable reranking and compare rerank scores against original retrieval scores
+9. Run retrieval preview, creating a retrieval cache for the candidate set
+10. Optionally rerank the current retrieval cache with different models or params
 11. Register optional ground truth set
 12. Save experiment with full parameter snapshot and data manifest hash
 13. Inspect metrics

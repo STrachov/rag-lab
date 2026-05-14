@@ -134,6 +134,7 @@ GET  /v1/projects/{project_id}/reranking/models
 POST /v1/projects/{project_id}/chunks/materialize
 POST /v1/projects/{project_id}/indexes/qdrant
 POST /v1/projects/{project_id}/retrieve/preview
+POST /v1/projects/{project_id}/rerank/preview
 ```
 
 `derived-cache` returns project-scoped `DerivedCache` entries. The Indexing UI uses it to restore
@@ -205,7 +206,22 @@ Retrieval preview accepts a Qdrant index cache, query, mode, and `top_k`:
   "query": "What is the policy?",
   "mode": "hybrid",
   "top_k": 5,
-  "candidate_k": 30,
+  "candidate_k": 30
+}
+```
+
+Response rows include source metadata, `score`, optional `dense_score`, optional `sparse_score`, and a
+clipped `text_preview`. Hybrid preview currently merges dense and sparse Qdrant searches in the
+application layer with reciprocal rank fusion. The response includes `retrieval_cache_id`; the
+backend stores the full candidate set in `DerivedCache(cache_type="retrieval_temp")` so reranking can
+be repeated without another Qdrant search.
+
+Rerank preview accepts a retrieval cache and reranker settings:
+
+```json
+{
+  "retrieval_cache_id": "uuid",
+  "top_k": 5,
   "reranking": {
     "enabled": true,
     "model_id": "qwen3_reranker_0_6b",
@@ -219,14 +235,10 @@ Retrieval preview accepts a Qdrant index cache, query, mode, and `top_k`:
 }
 ```
 
-Response rows include source metadata, `score`, optional `dense_score`, optional `sparse_score`, and a
-clipped `text_preview`. Hybrid preview currently merges dense and sparse Qdrant searches in the
-application layer with reciprocal rank fusion.
-
-When reranking is enabled, retrieval first fetches `candidate_k` candidates, loads full chunk text
-from the materialized chunks cache, scores query/chunk pairs with the selected reranker, and returns
-the final `top_k`. Result rows then include `rerank_score`, `original_score`, and `original_rank`.
-Full chunk text is not stored in Qdrant payloads.
+Reranking loads the saved candidate set from `retrieval_temp`, loads full chunk text from the
+materialized chunks cache, scores query/chunk pairs with the selected reranker, and returns the final
+`top_k`. Result rows include `rerank_score`, `original_score`, and `original_rank`. Full chunk text is
+not stored in Qdrant payloads or retrieval temp metadata.
 
 ## Saved Experiments
 

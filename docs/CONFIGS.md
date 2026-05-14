@@ -161,18 +161,16 @@ sparse:
 config_id: hybrid_rrf_top8
 mode: hybrid
 top_k: 8
+candidate_k: 30
 fusion: rrf
 rrf_k: 60
-reranker:
-  enabled: true
-  candidate_k: 30
-  model_id: qwen3_reranker_0_6b
 ```
 
 ## Reranking example
 
 ```yaml
 config_id: qwen3_reranker_0_6b_cpu
+enabled: true
 provider: sentence_transformers
 backend: cross_encoder
 model_id: qwen3_reranker_0_6b

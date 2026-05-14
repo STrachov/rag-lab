@@ -17,6 +17,7 @@ from app.models.api import (
     EmbeddingModelListResponse,
     QdrantIndexRequest,
     RerankerModelListResponse,
+    RerankPreviewRequest,
     RetrievalPreviewRequest,
     RetrievalPreviewResponse,
     SparseModelListResponse,
@@ -28,10 +29,12 @@ from app.services.sparse import list_sparse_models
 from app.services.runtime_cache import (
     build_chunking_snapshot,
     build_embedding_snapshot,
+    build_retrieval_temp_payload,
     build_reranking_snapshot,
     build_sparse_snapshot,
     index_chunks_in_qdrant,
     materialize_chunks,
+    rerank_retrieval_candidates,
     retrieve_from_qdrant,
 )
 
@@ -252,23 +255,61 @@ def preview_project_retrieval(
             detail="index_cache_id must reference a qdrant_index cache",
         )
     try:
-        reranking_snapshot = (
-            build_reranking_snapshot(payload.reranking.model_id, payload.reranking.params)
-            if payload.reranking.enabled
-            else None
-        )
         result = retrieve_from_qdrant(
             candidate_k=payload.candidate_k,
             index_cache=index_cache,
             mode=payload.mode,
             query=payload.query,
-            reranking_snapshot=reranking_snapshot,
             top_k=payload.top_k,
             vector_store=_qdrant_store(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    retrieval_cache = _save_retrieval_temp_cache(
+        db,
+        index_cache=index_cache,
+        result=result,
+    )
+    result["retrieval_cache_id"] = retrieval_cache.id
+    result.pop("candidate_chunks", None)
     index_cache.last_used_at = datetime.now(UTC)
+    db.commit()
+    return RetrievalPreviewResponse.model_validate(result)
+
+
+@router.post(
+    "/projects/{project_id}/rerank/preview",
+    response_model=RetrievalPreviewResponse,
+)
+def preview_project_rerank(
+    project_id: str,
+    payload: RerankPreviewRequest,
+    db: Session = Depends(get_db),
+) -> RetrievalPreviewResponse:
+    _get_project_or_404(db, project_id)
+    retrieval_cache = _get_cache_or_404(db, project_id, payload.retrieval_cache_id)
+    if retrieval_cache.cache_type != "retrieval_temp":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="retrieval_cache_id must reference a retrieval_temp cache",
+        )
+    index_cache = _get_cache_or_404(db, project_id, str(retrieval_cache.metadata_json["index_cache_id"]))
+    if index_cache.cache_type != "qdrant_index":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="retrieval cache must reference a qdrant_index cache",
+        )
+    try:
+        reranking_snapshot = build_reranking_snapshot(payload.reranking.model_id, payload.reranking.params)
+        result = rerank_retrieval_candidates(
+            index_cache=index_cache,
+            reranking_snapshot=reranking_snapshot,
+            retrieval_cache=retrieval_cache,
+            top_k=payload.top_k,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    retrieval_cache.last_used_at = datetime.now(UTC)
     db.commit()
     return RetrievalPreviewResponse.model_validate(result)
 
@@ -413,3 +454,47 @@ def _save_failed_qdrant_index_cache(
     db.commit()
     db.refresh(failed_cache)
     return failed_cache
+
+
+def _save_retrieval_temp_cache(
+    db: Session,
+    *,
+    index_cache: models.DerivedCache,
+    result: dict,
+) -> models.DerivedCache:
+    payload = build_retrieval_temp_payload(
+        candidate_chunks=list(result.get("candidate_chunks") or result["retrieved_chunks"]),
+        candidate_k=int(result["candidate_k"]),
+        index_cache=index_cache,
+        mode=str(result["mode"]),
+        query=str(result["query"]),
+    )
+    existing_cache = _find_cache(
+        db,
+        project_id=index_cache.project_id,
+        cache_type="retrieval_temp",
+        cache_key=payload["cache_key"],
+    )
+    if existing_cache is not None:
+        existing_cache.last_used_at = datetime.now(UTC)
+        existing_cache.metadata_json = payload["metadata_json"]
+        existing_cache.params_hash = payload["params_hash"]
+        existing_cache.status = "ready"
+        db.commit()
+        db.refresh(existing_cache)
+        return existing_cache
+
+    retrieval_cache = models.DerivedCache(
+        project_id=index_cache.project_id,
+        data_asset_id=index_cache.data_asset_id,
+        params_hash=payload["params_hash"],
+        cache_type="retrieval_temp",
+        cache_key=payload["cache_key"],
+        status="ready",
+        metadata_json=payload["metadata_json"],
+        last_used_at=datetime.now(UTC),
+    )
+    db.add(retrieval_cache)
+    db.commit()
+    db.refresh(retrieval_cache)
+    return retrieval_cache
