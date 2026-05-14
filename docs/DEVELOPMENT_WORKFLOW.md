@@ -63,9 +63,9 @@ python -m pytest
 2. Upload source data asset
 3. Inspect PDF/text-layer hints
 4. Create prepared version by upload, `pymupdf_text`, or `docling`
-5. Open Parameters and create a chunking ParameterSet with preview
+5. Open Chunking and create a chunking ParameterSet with preview
 6. Optionally download a GT authoring pack from the current chunking snapshot
-7. Click Next or open Indexing to materialize chunks
+7. Click Next or open Retrieval to materialize chunks
 8. Choose embedding, sparse, and Qdrant index settings
 9. Create a dense, sparse, or hybrid Qdrant index cache
 10. Run retrieval preview, creating a retrieval cache for the candidate set

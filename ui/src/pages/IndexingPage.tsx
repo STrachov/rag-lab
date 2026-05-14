@@ -282,8 +282,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     return (
       <section className="page">
         <header className="page-header">
-          <p className="eyebrow">Indexing</p>
-          <h1>Embedding & Qdrant</h1>
+          <p className="eyebrow">Retrieval</p>
+          <h1>Retrieval</h1>
           <p>Select or create a project first. Index caches are scoped to the current project.</p>
         </header>
         <div className="empty-state">No project selected.</div>
@@ -294,12 +294,12 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   return (
     <section className="page">
       <header className="page-header">
-        <p className="eyebrow">Indexing</p>
-        <h1>Embedding & Qdrant</h1>
+        <p className="eyebrow">Retrieval</p>
+        <h1>Retrieval & Reranking</h1>
         <p>Materialize normalized chunks, embed them with a registered model, and create a Qdrant index cache.</p>
       </header>
 
-      {error ? <div className="notice">Indexing unavailable: {error}</div> : null}
+      {error ? <div className="notice">Retrieval unavailable: {error}</div> : null}
 
       <div className="parameter-workbench">
         <div className="chunking-form">

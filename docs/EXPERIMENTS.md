@@ -42,7 +42,7 @@ evaluation
 
 Preparation includes PDF-to-Markdown, OCR, or document conversion method and settings.
 
-Indexing, retrieval, and reranking snapshots should include the embedding model, sparse model, Qdrant
+Indexing, retrieval, and reranking parameter snapshots should include the embedding model, sparse model, Qdrant
 collection settings, index mode, retrieval mode, candidate count, reranker model, reranker params, and
 fusion settings used for the run.
 

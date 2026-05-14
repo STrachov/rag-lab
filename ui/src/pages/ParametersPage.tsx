@@ -154,7 +154,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     }
   }
 
-  async function handleContinueToIndexing() {
+  async function handleContinueToRetrieval() {
     if (!currentProject || !selectedAssetId) {
       return;
     }
@@ -165,7 +165,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
         data_asset_id: selectedAssetId,
       });
       setError(null);
-      navigate(`/projects/${currentProject.id}/indexing?chunks_cache_id=${cache.id}`);
+      navigate(`/projects/${currentProject.id}/retrieval?chunks_cache_id=${cache.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to materialize chunks");
     } finally {
@@ -222,8 +222,8 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     return (
       <section className="page">
         <header className="page-header">
-          <p className="eyebrow">Parameters</p>
-          <h1>Chunking Parameters</h1>
+          <p className="eyebrow">Chunking</p>
+          <h1>Chunking</h1>
           <p>Select or create a project first. Parameter sets are scoped to the current project.</p>
         </header>
         <div className="empty-state">No project selected.</div>
@@ -234,7 +234,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   return (
     <section className="page">
       <header className="page-header">
-        <p className="eyebrow">Parameters</p>
+        <p className="eyebrow">Chunking</p>
         <h1>Chunking Lab</h1>
         <p>Choose a prepared data asset, tune chunking, inspect the preview, then save a reusable ParameterSet.</p>
       </header>
@@ -318,9 +318,9 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
                 className="primary-action"
                 disabled={isContinuing || !selectedAssetId}
                 type="button"
-                onClick={handleContinueToIndexing}
+                onClick={handleContinueToRetrieval}
               >
-                {isContinuing ? "Materializing..." : "Next: Embedding & Qdrant"}
+                {isContinuing ? "Materializing..." : "Next: Retrieval"}
               </button>
             </div>
 

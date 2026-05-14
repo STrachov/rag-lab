@@ -93,7 +93,7 @@ experiment is blocked.
 
 `chunking/strategies` is the backend-owned catalog for available chunking methods. Each strategy
 declares its id, label, description, default parameters, and UI fields. Adding a strategy in code and
-registering it in the chunking registry should make it available to the Parameters UI without a
+registering it in the chunking registry should make it available to the Chunking UI without a
 frontend code change.
 
 Strategies may be native or adapter-backed. For example, `langchain_recursive_character` uses
@@ -138,7 +138,7 @@ POST /v1/projects/{project_id}/retrieve/preview
 POST /v1/projects/{project_id}/rerank/preview
 ```
 
-`derived-cache` returns project-scoped `DerivedCache` entries. The Indexing UI uses it to restore
+`derived-cache` returns project-scoped `DerivedCache` entries. The Retrieval UI uses it to restore
 existing Qdrant index caches after navigation and to show failed index attempts.
 
 `embedding/models` and `sparse/models` are backend-owned catalogs. The first embedding models are

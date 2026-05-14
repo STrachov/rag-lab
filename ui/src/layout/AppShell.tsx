@@ -5,8 +5,8 @@ import type { Project } from "../api/client";
 export type PageKey =
   | "projects"
   | "data"
-  | "parameters"
-  | "indexing"
+  | "chunking"
+  | "retrieval"
   | "groundTruth"
   | "savedExperiments"
   | "comparison"
@@ -15,8 +15,8 @@ export type PageKey =
 const navItems: Array<{ key: PageKey; label: string }> = [
   { key: "projects", label: "Projects" },
   { key: "data", label: "Data" },
-  { key: "parameters", label: "Parameters" },
-  { key: "indexing", label: "Indexing" },
+  { key: "chunking", label: "Chunking" },
+  { key: "retrieval", label: "Retrieval" },
   { key: "groundTruth", label: "Ground Truth" },
   { key: "savedExperiments", label: "Saved Experiments" },
   { key: "comparison", label: "Comparison" },

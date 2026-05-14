@@ -9,8 +9,8 @@ The UI is a project-oriented RAG experimentation workbench, not a generic chatbo
 ```text
 Projects
 Data
-Parameters
-Indexing
+Chunking
+Retrieval
 Ground Truth
 Saved Experiments
 Comparison
@@ -26,8 +26,8 @@ Flow:
 ```text
 create/open project
 -> Data loads for current project
--> Parameters load for current project
--> Indexing loads derived chunk and Qdrant caches for current project
+-> Chunking loads for current project
+-> Retrieval loads derived chunk and Qdrant caches for current project
 -> Ground Truth loads for current project
 -> Saved Experiments load for current project
 -> Comparison uses saved experiments from current project
@@ -41,8 +41,8 @@ Project routes should keep the selected project in the address bar:
 /projects
 /projects/{project_id}
 /projects/{project_id}/data
-/projects/{project_id}/parameters
-/projects/{project_id}/indexing
+/projects/{project_id}/chunking
+/projects/{project_id}/retrieval
 /projects/{project_id}/ground-truth
 /projects/{project_id}/saved-experiments
 /projects/{project_id}/comparison
@@ -150,7 +150,7 @@ Docling preparation should create a prepared version with Markdown and `*.doclin
 
 Expose Docling `image_export_mode` values `placeholder` and `embedded`. Default to `placeholder` so Markdown remains compact and RAG-friendly. Do not expose Docling `referenced` until RAG Lab stores referenced image files as prepared asset files.
 
-## Parameters
+## Chunking
 
 Show reusable parameter sets for:
 
@@ -169,7 +169,7 @@ actions. Categories distinguish chunking presets from embedding, indexing, retri
 and evaluation presets. Parameter sets can be deleted unless they are referenced by a
 saved experiment.
 
-The first implemented Parameters workflow is a Chunking Lab:
+The Chunking workflow is a Chunking Lab:
 
 ```text
 select prepared data asset
@@ -203,15 +203,15 @@ chunking strategy should be added by registering its id, label, default params, 
 chunking function in backend code.
 
 The chunking workflow may offer a `Next` action that materializes the current chunking snapshot and
-opens the Indexing page with the resulting chunk cache selected.
+opens the Retrieval page with the resulting chunk cache selected.
 
 The chunking workflow should also offer `Download GT authoring pack`. This action materializes the
 current chunking snapshot if needed and downloads a zip containing prepared text, normalized chunks,
 ground truth schema/template, and instructions for authoring `ground_truth.jsonl` outside the app.
 
-## Indexing
+## Retrieval
 
-The Indexing page is the first runtime workbench after chunking. It should support:
+The Retrieval page is the first runtime workbench after chunking. It should support:
 
 ```text
 select or materialize a chunks DerivedCache

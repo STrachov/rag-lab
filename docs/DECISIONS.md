@@ -88,7 +88,7 @@ The platform needs to be a permanent project-oriented RAG experimentation and ev
 
 ### Decision
 
-- The platform is organized around Project -> Data -> Parameters -> Ground Truth -> Saved Experiments.
+- The platform is organized around Project -> Data -> Chunking -> Retrieval -> Ground Truth -> Saved Experiments.
 - Results are metrics only.
 - Chunks, indexes, embeddings, traces, prompts, and generated answers are derived cache/debug outputs.
 - Data preparation, including PDF-to-Markdown conversion method, is part of the parameter snapshot.
@@ -153,13 +153,13 @@ Status: accepted
 
 ### Context
 
-The Parameters workflow needs to compare multiple chunking methods, including native and
+The Chunking workflow needs to compare multiple chunking methods, including native and
 framework-backed implementations, without hardcoding method names and fields in the UI.
 
 ### Decision
 
 - Parameter sets are categorized presets, starting with `chunking`.
-- The Parameters UI loads chunking strategies from a backend-owned catalog.
+- The Chunking UI loads chunking strategies from a backend-owned catalog.
 - Each chunking strategy declares id, label, description, default params, field metadata, and the
   function that implements it.
 - Framework implementations such as LangChain splitters are exposed as adapter-backed strategies

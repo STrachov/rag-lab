@@ -102,8 +102,8 @@ The UI is a project workbench focused on:
 ```text
 Projects
 Data
-Parameters
-Indexing
+Chunking
+Retrieval
 Ground Truth
 Saved Experiments
 Comparison
@@ -114,7 +114,7 @@ Debug views for chunks, traces, prompts, and answers may be added later, but the
 
 The Data UI shows source assets as rows with linked prepared versions. Users can download files by original filename, add/delete files, delete assets, inspect PDF signals, and create prepared assets through a `Prepare with` method selector.
 
-The Parameters UI owns chunking preview and reusable chunking `ParameterSet` creation. The Indexing UI materializes chunks, selects embedding, sparse, and reranker model parameters, creates Qdrant index caches, lists existing/failed index caches, and previews retrieval.
+The Chunking UI owns chunking preview and reusable chunking `ParameterSet` creation. The Retrieval UI materializes chunks, selects embedding, sparse, and reranker model parameters, creates Qdrant index caches, lists existing/failed index caches, and previews retrieval.
 
 Docling is integrated as an external Docling Serve endpoint. Local CPU Docker, local GPU Docker, and remote GPU machines should use the same adapter boundary and differ by `RAG_LAB_DOCLING_BASE_URL`.
 

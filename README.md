@@ -23,7 +23,7 @@ Project
 -> validated recipe
 ```
 
-In the UI, create or open a project first. The Data, Parameters, Indexing, Ground Truth, Saved Experiments, and Comparison sections then operate inside that current project context.
+In the UI, create or open a project first. The Data, Chunking, Retrieval, Ground Truth, Saved Experiments, and Comparison sections then operate inside that current project context.
 
 Current implemented foundation:
 

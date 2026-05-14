@@ -24,11 +24,11 @@ import { SettingsPage } from "./pages/SettingsPage";
 const SELECTED_PROJECT_STORAGE_KEY = "rag-lab:selected-project-id";
 
 const pagePathByKey: Record<Exclude<PageKey, "projects">, string> = {
+  chunking: "chunking",
   comparison: "comparison",
   data: "data",
-  indexing: "indexing",
   groundTruth: "ground-truth",
-  parameters: "parameters",
+  retrieval: "retrieval",
   savedExperiments: "saved-experiments",
   settings: "settings",
 };
@@ -110,12 +110,14 @@ export default function App() {
         />
         <Route
           element={projectScopedPage(<ParametersPage currentProject={currentProject} />)}
-          path="/projects/:projectId/parameters"
+          path="/projects/:projectId/chunking"
         />
         <Route
           element={projectScopedPage(<IndexingPage currentProject={currentProject} />)}
-          path="/projects/:projectId/indexing"
+          path="/projects/:projectId/retrieval"
         />
+        <Route element={<LegacyProjectRedirect target="chunking" />} path="/projects/:projectId/parameters" />
+        <Route element={<LegacyProjectRedirect target="retrieval" />} path="/projects/:projectId/indexing" />
         <Route
           element={projectScopedPage(<GroundTruthPage currentProject={currentProject} />)}
           path="/projects/:projectId/ground-truth"
@@ -143,6 +145,12 @@ function ProjectIndexRedirect() {
   return <Navigate replace to={projectId ? `/projects/${projectId}/data` : "/projects"} />;
 }
 
+function LegacyProjectRedirect({ target }: { target: string }) {
+  const { projectId } = useParams();
+  const { search } = useLocation();
+  return <Navigate replace to={projectId ? `/projects/${projectId}/${target}${search}` : "/projects"} />;
+}
+
 function LoadingProjectPage() {
   return (
     <section className="page">
@@ -165,11 +173,11 @@ function getActivePage(pathname: string): PageKey {
   if (matchPath("/projects/:projectId/data", pathname)) {
     return "data";
   }
-  if (matchPath("/projects/:projectId/parameters", pathname)) {
-    return "parameters";
+  if (matchPath("/projects/:projectId/chunking", pathname) || matchPath("/projects/:projectId/parameters", pathname)) {
+    return "chunking";
   }
-  if (matchPath("/projects/:projectId/indexing", pathname)) {
-    return "indexing";
+  if (matchPath("/projects/:projectId/retrieval", pathname) || matchPath("/projects/:projectId/indexing", pathname)) {
+    return "retrieval";
   }
   if (matchPath("/projects/:projectId/ground-truth", pathname)) {
     return "groundTruth";

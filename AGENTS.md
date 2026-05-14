@@ -61,7 +61,7 @@ A feature is not complete unless at least one is true:
 ## Current Implementation Notes
 
 - Source and prepared data assets are editable and tracked with manifest snapshots.
-- Preparation provenance belongs to prepared data assets; the Parameters section should not re-edit already-applied preparation settings.
+- Preparation provenance belongs to prepared data assets; the Chunking/Retrieval workflow should not re-edit already-applied preparation settings.
 - Parameter sets have a `category` such as `chunking`, `embedding`, `indexing`, `retrieval`, `generation`, `evaluation`, or `general`.
 - Chunking strategies are backend-driven. The UI must load the strategy catalog instead of hardcoding strategy names or fields.
 - Chunking preview is derived debug output, not a saved experiment result. A chunking snapshot may also be materialized into `DerivedCache(cache_type="chunks")` for later indexing.

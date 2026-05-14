@@ -121,7 +121,7 @@ general
 ```
 
 Prepared data provenance is stored on `DataAsset.preparation_params_json`, not edited again from the
-Parameters screen after preparation has already run. A saved experiment may still include preparation
+Chunking/Retrieval screens after preparation has already run. A saved experiment may still include preparation
 provenance in its full parameter snapshot for reproducibility.
 
 Chunking parameter sets use a backend-driven strategy catalog and canonical snapshot shape:
