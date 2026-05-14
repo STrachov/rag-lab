@@ -246,6 +246,10 @@ export type DerivedCache = {
   last_used_at?: string | null;
 };
 
+export type DerivedCacheListResponse = {
+  derived_caches: DerivedCache[];
+};
+
 export type EmbeddingParamValue = string | number | boolean;
 
 export type EmbeddingModelField = {
@@ -256,6 +260,7 @@ export type EmbeddingModelField = {
   help_text?: string | null;
   min?: number | null;
   max?: number | null;
+  step?: number | null;
   options?: Array<{ label: string; value: string }> | null;
 };
 
@@ -270,12 +275,37 @@ export type EmbeddingModel = {
   fields: EmbeddingModelField[];
 };
 
+export type SparseModelField = {
+  name: string;
+  label: string;
+  type: "number" | "select" | "boolean" | "text";
+  default: EmbeddingParamValue;
+  help_text?: string | null;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+};
+
+export type SparseModel = {
+  id: string;
+  label: string;
+  description: string;
+  provider: string;
+  default_params: Record<string, EmbeddingParamValue>;
+  fields: SparseModelField[];
+};
+
 export type QdrantIndexRequest = {
   chunks_cache_id: string;
   embedding: {
     model_id: string;
     params: Record<string, EmbeddingParamValue>;
   };
+  sparse?: {
+    model_id: string;
+    params: Record<string, EmbeddingParamValue>;
+  } | null;
+  index_mode?: "dense" | "sparse" | "hybrid";
   collection_name?: string | null;
   distance?: "Cosine" | "Dot" | "Euclid";
 };
@@ -283,6 +313,8 @@ export type QdrantIndexRequest = {
 export type RetrievedChunk = {
   chunk_id?: string | null;
   score?: number | null;
+  dense_score?: number | null;
+  sparse_score?: number | null;
   source_name?: string | null;
   stored_path?: string | null;
   section?: string | null;
@@ -290,10 +322,12 @@ export type RetrievedChunk = {
   page?: number | null;
   token_count?: number | null;
   char_count?: number | null;
+  text_preview?: string | null;
 };
 
 export type RetrievalPreviewResponse = {
   index_cache_id: string;
+  mode: "dense" | "sparse" | "hybrid";
   query: string;
   top_k: number;
   retrieved_chunks: RetrievedChunk[];
@@ -532,6 +566,20 @@ export async function listEmbeddingModels(
   return request(`/projects/${projectId}/embedding/models`);
 }
 
+export async function listSparseModels(
+  projectId: string,
+): Promise<{ models: SparseModel[] }> {
+  return request(`/projects/${projectId}/sparse/models`);
+}
+
+export async function listDerivedCaches(
+  projectId: string,
+  cacheType?: DerivedCache["cache_type"],
+): Promise<DerivedCacheListResponse> {
+  const params = cacheType ? `?${new URLSearchParams({ cache_type: cacheType }).toString()}` : "";
+  return request(`/projects/${projectId}/derived-cache${params}`);
+}
+
 export async function createQdrantIndex(
   projectId: string,
   payload: QdrantIndexRequest,
@@ -544,7 +592,7 @@ export async function createQdrantIndex(
 
 export async function previewRetrieval(
   projectId: string,
-  payload: { index_cache_id: string; query: string; top_k?: number },
+  payload: { index_cache_id: string; mode?: "dense" | "sparse" | "hybrid"; query: string; top_k?: number },
 ): Promise<RetrievalPreviewResponse> {
   return request(`/projects/${projectId}/retrieve/preview`, {
     body: JSON.stringify(payload),

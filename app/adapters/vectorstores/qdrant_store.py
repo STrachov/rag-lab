@@ -17,6 +17,7 @@ class QdrantVectorStore:
         collection_name: str,
         vector_size: int,
         distance: str = "Cosine",
+        sparse: bool = False,
     ) -> None:
         existing = httpx.get(f"{self.url}/collections/{collection_name}", timeout=30.0)
         if existing.status_code == 200:
@@ -24,7 +25,11 @@ class QdrantVectorStore:
         if existing.status_code != 404:
             existing.raise_for_status()
 
-        payload = {"vectors": {"distance": distance, "size": vector_size}}
+        payload: dict[str, Any] = {
+            "vectors": {"dense": {"distance": distance, "size": vector_size}}
+        }
+        if sparse:
+            payload["sparse_vectors"] = {"sparse": {}}
         response = httpx.put(
             f"{self.url}/collections/{collection_name}",
             json=payload,
@@ -46,7 +51,7 @@ class QdrantVectorStore:
         )
         response.raise_for_status()
 
-    def search(
+    def search_dense(
         self,
         *,
         collection_name: str,
@@ -55,7 +60,31 @@ class QdrantVectorStore:
     ) -> list[dict[str, Any]]:
         response = httpx.post(
             f"{self.url}/collections/{collection_name}/points/search",
-            json={"limit": top_k, "vector": query_vector, "with_payload": True},
+            json={
+                "limit": top_k,
+                "vector": {"name": "dense", "vector": query_vector},
+                "with_payload": True,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return list(payload.get("result") or [])
+
+    def search_sparse(
+        self,
+        *,
+        collection_name: str,
+        query_vector: dict[str, list[float] | list[int]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        response = httpx.post(
+            f"{self.url}/collections/{collection_name}/points/search",
+            json={
+                "limit": top_k,
+                "vector": {"name": "sparse", "vector": query_vector},
+                "with_payload": True,
+            },
             timeout=30.0,
         )
         response.raise_for_status()

@@ -14,8 +14,16 @@ from app.services.embeddings import (
     normalize_embedding_params,
 )
 from app.services.hashing import short_hash, stable_json_dumps, stable_sha256
+from app.services.sparse import (
+    build_bm25_stats,
+    encode_bm25_document,
+    encode_bm25_query,
+    get_sparse_model,
+    normalize_sparse_params,
+)
 
 PIPELINE_VERSION = "runtime-v1"
+RETRIEVAL_TEXT_PREVIEW_CHARS = 1200
 
 
 def build_chunking_snapshot(chunking: dict[str, Any]) -> dict[str, Any]:
@@ -33,6 +41,18 @@ def build_embedding_snapshot(model_id: str, params: dict[str, Any] | None = None
             "params": normalized,
             "provider": spec.provider,
             "vector_size": spec.vector_size,
+        }
+    }
+
+
+def build_sparse_snapshot(model_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    spec = get_sparse_model(model_id)
+    normalized = normalize_sparse_params(model_id, params)
+    return {
+        "sparse": {
+            "model_id": spec.id,
+            "params": normalized,
+            "provider": spec.provider,
         }
     }
 
@@ -112,6 +132,8 @@ def index_chunks_in_qdrant(
     *,
     chunks_cache: models.DerivedCache,
     embedding_snapshot: dict[str, Any],
+    sparse_snapshot: dict[str, Any] | None,
+    index_mode: str,
     collection_name: str | None,
     distance: str,
     vector_store: Any,
@@ -124,7 +146,9 @@ def index_chunks_in_qdrant(
             "collection_name": collection_name,
             "distance": distance,
             "embedding": embedding,
+            "index_mode": index_mode,
             "pipeline_version": PIPELINE_VERSION,
+            "sparse": sparse_snapshot["sparse"] if sparse_snapshot else None,
         }
     )
     cache_key = f"qdrant_{short_hash(params_hash, 20)}"
@@ -132,19 +156,32 @@ def index_chunks_in_qdrant(
     embedder = create_embedder(embedding["model_id"], embedding["params"])
     texts = [str(chunk["text"]) for chunk in chunks]
     vectors = embedder.embed_passages(texts) if texts else []
+    sparse_stats: dict[str, Any] | None = None
+    sparse_stats_path: Path | None = None
+    if index_mode in {"sparse", "hybrid"}:
+        if sparse_snapshot is None:
+            raise ValueError("Sparse settings are required for sparse or hybrid indexes")
+        sparse_stats = build_bm25_stats(texts, sparse_snapshot["sparse"]["params"])
+        sparse_stats_path = _write_sparse_stats(cache_key, sparse_stats)
 
     vector_store.ensure_collection(
         collection_name=collection,
         distance=distance,
+        sparse=sparse_stats is not None,
         vector_size=int(embedding["vector_size"]),
     )
     points = [
         {
             "id": _point_id(str(chunk["chunk_id"])),
-            "payload": {key: value for key, value in chunk.items() if key != "text"},
-            "vector": vector,
+            "payload": _chunk_payload(chunk),
+            "vector": _point_vectors(
+                dense_vector=vector,
+                doc_index=index,
+                chunk=chunk,
+                sparse_stats=sparse_stats,
+            ),
         }
-        for chunk, vector in zip(chunks, vectors, strict=True)
+        for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
     ]
     if points:
         vector_store.upsert_points(collection_name=collection, points=points)
@@ -159,10 +196,13 @@ def index_chunks_in_qdrant(
         "data_asset_manifest_hash": chunks_metadata.get("data_asset_manifest_hash"),
         "distance": distance,
         "embedding": embedding,
+        "index_mode": index_mode,
         "params_hash": params_hash,
         "pipeline_version": PIPELINE_VERSION,
         "qdrant_url": get_settings().qdrant_url,
         "schema_version": "raglab.qdrant_index.v1",
+        "sparse": sparse_snapshot["sparse"] if sparse_snapshot else None,
+        "sparse_stats_path": str(sparse_stats_path) if sparse_stats_path else None,
     }
     return {"cache_key": cache_key, "metadata_json": metadata, "params_hash": params_hash}
 
@@ -171,28 +211,54 @@ def retrieve_from_qdrant(
     *,
     index_cache: models.DerivedCache,
     query: str,
+    mode: str,
     top_k: int,
     vector_store: Any,
 ) -> dict[str, Any]:
     metadata = index_cache.metadata_json
     embedding = metadata["embedding"]
+    index_mode = str(metadata.get("index_mode") or "dense")
+    if mode in {"sparse", "hybrid"} and index_mode == "dense":
+        raise ValueError("Selected index does not include sparse vectors")
     embedder = create_embedder(embedding["model_id"], embedding["params"])
     query_vector = embedder.embed_query(query)
-    results = vector_store.search(
-        collection_name=str(metadata["collection_name"]),
-        query_vector=query_vector,
-        top_k=top_k,
-    )
-    retrieved = [
-        {
-            "chunk_id": result.get("payload", {}).get("chunk_id"),
-            "score": result.get("score"),
-            **dict(result.get("payload") or {}),
-        }
-        for result in results
-    ]
+    collection_name = str(metadata["collection_name"])
+    candidate_k = min(100, max(top_k, top_k * 5))
+    if mode == "dense":
+        retrieved = _format_results(
+            vector_store.search_dense(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                top_k=top_k,
+            ),
+            score_key="dense_score",
+        )
+    elif mode == "sparse":
+        sparse_query = _encode_sparse_query(query, metadata)
+        retrieved = _format_results(
+            vector_store.search_sparse(
+                collection_name=collection_name,
+                query_vector=sparse_query,
+                top_k=top_k,
+            ),
+            score_key="sparse_score",
+        )
+    else:
+        sparse_query = _encode_sparse_query(query, metadata)
+        dense_results = vector_store.search_dense(
+            collection_name=collection_name,
+            query_vector=query_vector,
+            top_k=candidate_k,
+        )
+        sparse_results = vector_store.search_sparse(
+            collection_name=collection_name,
+            query_vector=sparse_query,
+            top_k=candidate_k,
+        )
+        retrieved = _rrf_merge(dense_results, sparse_results)[:top_k]
     return {
         "index_cache_id": index_cache.id,
+        "mode": mode,
         "query": query,
         "retrieved_chunks": retrieved,
         "top_k": top_k,
@@ -201,6 +267,14 @@ def retrieve_from_qdrant(
 
 def _cache_root() -> Path:
     return get_settings().data_dir / "cache"
+
+
+def _write_sparse_stats(cache_key: str, sparse_stats: dict[str, Any]) -> Path:
+    cache_dir = _cache_root() / "sparse" / cache_key
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stats_path = cache_dir / "bm25_stats.json"
+    stats_path.write_text(json.dumps(sparse_stats, indent=2, sort_keys=True), encoding="utf-8")
+    return stats_path
 
 
 def _chunk_cache_key(
@@ -236,6 +310,100 @@ def _normalize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
         "text": str(chunk["text"]),
         "token_count": int(chunk["token_count"]),
     }
+
+
+def _chunk_payload(chunk: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            **{item_key: item_value for item_key, item_value in chunk.items() if item_key != "text"},
+            "text_preview": _clip_text(str(chunk["text"]), RETRIEVAL_TEXT_PREVIEW_CHARS),
+        }.items()
+        if value is not None
+    }
+
+
+def _point_vectors(
+    *,
+    dense_vector: list[float],
+    doc_index: int,
+    chunk: dict[str, Any],
+    sparse_stats: dict[str, Any] | None,
+) -> dict[str, Any]:
+    vectors: dict[str, Any] = {"dense": dense_vector}
+    if sparse_stats is not None:
+        vectors["sparse"] = encode_bm25_document(str(chunk["text"]), sparse_stats, doc_index)
+    return vectors
+
+
+def _encode_sparse_query(query: str, metadata: dict[str, Any]) -> dict[str, list[float] | list[int]]:
+    stats_path = metadata.get("sparse_stats_path")
+    if not stats_path:
+        raise ValueError("Selected index does not include sparse statistics")
+    sparse_stats = json.loads(Path(str(stats_path)).read_text(encoding="utf-8"))
+    return encode_bm25_query(query, sparse_stats)
+
+
+def _format_results(results: list[dict[str, Any]], *, score_key: str) -> list[dict[str, Any]]:
+    formatted: list[dict[str, Any]] = []
+    for result in results:
+        payload = dict(result.get("payload") or {})
+        score = result.get("score")
+        formatted.append(
+            {
+                "chunk_id": payload.get("chunk_id"),
+                "score": score,
+                score_key: score,
+                **payload,
+            }
+        )
+    return formatted
+
+
+def _rrf_merge(
+    dense_results: list[dict[str, Any]],
+    sparse_results: list[dict[str, Any]],
+    *,
+    rrf_k: int = 60,
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for rank, result in enumerate(dense_results, start=1):
+        payload = dict(result.get("payload") or {})
+        chunk_id = str(payload.get("chunk_id") or result.get("id"))
+        item = merged.setdefault(
+            chunk_id,
+            {"chunk_id": chunk_id, "payload": payload, "score": 0.0},
+        )
+        item["dense_score"] = result.get("score")
+        item["score"] += 1.0 / (rrf_k + rank)
+
+    for rank, result in enumerate(sparse_results, start=1):
+        payload = dict(result.get("payload") or {})
+        chunk_id = str(payload.get("chunk_id") or result.get("id"))
+        item = merged.setdefault(
+            chunk_id,
+            {"chunk_id": chunk_id, "payload": payload, "score": 0.0},
+        )
+        item["payload"] = {**item["payload"], **payload}
+        item["sparse_score"] = result.get("score")
+        item["score"] += 1.0 / (rrf_k + rank)
+
+    return [
+        {
+            "chunk_id": item["chunk_id"],
+            "dense_score": item.get("dense_score"),
+            "score": item["score"],
+            "sparse_score": item.get("sparse_score"),
+            **item["payload"],
+        }
+        for item in sorted(merged.values(), key=lambda value: value["score"], reverse=True)
+    ]
+
+
+def _clip_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
 
 
 def _sidecar_files(manifest_json: dict[str, Any]) -> list[dict[str, Any]]:

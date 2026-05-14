@@ -206,6 +206,10 @@ class DerivedCacheResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DerivedCacheListResponse(BaseModel):
+    derived_caches: list[DerivedCacheResponse]
+
+
 class ChunkMaterializeRequest(BaseModel):
     data_asset_id: str
     chunking: ChunkingParams = Field(default_factory=ChunkingParams)
@@ -237,14 +241,45 @@ class EmbeddingModelListResponse(BaseModel):
     models: list[EmbeddingModelResponse]
 
 
+class SparseModelField(BaseModel):
+    name: str
+    label: str
+    type: Literal["number", "select", "boolean", "text"]
+    default: Any
+    help_text: str | None = None
+    min: float | int | None = None
+    max: float | int | None = None
+    step: float | int | None = None
+
+
+class SparseModelResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    provider: str
+    default_params: JsonObject
+    fields: list[SparseModelField]
+
+
+class SparseModelListResponse(BaseModel):
+    models: list[SparseModelResponse]
+
+
 class EmbeddingParams(BaseModel):
     model_id: str = "intfloat_multilingual_e5_small"
+    params: JsonObject = Field(default_factory=dict)
+
+
+class SparseParams(BaseModel):
+    model_id: str = "bm25_local"
     params: JsonObject = Field(default_factory=dict)
 
 
 class QdrantIndexRequest(BaseModel):
     chunks_cache_id: str
     embedding: EmbeddingParams = Field(default_factory=EmbeddingParams)
+    sparse: SparseParams | None = Field(default_factory=SparseParams)
+    index_mode: Literal["dense", "sparse", "hybrid"] = "hybrid"
     collection_name: str | None = None
     distance: Literal["Cosine", "Dot", "Euclid"] = "Cosine"
 
@@ -252,12 +287,15 @@ class QdrantIndexRequest(BaseModel):
 class RetrievalPreviewRequest(BaseModel):
     index_cache_id: str
     query: str
+    mode: Literal["dense", "sparse", "hybrid"] = "hybrid"
     top_k: int = Field(default=5, ge=1, le=50)
 
 
 class RetrievedChunk(BaseModel):
     chunk_id: str | None = None
     score: float | None = None
+    dense_score: float | None = None
+    sparse_score: float | None = None
     source_name: str | None = None
     stored_path: str | None = None
     section: str | None = None
@@ -265,12 +303,14 @@ class RetrievedChunk(BaseModel):
     page: int | None = None
     token_count: int | None = None
     char_count: int | None = None
+    text_preview: str | None = None
 
     model_config = ConfigDict(extra="allow")
 
 
 class RetrievalPreviewResponse(BaseModel):
     index_cache_id: str
+    mode: Literal["dense", "sparse", "hybrid"]
     query: str
     top_k: int
     retrieved_chunks: list[RetrievedChunk]

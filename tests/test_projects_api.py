@@ -162,6 +162,28 @@ def test_list_embedding_models_for_indexing_ui(client: TestClient) -> None:
     assert e5["default_params"]["device"] == "cpu"
 
 
+def test_list_sparse_models_for_hybrid_indexing_ui(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.get(f"/v1/projects/{project_id}/sparse/models")
+
+    assert response.status_code == 200
+    models = response.json()["models"]
+    model_ids = [model["id"] for model in models]
+    assert "bm25_local" in model_ids
+    bm25 = next(model for model in models if model["id"] == "bm25_local")
+    assert bm25["provider"] == "rag_lab"
+    assert bm25["default_params"]["k1"] == 1.2
+    assert bm25["default_params"]["b"] == 0.75
+    fields = {field["name"]: field for field in bm25["fields"]}
+    assert fields["k1"]["min"] == 0
+    assert fields["k1"]["max"] == 4
+    assert fields["k1"]["step"] == 0.05
+    assert fields["b"]["min"] == 0
+    assert fields["b"]["max"] == 1
+    assert fields["b"]["step"] == 0.05
+
+
 def test_materialize_chunks_creates_derived_cache_with_docling_sidecar(
     client: TestClient,
     monkeypatch,
@@ -279,12 +301,25 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     assert index_cache["cache_type"] == "qdrant_index"
     assert index_cache["metadata_json"]["collection_name"].startswith("raglab_qdrant_")
     assert index_cache["metadata_json"]["embedding"]["model"] == "intfloat/multilingual-e5-small"
+    assert index_cache["metadata_json"]["index_mode"] == "hybrid"
+    assert index_cache["metadata_json"]["sparse"]["model_id"] == "bm25_local"
+    assert index_cache["metadata_json"]["sparse_stats_path"]
     assert fake_qdrant.points
+    assert "dense" in fake_qdrant.points[0]["vector"]
+    assert "sparse" in fake_qdrant.points[0]["vector"]
+
+    cache_response = client.get(
+        f"/v1/projects/{project_id}/derived-cache",
+        params={"cache_type": "qdrant_index"},
+    )
+    assert cache_response.status_code == 200
+    assert [cache["id"] for cache in cache_response.json()["derived_caches"]] == [index_cache["id"]]
 
     retrieve_response = client.post(
         f"/v1/projects/{project_id}/retrieve/preview",
         json={
             "index_cache_id": index_cache["id"],
+            "mode": "hybrid",
             "query": "When is payment due?",
             "top_k": 1,
         },
@@ -294,7 +329,71 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     retrieved = retrieve_response.json()["retrieved_chunks"]
     assert retrieved[0]["chunk_id"] == "chunk_000001"
     assert retrieved[0]["source_name"] == "policy.md"
-    assert retrieved[0]["score"] == 0.99
+    assert retrieved[0]["dense_score"] == 0.99
+    assert retrieved[0]["sparse_score"] == 0.88
+    assert "Payment is due within 30 days" in retrieved[0]["text_preview"]
+
+
+def test_qdrant_index_failure_is_visible_in_derived_cache(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    chunks_cache_id = chunks_response.json()["id"]
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: FailingQdrantStore())
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_cache_id,
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+
+    assert index_response.status_code == 502
+    assert "Qdrant is unavailable" in index_response.json()["detail"]
+
+    cache_response = client.get(
+        f"/v1/projects/{project_id}/derived-cache",
+        params={"cache_type": "qdrant_index"},
+    )
+    assert cache_response.status_code == 200
+    caches = cache_response.json()["derived_caches"]
+    assert len(caches) == 1
+    assert caches[0]["status"] == "failed"
+    assert caches[0]["metadata_json"]["error_json"]["message"] == "Qdrant is unavailable"
+    assert caches[0]["metadata_json"]["collection_name"].startswith("raglab_qdrant_")
 
 
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -1013,16 +1112,24 @@ class FakeQdrantStore:
         self.collection_name = ""
         self.points: list[dict] = []
 
-    def ensure_collection(self, *, collection_name: str, vector_size: int, distance: str) -> None:
+    def ensure_collection(
+        self,
+        *,
+        collection_name: str,
+        vector_size: int,
+        distance: str,
+        sparse: bool = False,
+    ) -> None:
         self.collection_name = collection_name
         assert vector_size == 384
         assert distance == "Cosine"
+        assert sparse is True
 
     def upsert_points(self, *, collection_name: str, points: list[dict]) -> None:
         assert collection_name == self.collection_name
         self.points = points
 
-    def search(self, *, collection_name: str, query_vector: list[float], top_k: int) -> list[dict]:
+    def search_dense(self, *, collection_name: str, query_vector: list[float], top_k: int) -> list[dict]:
         assert collection_name == self.collection_name
         assert query_vector
         return [
@@ -1031,6 +1138,28 @@ class FakeQdrantStore:
                 "score": 0.99,
             }
         ][:top_k]
+
+    def search_sparse(self, *, collection_name: str, query_vector: dict, top_k: int) -> list[dict]:
+        assert collection_name == self.collection_name
+        assert query_vector["indices"]
+        return [
+            {
+                "payload": self.points[0]["payload"],
+                "score": 0.88,
+            }
+        ][:top_k]
+
+
+class FailingQdrantStore(FakeQdrantStore):
+    def ensure_collection(
+        self,
+        *,
+        collection_name: str,
+        vector_size: int,
+        distance: str,
+        sparse: bool = False,
+    ) -> None:
+        raise RuntimeError("Qdrant is unavailable")
 
 
 def fake_create_embedder(model_id: str, params: dict | None = None) -> FakeEmbedder:

@@ -691,6 +691,39 @@ h1 {
   padding-right: 4px;
 }
 
+.index-cache-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cache-item {
+  background: #f8fafb;
+  border: 1px solid #dce3e7;
+  border-radius: 8px;
+  color: #425864;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+}
+
+.cache-item.selected {
+  border-color: #176b87;
+  box-shadow: inset 3px 0 0 #176b87;
+}
+
+.cache-item strong,
+.cache-item span,
+.cache-item small {
+  overflow-wrap: anywhere;
+}
+
+.cache-item span,
+.cache-item small {
+  font-size: 12px;
+}
+
 .chunk-card {
   border: 1px solid #edf1f3;
   border-radius: 8px;
