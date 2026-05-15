@@ -381,6 +381,13 @@ export type GroundTruthSetCreate = {
   metadata_json?: Record<string, unknown>;
 };
 
+export type GroundTruthSetUpload = {
+  chunks_cache_id?: string;
+  data_asset_id?: string;
+  file: File;
+  name: string;
+};
+
 export type SavedExperiment = {
   id: string;
   project_id: string;
@@ -678,6 +685,26 @@ export async function createGroundTruthSet(
 ): Promise<GroundTruthSet> {
   return request(`/projects/${projectId}/ground-truth-sets`, {
     body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function uploadGroundTruthSet(
+  projectId: string,
+  payload: GroundTruthSetUpload,
+): Promise<GroundTruthSet> {
+  const formData = new FormData();
+  formData.append("name", payload.name);
+  if (payload.data_asset_id) {
+    formData.append("data_asset_id", payload.data_asset_id);
+  }
+  if (payload.chunks_cache_id) {
+    formData.append("chunks_cache_id", payload.chunks_cache_id);
+  }
+  formData.append("file", payload.file, payload.file.name);
+
+  return request(`/projects/${projectId}/ground-truth-sets/upload`, {
+    body: formData,
     method: "POST",
   });
 }

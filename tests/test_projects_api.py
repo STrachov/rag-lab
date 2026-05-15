@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 import fitz
+import hashlib
 import httpx
 import io
+import json
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -1232,6 +1234,147 @@ def test_create_ground_truth_set_under_project(client: TestClient) -> None:
     ]
 
 
+def test_upload_ground_truth_set_stores_canonical_files_and_validation(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 0,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    chunks_cache = chunks_response.json()
+    chunks_file_sha256 = _file_sha256(Path(chunks_cache["metadata_json"]["chunks_path"]))
+    gt_payload = {
+        "metadata": {
+            "ground_truth_id": "gt_policy_v1",
+            "ground_truth_type": "chunk_level_qrels",
+            "chunks_file_sha256": chunks_file_sha256,
+        },
+        "questions": [
+            {
+                "expected_answer_type": "found",
+                "question": "When is payment due?",
+                "question_id": "q001",
+                "question_type": "factual",
+                "relevant_chunks": [
+                    {
+                        "chunk_id": "chunk_000001",
+                        "rank": 1,
+                        "reason": "Contains the payment term.",
+                        "relevance": 3,
+                    }
+                ],
+            },
+            {
+                "expected_answer_type": "not_found",
+                "question": "What is the refund policy?",
+                "question_id": "q002",
+                "question_type": "not_found",
+                "relevant_chunks": [],
+            },
+        ],
+    }
+
+    response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={
+            "chunks_cache_id": chunks_cache["id"],
+            "name": "Policy chunk qrels",
+        },
+        files={"file": ("ground_truth.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["data_asset_id"] == data_asset_id
+    assert body["storage_path"].endswith("ground_truth.json")
+    assert body["manifest_hash"].startswith("sha256:")
+    metadata = body["metadata_json"]
+    assert metadata["canonical_format"] == "raglab.chunk_qrels.v1"
+    assert metadata["question_count"] == 2
+    assert metadata["found_count"] == 1
+    assert metadata["not_found_count"] == 1
+    assert metadata["relevance_judgment_count"] == 1
+    assert metadata["validation"]["status"] == "valid"
+
+    storage_path = Path(body["storage_path"])
+    assert storage_path == tmp_path / "ground_truth" / project_id / "ground_truths" / body["id"] / "ground_truth.json"
+    assert storage_path.exists()
+    assert (storage_path.parent / "original" / "ground_truth.json").exists()
+    assert (storage_path.parent / "manifest.json").exists()
+    assert (storage_path.parent / "validation.json").exists()
+    canonical = json.loads(storage_path.read_text(encoding="utf-8"))
+    assert canonical["schema_version"] == "raglab.chunk_qrels.v1"
+    assert canonical["questions"][0]["relevant_chunks"][0]["chunk_id"] == "chunk_000001"
+
+
+def test_upload_ground_truth_set_reports_missing_chunk_ids(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={"data_asset_id": data_asset_id, "chunking": {"strategy": "heading_recursive", "params": {}}},
+    )
+    assert chunks_response.status_code == 201
+    gt_payload = {
+        "metadata": {"ground_truth_type": "chunk_level_qrels"},
+        "questions": [
+            {
+                "expected_answer_type": "found",
+                "question": "When is payment due?",
+                "question_id": "q001",
+                "relevant_chunks": [{"chunk_id": "chunk_999999", "relevance": 3}],
+            }
+        ],
+    }
+
+    response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={"chunks_cache_id": chunks_response.json()["id"], "name": "Broken qrels"},
+        files={"file": ("ground_truth.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
+    )
+
+    assert response.status_code == 201
+    validation = response.json()["metadata_json"]["validation"]
+    assert validation["status"] == "invalid"
+    assert validation["missing_chunk_ids"] == ["chunk_999999"]
+
+
 def test_create_saved_experiment_with_metrics_json(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
@@ -1362,7 +1505,12 @@ def _patch_data_dirs(monkeypatch, tmp_path) -> None:
         },
     )()
     monkeypatch.setattr("app.services.data_assets.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.ground_truth.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.runtime_cache.get_settings", lambda: settings)
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _make_text_pdf_bytes(text: str) -> bytes:

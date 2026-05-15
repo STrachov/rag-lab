@@ -122,7 +122,34 @@ Canonical chunking payload:
 ```http
 GET  /v1/projects/{project_id}/ground-truth-sets
 POST /v1/projects/{project_id}/ground-truth-sets
+POST /v1/projects/{project_id}/ground-truth-sets/upload
 ```
+
+`ground-truth-sets/upload` accepts multipart form data:
+
+```text
+name
+data_asset_id optional prepared data asset id
+chunks_cache_id optional chunks DerivedCache id
+file JSON or JSONL ground truth file
+```
+
+Uploaded ground truth is stored under:
+
+```text
+data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/
+```
+
+The backend preserves the uploaded file under `original/`, writes a normalized
+`ground_truth.json`, and writes `manifest.json` plus `validation.json`. Chunk-level qrels may be
+uploaded as a JSON object with `questions[]` and `relevant_chunks[]`, including graded relevance
+values `1..3`. JSONL files following the GT authoring pack schema are also normalized into the same
+canonical chunk-qrels shape.
+
+When `chunks_cache_id` is provided, upload validation checks that referenced `chunk_id` values exist
+in the linked chunks cache and compares `chunks_file_sha256` when the source file provides one. The
+`GroundTruthSet.metadata_json` stores the summary counts, chunks cache reference, and validation
+status.
 
 ## Runtime Caches, Indexing, And Retrieval
 

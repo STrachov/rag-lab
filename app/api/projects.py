@@ -48,6 +48,10 @@ from app.services.data_assets import (
     store_generated_data_asset_files,
     store_uploaded_data_asset_files,
 )
+from app.services.ground_truth import (
+    new_ground_truth_set_id,
+    store_uploaded_ground_truth_set,
+)
 from app.services.preparation import list_preparation_methods
 from app.services.preparation import prepare_docling
 from app.services.preparation import prepare_pymupdf_text
@@ -529,6 +533,65 @@ def create_ground_truth_set(
     return ground_truth_set
 
 
+@router.post(
+    "/projects/{project_id}/ground-truth-sets/upload",
+    response_model=GroundTruthSetResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_ground_truth_set(
+    project_id: str,
+    name: str = Form(...),
+    data_asset_id: str | None = Form(None),
+    chunks_cache_id: str | None = Form(None),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> models.GroundTruthSet:
+    _get_project_or_404(db, project_id)
+    data_asset = None
+    chunks_cache = None
+
+    if chunks_cache_id is not None:
+        chunks_cache = _get_chunks_cache_or_404(db, project_id, chunks_cache_id)
+        if chunks_cache.data_asset_id and data_asset_id is None:
+            data_asset_id = chunks_cache.data_asset_id
+
+    if data_asset_id is not None:
+        data_asset = _get_data_asset_or_404(db, project_id, data_asset_id)
+        _require_data_asset_type(db, data_asset_id, "prepared")
+
+    if chunks_cache is not None and data_asset is not None and chunks_cache.data_asset_id != data_asset.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="chunks_cache_id must reference the selected prepared data asset",
+        )
+
+    ground_truth_set_id = new_ground_truth_set_id()
+    try:
+        stored = store_uploaded_ground_truth_set(
+            chunks_cache=chunks_cache,
+            data_asset=data_asset,
+            file=file,
+            ground_truth_set_id=ground_truth_set_id,
+            project_id=project_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    ground_truth_set = models.GroundTruthSet(
+        id=ground_truth_set_id,
+        project_id=project_id,
+        name=name,
+        data_asset_id=data_asset.id if data_asset else None,
+        storage_path=stored["storage_path"],
+        manifest_hash=stored["manifest_hash"],
+        metadata_json=stored["metadata_json"],
+    )
+    db.add(ground_truth_set)
+    db.commit()
+    db.refresh(ground_truth_set)
+    return ground_truth_set
+
+
 @router.get("/projects/{project_id}/saved-experiments", response_model=SavedExperimentListResponse)
 def list_saved_experiments(
     project_id: str,
@@ -609,6 +672,18 @@ def _get_data_asset_or_404(db: Session, project_id: str, data_asset_id: str) -> 
     if asset is None or asset.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data asset not found")
     return asset
+
+
+def _get_chunks_cache_or_404(db: Session, project_id: str, chunks_cache_id: str) -> models.DerivedCache:
+    cache = db.get(models.DerivedCache, chunks_cache_id)
+    if cache is None or cache.project_id != project_id or cache.cache_type != "chunks":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chunks cache not found")
+    if cache.status != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chunks cache must be ready",
+        )
+    return cache
 
 
 def _get_parameter_set_or_404(

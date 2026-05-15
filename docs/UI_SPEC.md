@@ -259,6 +259,13 @@ batch size, max length, score normalization, and model-specific fields such as Q
 
 Show optional ground truth sets and their data asset references.
 
+The Ground Truth page owns ground truth upload and validation. Uploads should accept a JSON or JSONL
+file, an optional prepared data asset, and an optional chunks cache. When a chunks cache is selected,
+the backend validates that referenced chunk ids exist and records the validation summary on the
+GroundTruthSet. The table should show validation status, question counts, and the linked chunks cache.
+Retrieval and reranking screens may select a validated ground truth set for live metrics, but they
+should not own ground truth file management.
+
 ## Saved Experiments
 
 Show:

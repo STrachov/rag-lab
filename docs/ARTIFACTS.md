@@ -30,6 +30,13 @@ data/
     retrieval_temp/
     answer_temp/
   ground_truth/
+    {project_id}/
+      ground_truths/
+        {ground_truth_set_id}/
+          original/
+          ground_truth.json
+          manifest.json
+          validation.json
 ```
 
 ## Derived Cache
@@ -60,6 +67,12 @@ Ground truth authoring packs are downloadable zip exports derived from a chunks 
 prepared text files, `chunks.jsonl`, `chunks_manifest.json`, `ground_truth.schema.json`,
 `ground_truth.template.jsonl`, and `instructions.md`. These packs contain derived text and should be
 treated as sensitive local artifacts, not committed project state.
+
+Uploaded ground truth sets are stored as project-scoped files under
+`data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/`. The uploaded source file is
+preserved under `original/`, while `ground_truth.json` is the normalized file used by evaluation.
+`manifest.json` records hashes, counts, and data/chunks references; `validation.json` records missing
+chunk ids and warnings such as a mismatched `chunks_file_sha256`.
 
 Sparse retrieval stats, such as local BM25 document frequencies and average document length, are
 stored under `data/cache/sparse/` and referenced from the Qdrant index cache metadata.
