@@ -22,7 +22,7 @@ from app.models.api import (
     DataAssetListResponse,
     DataAssetPrepareRequest,
     DataAssetResponse,
-    GroundTruthSetCreate,
+    GroundTruthSetDeleteResponse,
     GroundTruthSetListResponse,
     GroundTruthSetResponse,
     ParameterSetCreate,
@@ -506,34 +506,6 @@ def list_ground_truth_sets(
 
 
 @router.post(
-    "/projects/{project_id}/ground-truth-sets",
-    response_model=GroundTruthSetResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_ground_truth_set(
-    project_id: str,
-    payload: GroundTruthSetCreate,
-    db: Session = Depends(get_db),
-) -> models.GroundTruthSet:
-    _get_project_or_404(db, project_id)
-
-    if payload.data_asset_id is not None:
-        _get_project_child_or_404(
-            db,
-            models.DataAsset,
-            project_id,
-            payload.data_asset_id,
-            "data asset",
-        )
-
-    ground_truth_set = models.GroundTruthSet(project_id=project_id, **payload.model_dump())
-    db.add(ground_truth_set)
-    db.commit()
-    db.refresh(ground_truth_set)
-    return ground_truth_set
-
-
-@router.post(
     "/projects/{project_id}/ground-truth-sets/upload",
     response_model=GroundTruthSetResponse,
     status_code=status.HTTP_201_CREATED,
@@ -542,33 +514,19 @@ def upload_ground_truth_set(
     project_id: str,
     name: str = Form(...),
     data_asset_id: str | None = Form(None),
-    chunks_cache_id: str | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> models.GroundTruthSet:
     _get_project_or_404(db, project_id)
     data_asset = None
-    chunks_cache = None
-
-    if chunks_cache_id is not None:
-        chunks_cache = _get_chunks_cache_or_404(db, project_id, chunks_cache_id)
-        if chunks_cache.data_asset_id and data_asset_id is None:
-            data_asset_id = chunks_cache.data_asset_id
 
     if data_asset_id is not None:
         data_asset = _get_data_asset_or_404(db, project_id, data_asset_id)
         _require_data_asset_type(db, data_asset_id, "prepared")
 
-    if chunks_cache is not None and data_asset is not None and chunks_cache.data_asset_id != data_asset.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="chunks_cache_id must reference the selected prepared data asset",
-        )
-
     ground_truth_set_id = new_ground_truth_set_id()
     try:
         stored = store_uploaded_ground_truth_set(
-            chunks_cache=chunks_cache,
             data_asset=data_asset,
             file=file,
             ground_truth_set_id=ground_truth_set_id,
@@ -590,6 +548,34 @@ def upload_ground_truth_set(
     db.commit()
     db.refresh(ground_truth_set)
     return ground_truth_set
+
+
+@router.delete(
+    "/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}",
+    response_model=GroundTruthSetDeleteResponse,
+)
+def delete_ground_truth_set(
+    project_id: str,
+    ground_truth_set_id: str,
+    db: Session = Depends(get_db),
+) -> GroundTruthSetDeleteResponse:
+    _get_project_or_404(db, project_id)
+    ground_truth_set = _get_ground_truth_set_or_404(db, project_id, ground_truth_set_id)
+    used_by_experiment = db.scalar(
+        select(models.SavedExperiment.id)
+        .where(models.SavedExperiment.project_id == project_id)
+        .where(models.SavedExperiment.ground_truth_set_id == ground_truth_set_id)
+    )
+    if used_by_experiment is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete ground truth set used by saved experiments",
+        )
+
+    _delete_ground_truth_storage(project_id, ground_truth_set.storage_path)
+    db.delete(ground_truth_set)
+    db.commit()
+    return GroundTruthSetDeleteResponse(deleted_ground_truth_set_id=ground_truth_set_id)
 
 
 @router.get("/projects/{project_id}/saved-experiments", response_model=SavedExperimentListResponse)
@@ -674,16 +660,15 @@ def _get_data_asset_or_404(db: Session, project_id: str, data_asset_id: str) -> 
     return asset
 
 
-def _get_chunks_cache_or_404(db: Session, project_id: str, chunks_cache_id: str) -> models.DerivedCache:
-    cache = db.get(models.DerivedCache, chunks_cache_id)
-    if cache is None or cache.project_id != project_id or cache.cache_type != "chunks":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chunks cache not found")
-    if cache.status != "ready":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Chunks cache must be ready",
-        )
-    return cache
+def _get_ground_truth_set_or_404(
+    db: Session,
+    project_id: str,
+    ground_truth_set_id: str,
+) -> models.GroundTruthSet:
+    ground_truth_set = db.get(models.GroundTruthSet, ground_truth_set_id)
+    if ground_truth_set is None or ground_truth_set.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ground truth set not found")
+    return ground_truth_set
 
 
 def _get_parameter_set_or_404(
@@ -1053,3 +1038,23 @@ def _delete_asset_storage(storage_path: str | None) -> None:
     path = Path(storage_path)
     if path.exists():
         shutil.rmtree(path)
+
+
+def _delete_ground_truth_storage(project_id: str, storage_path: str | None) -> None:
+    if storage_path is None:
+        return
+    path = Path(storage_path)
+    root = get_settings().data_dir / "ground_truth" / project_id / "ground_truths"
+    try:
+        resolved_path = path.resolve()
+        resolved_root = root.resolve()
+    except OSError:
+        return
+    if resolved_root not in resolved_path.parents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ground truth storage path is outside project ground truth storage",
+        )
+    ground_truth_dir = resolved_path.parent
+    if ground_truth_dir.exists():
+        shutil.rmtree(ground_truth_dir)

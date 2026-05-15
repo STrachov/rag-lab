@@ -2,10 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 
 import {
   DataAsset,
-  DerivedCache,
+  deleteGroundTruthSet,
   GroundTruthSet,
   listDataAssets,
-  listDerivedCaches,
   listGroundTruthSets,
   Project,
   uploadGroundTruthSet,
@@ -18,22 +17,17 @@ type GroundTruthPageProps = {
 export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
   const [groundTruthSets, setGroundTruthSets] = useState<GroundTruthSet[]>([]);
   const [dataAssets, setDataAssets] = useState<DataAsset[]>([]);
-  const [chunksCaches, setChunksCaches] = useState<DerivedCache[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [dataAssetId, setDataAssetId] = useState("");
-  const [chunksCacheId, setChunksCacheId] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const visibleChunksCaches = dataAssetId
-    ? chunksCaches.filter((cache) => cache.data_asset_id === dataAssetId)
-    : chunksCaches;
 
   useEffect(() => {
     if (!currentProject) {
       setGroundTruthSets([]);
       setDataAssets([]);
-      setChunksCaches([]);
       return;
     }
 
@@ -41,11 +35,10 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
   }, [currentProject]);
 
   function refresh(projectId: string) {
-    Promise.all([listGroundTruthSets(projectId), listDataAssets(projectId), listDerivedCaches(projectId, "chunks")])
-      .then(([groundTruthResult, dataAssetResult, chunksResult]) => {
+    Promise.all([listGroundTruthSets(projectId), listDataAssets(projectId)])
+      .then(([groundTruthResult, dataAssetResult]) => {
         setGroundTruthSets(groundTruthResult.ground_truth_sets);
         setDataAssets(dataAssetResult.data_assets);
-        setChunksCaches(chunksResult.derived_caches.filter((cache) => cache.status === "ready"));
         setError(null);
       })
       .catch((err: Error) => setError(err.message));
@@ -53,6 +46,7 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     if (!currentProject || !name.trim() || !file) {
       return;
     }
@@ -60,7 +54,6 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
     setIsUploading(true);
     try {
       const groundTruthSet = await uploadGroundTruthSet(currentProject.id, {
-        chunks_cache_id: chunksCacheId || undefined,
         data_asset_id: dataAssetId || undefined,
         file,
         name: name.trim(),
@@ -68,14 +61,29 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
       setGroundTruthSets((current) => [...current, groundTruthSet]);
       setName("");
       setDataAssetId("");
-      setChunksCacheId("");
       setFile(null);
-      event.currentTarget.reset();
+      form.reset();
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload ground truth set");
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function handleDelete(groundTruthSet: GroundTruthSet) {
+    if (!currentProject || !window.confirm(`Delete ground truth set "${groundTruthSet.name}"?`)) {
+      return;
+    }
+    setDeletingId(groundTruthSet.id);
+    try {
+      await deleteGroundTruthSet(currentProject.id, groundTruthSet.id);
+      setGroundTruthSets((current) => current.filter((item) => item.id !== groundTruthSet.id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete ground truth set");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -107,42 +115,11 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
         </label>
         <label>
           Data asset
-          <select
-            value={dataAssetId}
-            onChange={(event) => {
-              const nextDataAssetId = event.target.value;
-              setDataAssetId(nextDataAssetId);
-              const selectedCache = chunksCaches.find((cache) => cache.id === chunksCacheId);
-              if (nextDataAssetId && selectedCache?.data_asset_id !== nextDataAssetId) {
-                setChunksCacheId("");
-              }
-            }}
-          >
-            <option value="">Infer from chunks cache</option>
+          <select value={dataAssetId} onChange={(event) => setDataAssetId(event.target.value)}>
+            <option value="">None</option>
             {dataAssets.filter((asset) => asset.asset_type === "prepared").map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Chunks cache
-          <select
-            value={chunksCacheId}
-            onChange={(event) => {
-              const nextChunksCacheId = event.target.value;
-              setChunksCacheId(nextChunksCacheId);
-              const selectedCache = chunksCaches.find((cache) => cache.id === nextChunksCacheId);
-              if (!dataAssetId && selectedCache?.data_asset_id) {
-                setDataAssetId(selectedCache.data_asset_id);
-              }
-            }}
-          >
-            <option value="">None</option>
-            {visibleChunksCaches.map((cache) => (
-              <option key={cache.id} value={cache.id}>
-                {cache.cache_key}
               </option>
             ))}
           </select>
@@ -172,7 +149,8 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
             <span>Name</span>
             <span>Status</span>
             <span>Questions</span>
-            <span>Chunks cache</span>
+            <span>Chunks file hash</span>
+            <span>Actions</span>
           </div>
           {groundTruthSets.map((groundTruthSet) => (
             <div className="table-row ground-truth-table" key={groundTruthSet.id}>
@@ -182,7 +160,17 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
                 <ValidationBadge groundTruthSet={groundTruthSet} />
               </span>
               <span>{formatQuestionSummary(groundTruthSet)}</span>
-              <span>{formatMetadataValue(groundTruthSet.metadata_json.chunks_cache_key)}</span>
+              <span>{formatShortHash(groundTruthSet.metadata_json.chunks_file_sha256)}</span>
+              <span>
+                <button
+                  className="text-action danger"
+                  disabled={deletingId === groundTruthSet.id}
+                  onClick={() => handleDelete(groundTruthSet)}
+                  type="button"
+                >
+                  {deletingId === groundTruthSet.id ? "Deleting..." : "Delete"}
+                </button>
+              </span>
             </div>
           ))}
         </div>
@@ -216,4 +204,12 @@ function formatMetadataValue(value: unknown): string {
     return "-";
   }
   return String(value);
+}
+
+function formatShortHash(value: unknown): string {
+  const text = formatMetadataValue(value);
+  if (text === "-" || text.length <= 18) {
+    return text;
+  }
+  return `${text.slice(0, 18)}...`;
 }

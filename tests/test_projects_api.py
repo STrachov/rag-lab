@@ -1207,33 +1207,6 @@ def test_delete_experiment_parameter_set_is_blocked(
     assert "saved experiments" in delete_response.json()["detail"]
 
 
-def test_create_ground_truth_set_under_project(client: TestClient) -> None:
-    project_id = _create_project(client)
-    data_asset_id = _create_data_asset(client, project_id)
-
-    response = client.post(
-        f"/v1/projects/{project_id}/ground-truth-sets",
-        json={
-            "name": "Policy questions",
-            "data_asset_id": data_asset_id,
-            "storage_path": "data/ground_truth/policy_questions.jsonl",
-            "manifest_hash": "sha256:test-ground-truth",
-        },
-    )
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["project_id"] == project_id
-    assert body["data_asset_id"] == data_asset_id
-    assert body["name"] == "Policy questions"
-
-    list_response = client.get(f"/v1/projects/{project_id}/ground-truth-sets")
-    assert list_response.status_code == 200
-    assert [item["name"] for item in list_response.json()["ground_truth_sets"]] == [
-        "Policy questions"
-    ]
-
-
 def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     client: TestClient,
     monkeypatch,
@@ -1301,10 +1274,7 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
 
     response = client.post(
         f"/v1/projects/{project_id}/ground-truth-sets/upload",
-        data={
-            "chunks_cache_id": chunks_cache["id"],
-            "name": "Policy chunk qrels",
-        },
+        data={"data_asset_id": data_asset_id, "name": "Policy chunk qrels"},
         files={"file": ("ground_truth.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
     )
 
@@ -1319,7 +1289,9 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     assert metadata["found_count"] == 1
     assert metadata["not_found_count"] == 1
     assert metadata["relevance_judgment_count"] == 1
-    assert metadata["validation"]["status"] == "valid"
+    assert metadata["validation"]["status"] == "unvalidated"
+    assert metadata["validation"]["referenced_chunk_count"] == 1
+    assert metadata["chunks_file_sha256"] == chunks_file_sha256
 
     storage_path = Path(body["storage_path"])
     assert storage_path == tmp_path / "ground_truth" / project_id / "ground_truths" / body["id"] / "ground_truth.json"
@@ -1332,7 +1304,7 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     assert canonical["questions"][0]["relevant_chunks"][0]["chunk_id"] == "chunk_000001"
 
 
-def test_upload_ground_truth_set_reports_missing_chunk_ids(
+def test_upload_ground_truth_set_accepts_chunk_ids_without_cache_binding(
     client: TestClient,
     monkeypatch,
     tmp_path,
@@ -1345,12 +1317,6 @@ def test_upload_ground_truth_set_reports_missing_chunk_ids(
         project_id,
         b"# Policy\n\nPayment is due within 30 days.",
     )
-    _patch_data_dirs(monkeypatch, tmp_path)
-    chunks_response = client.post(
-        f"/v1/projects/{project_id}/chunks/materialize",
-        json={"data_asset_id": data_asset_id, "chunking": {"strategy": "heading_recursive", "params": {}}},
-    )
-    assert chunks_response.status_code == 201
     gt_payload = {
         "metadata": {"ground_truth_type": "chunk_level_qrels"},
         "questions": [
@@ -1365,14 +1331,78 @@ def test_upload_ground_truth_set_reports_missing_chunk_ids(
 
     response = client.post(
         f"/v1/projects/{project_id}/ground-truth-sets/upload",
-        data={"chunks_cache_id": chunks_response.json()["id"], "name": "Broken qrels"},
+        data={"data_asset_id": data_asset_id, "name": "Unbound qrels"},
         files={"file": ("ground_truth.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
     )
 
     assert response.status_code == 201
     validation = response.json()["metadata_json"]["validation"]
-    assert validation["status"] == "invalid"
-    assert validation["missing_chunk_ids"] == ["chunk_999999"]
+    assert validation["status"] == "unvalidated"
+    assert validation["referenced_chunk_count"] == 1
+
+
+def test_delete_ground_truth_set_removes_db_row_and_storage(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    response = _upload_ground_truth_set(client, project_id, data_asset_id)
+    ground_truth_set = response.json()
+    ground_truth_dir = Path(ground_truth_set["storage_path"]).parent
+    assert ground_truth_dir.exists()
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}",
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_ground_truth_set_id"] == ground_truth_set["id"]
+    assert not ground_truth_dir.exists()
+    list_response = client.get(f"/v1/projects/{project_id}/ground-truth-sets")
+    assert list_response.status_code == 200
+    assert list_response.json()["ground_truth_sets"] == []
+
+
+def test_delete_ground_truth_set_used_by_saved_experiment_is_blocked(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+    experiment_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "data_asset_id": data_asset_id,
+            "ground_truth_set_id": ground_truth_set["id"],
+            "name": "Uses GT",
+            "params_hash": "sha256:test-params",
+            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
+        },
+    )
+    assert experiment_response.status_code == 201
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}",
+    )
+
+    assert delete_response.status_code == 400
+    assert "saved experiments" in delete_response.json()["detail"]
 
 
 def test_create_saved_experiment_with_metrics_json(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -1629,6 +1659,31 @@ def _upload_prepared_data_asset_with_content(
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def _upload_ground_truth_set(
+    client: TestClient,
+    project_id: str,
+    data_asset_id: str,
+) -> httpx.Response:
+    gt_payload = {
+        "metadata": {"ground_truth_type": "chunk_level_qrels"},
+        "questions": [
+            {
+                "expected_answer_type": "found",
+                "question": "When is payment due?",
+                "question_id": "q001",
+                "relevant_chunks": [{"chunk_id": "chunk_000001", "relevance": 3}],
+            }
+        ],
+    }
+    response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={"data_asset_id": data_asset_id, "name": "Policy qrels"},
+        files={"file": ("ground_truth.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
+    )
+    assert response.status_code == 201
+    return response
 
 
 def _create_parameter_set(client: TestClient, project_id: str) -> str:

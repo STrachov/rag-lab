@@ -27,7 +27,6 @@ def store_uploaded_ground_truth_set(
     *,
     file: UploadFile,
     ground_truth_set_id: str,
-    chunks_cache: models.DerivedCache | None,
     data_asset: models.DataAsset | None,
     project_id: str,
 ) -> dict[str, Any]:
@@ -46,7 +45,7 @@ def store_uploaded_ground_truth_set(
 
         parsed = _parse_json_or_jsonl(content)
         canonical = _canonicalize_ground_truth(parsed)
-        validation = _validate_ground_truth(canonical, chunks_cache)
+        validation = _validate_ground_truth(canonical)
         canonical_path = base_dir / "ground_truth.json"
         canonical_path.write_text(
             json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=False),
@@ -54,7 +53,6 @@ def store_uploaded_ground_truth_set(
         )
         manifest = _build_manifest(
             canonical=canonical,
-            chunks_cache=chunks_cache,
             content=content,
             content_type=file.content_type,
             data_asset=data_asset,
@@ -204,58 +202,26 @@ def _canonical_relevant_chunk(value: Any, *, fallback_rank: int) -> dict[str, An
 
 def _validate_ground_truth(
     canonical: dict[str, Any],
-    chunks_cache: models.DerivedCache | None,
 ) -> dict[str, Any]:
     relevant_chunk_ids = {
         str(chunk["chunk_id"])
         for question in canonical["questions"]
         for chunk in question["relevant_chunks"]
     }
-    warnings: list[str] = []
-    missing_chunk_ids: list[str] = []
+    warnings = ["Chunk id compatibility is checked later against the retrieval chunks cache."]
     chunks_file_sha256 = canonical.get("metadata", {}).get("chunks_file_sha256")
-    actual_chunks_file_sha256: str | None = None
 
-    if chunks_cache is None:
-        warnings.append("Ground truth is not linked to a chunks cache; chunk id validation was skipped.")
-    else:
-        chunks_path = Path(str(chunks_cache.metadata_json.get("chunks_path") or ""))
-        if not chunks_path.exists():
-            warnings.append("Linked chunks cache file is missing; chunk id validation was skipped.")
-        else:
-            actual_chunks_file_sha256 = hashlib.sha256(chunks_path.read_bytes()).hexdigest()
-            chunk_ids = _read_chunk_ids(chunks_path)
-            missing_chunk_ids = sorted(relevant_chunk_ids - chunk_ids)
-            if chunks_file_sha256 and str(chunks_file_sha256) != actual_chunks_file_sha256:
-                warnings.append("Ground truth chunks_file_sha256 does not match the linked chunks cache.")
-
-    status = "invalid" if missing_chunk_ids else "warning" if warnings else "valid"
     return {
-        "actual_chunks_file_sha256": actual_chunks_file_sha256,
-        "missing_chunk_ids": missing_chunk_ids,
-        "status": status,
+        "declared_chunks_file_sha256": chunks_file_sha256,
+        "referenced_chunk_count": len(relevant_chunk_ids),
+        "status": "unvalidated",
         "warnings": warnings,
     }
-
-
-def _read_chunk_ids(chunks_path: Path) -> set[str]:
-    chunk_ids: set[str] = set()
-    for line_number, line in enumerate(chunks_path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            chunk = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Linked chunks cache has invalid JSONL at line {line_number}") from exc
-        if chunk.get("chunk_id"):
-            chunk_ids.add(str(chunk["chunk_id"]))
-    return chunk_ids
 
 
 def _build_manifest(
     *,
     canonical: dict[str, Any],
-    chunks_cache: models.DerivedCache | None,
     content: bytes,
     content_type: str | None,
     data_asset: models.DataAsset | None,
@@ -295,8 +261,6 @@ def _build_manifest(
             "validation_path": "validation.json",
         },
         "validation": validation,
-        "chunks_cache_id": chunks_cache.id if chunks_cache else None,
-        "chunks_cache_key": chunks_cache.cache_key if chunks_cache else None,
         "chunks_file_sha256": canonical["metadata"].get("chunks_file_sha256"),
     }
 
@@ -304,8 +268,6 @@ def _build_manifest(
 def _metadata_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "canonical_format": manifest["canonical_format"],
-        "chunks_cache_id": manifest.get("chunks_cache_id"),
-        "chunks_cache_key": manifest.get("chunks_cache_key"),
         "chunks_file_sha256": manifest.get("chunks_file_sha256"),
         "found_count": manifest["found_count"],
         "ground_truth_type": manifest["ground_truth_type"],

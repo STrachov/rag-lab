@@ -144,7 +144,8 @@ Deleting a parameter set is allowed only while no saved experiment references it
 
 An optional set of expected facts, sources, labels, or judgments for evaluating saved experiments.
 Ground truth files are project-scoped local files, not DataAsset records. A set may reference a
-prepared data asset and, for chunk-level qrels, the chunks cache whose chunk ids were judged.
+prepared data asset. For chunk-level qrels, compatibility with a specific chunks cache is checked
+when retrieval/reranking evaluation runs, not when the ground truth set is created.
 
 Fields:
 
@@ -161,8 +162,8 @@ created_at
 
 For uploaded chunk-level qrels, `storage_path` points to
 `data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/ground_truth.json`.
-`metadata_json` stores the canonical format, ground truth type, linked chunks cache, question and
-judgment counts, and validation status.
+`metadata_json` stores the canonical format, ground truth type, question and judgment counts,
+declared chunk-file hash when available, and validation status.
 
 ## SavedExperiment
 

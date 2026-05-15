@@ -121,8 +121,8 @@ Canonical chunking payload:
 
 ```http
 GET  /v1/projects/{project_id}/ground-truth-sets
-POST /v1/projects/{project_id}/ground-truth-sets
 POST /v1/projects/{project_id}/ground-truth-sets/upload
+DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
 ```
 
 `ground-truth-sets/upload` accepts multipart form data:
@@ -130,7 +130,6 @@ POST /v1/projects/{project_id}/ground-truth-sets/upload
 ```text
 name
 data_asset_id optional prepared data asset id
-chunks_cache_id optional chunks DerivedCache id
 file JSON or JSONL ground truth file
 ```
 
@@ -146,10 +145,13 @@ uploaded as a JSON object with `questions[]` and `relevant_chunks[]`, including 
 values `1..3`. JSONL files following the GT authoring pack schema are also normalized into the same
 canonical chunk-qrels shape.
 
-When `chunks_cache_id` is provided, upload validation checks that referenced `chunk_id` values exist
-in the linked chunks cache and compares `chunks_file_sha256` when the source file provides one. The
-`GroundTruthSet.metadata_json` stores the summary counts, chunks cache reference, and validation
-status.
+Ground truth upload validates the file shape and stores summary counts. Chunk id compatibility is
+checked later against the retrieval chunks cache when evaluation runs. If the source file provides
+`chunks_file_sha256`, it is stored in `GroundTruthSet.metadata_json` for that later compatibility
+check.
+
+Deleting a ground truth set removes its project-scoped storage directory and database row. Deletion is
+blocked when a saved experiment references the ground truth set.
 
 ## Runtime Caches, Indexing, And Retrieval
 

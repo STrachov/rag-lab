@@ -548,7 +548,7 @@ h1 {
 
 .upload-form,
 .ground-truth-form {
-  grid-template-columns: minmax(160px, 1fr) minmax(120px, 0.5fr) minmax(200px, 1fr) minmax(160px, 0.8fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 0.8fr) minmax(240px, 1.2fr) auto;
 }
 
 .prepared-upload-form {
@@ -865,9 +865,12 @@ h1 {
   background: #f3f8fa;
 }
 
-.data-table,
-.ground-truth-table {
+.data-table {
   grid-template-columns: 1.1fr 0.7fr 0.7fr 1.7fr 1.2fr;
+}
+
+.ground-truth-table {
+  grid-template-columns: 1.1fr 0.8fr 0.6fr 1.4fr 1fr 0.5fr;
 }
 
 .parameter-table {

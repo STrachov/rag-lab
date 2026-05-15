@@ -363,17 +363,14 @@ class RetrievalPreviewResponse(BaseModel):
     retrieved_chunks: list[RetrievedChunk]
 
 
-class GroundTruthSetCreate(BaseModel):
+class GroundTruthSetResponse(BaseModel):
+    id: str
+    project_id: str
     name: str
     data_asset_id: str | None = None
     storage_path: str | None = None
     manifest_hash: str | None = None
     metadata_json: JsonObject = Field(default_factory=dict)
-
-
-class GroundTruthSetResponse(GroundTruthSetCreate):
-    id: str
-    project_id: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -381,6 +378,10 @@ class GroundTruthSetResponse(GroundTruthSetCreate):
 
 class GroundTruthSetListResponse(BaseModel):
     ground_truth_sets: list[GroundTruthSetResponse]
+
+
+class GroundTruthSetDeleteResponse(BaseModel):
+    deleted_ground_truth_set_id: str
 
 
 class SavedExperimentCreate(BaseModel):
