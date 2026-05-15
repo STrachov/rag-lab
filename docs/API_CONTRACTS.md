@@ -122,6 +122,7 @@ Canonical chunking payload:
 ```http
 GET  /v1/projects/{project_id}/ground-truth-sets
 POST /v1/projects/{project_id}/ground-truth-sets/upload
+GET  /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/files/{canonical|original}
 DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
 ```
 
@@ -145,10 +146,14 @@ uploaded as a JSON object with `questions[]` and `relevant_chunks[]`, including 
 values `1..3`. JSONL files following the GT authoring pack schema are also normalized into the same
 canonical chunk-qrels shape.
 
-Ground truth upload validates the file shape and stores summary counts. Chunk id compatibility is
-checked later against the retrieval chunks cache when evaluation runs. If the source file provides
-`chunks_file_sha256`, it is stored in `GroundTruthSet.metadata_json` for that later compatibility
-check.
+Ground truth upload validates the file shape, writes the canonical form, and stores summary counts.
+Upload-time validation status is `format_valid` when parsing and canonicalization succeed. Chunk id
+compatibility is checked later against the retrieval chunks cache when evaluation runs. If the source
+file provides `chunks_file_sha256`, it is stored in `GroundTruthSet.metadata_json` for that later
+compatibility check.
+
+The `files/canonical` endpoint returns the normalized `ground_truth.json`; `files/original` returns
+the uploaded source file preserved under `original/`.
 
 Deleting a ground truth set removes its project-scoped storage directory and database row. Deletion is
 blocked when a saved experiment references the ground truth set.

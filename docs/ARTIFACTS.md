@@ -72,8 +72,8 @@ Uploaded ground truth sets are stored as project-scoped files under
 `data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/`. The uploaded source file is
 preserved under `original/`, while `ground_truth.json` is the normalized file used by evaluation.
 `manifest.json` records hashes, counts, and data references; `validation.json` records upload-time
-file validation. Chunk id compatibility and `chunks_file_sha256` checks happen later against the
-chunks cache selected for evaluation.
+file validation with status `format_valid` after successful canonicalization. Chunk id compatibility
+and `chunks_file_sha256` checks happen later against the chunks cache selected for evaluation.
 
 Sparse retrieval stats, such as local BM25 document frequencies and average document length, are
 stored under `data/cache/sparse/` and referenced from the Qdrant index cache metadata.

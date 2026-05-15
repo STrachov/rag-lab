@@ -1289,7 +1289,8 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     assert metadata["found_count"] == 1
     assert metadata["not_found_count"] == 1
     assert metadata["relevance_judgment_count"] == 1
-    assert metadata["validation"]["status"] == "unvalidated"
+    assert metadata["validation"]["status"] == "format_valid"
+    assert metadata["validation"]["compatibility_status"] == "not_checked"
     assert metadata["validation"]["referenced_chunk_count"] == 1
     assert metadata["chunks_file_sha256"] == chunks_file_sha256
 
@@ -1337,8 +1338,38 @@ def test_upload_ground_truth_set_accepts_chunk_ids_without_cache_binding(
 
     assert response.status_code == 201
     validation = response.json()["metadata_json"]["validation"]
-    assert validation["status"] == "unvalidated"
+    assert validation["status"] == "format_valid"
     assert validation["referenced_chunk_count"] == 1
+
+
+def test_download_ground_truth_original_and_canonical_files(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+
+    canonical_response = client.get(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/files/canonical",
+    )
+    original_response = client.get(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/files/original",
+    )
+
+    assert canonical_response.status_code == 200
+    assert canonical_response.json()["schema_version"] == "raglab.chunk_qrels.v1"
+    assert "ground_truth.canonical.json" in canonical_response.headers["content-disposition"]
+    assert original_response.status_code == 200
+    assert original_response.json()["metadata"]["ground_truth_type"] == "chunk_level_qrels"
+    assert "ground_truth.json" in original_response.headers["content-disposition"]
 
 
 def test_delete_ground_truth_set_removes_db_row_and_storage(
@@ -1534,6 +1565,7 @@ def _patch_data_dirs(monkeypatch, tmp_path) -> None:
             "qdrant_url": "http://localhost:6333",
         },
     )()
+    monkeypatch.setattr("app.api.projects.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.data_assets.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.ground_truth.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.runtime_cache.get_settings", lambda: settings)

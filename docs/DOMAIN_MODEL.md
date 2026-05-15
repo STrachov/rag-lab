@@ -163,7 +163,7 @@ created_at
 For uploaded chunk-level qrels, `storage_path` points to
 `data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/ground_truth.json`.
 `metadata_json` stores the canonical format, ground truth type, question and judgment counts,
-declared chunk-file hash when available, and validation status.
+declared chunk-file hash when available, and upload-time validation status such as `format_valid`.
 
 ## SavedExperiment
 

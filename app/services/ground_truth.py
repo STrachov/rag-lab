@@ -208,14 +208,14 @@ def _validate_ground_truth(
         for question in canonical["questions"]
         for chunk in question["relevant_chunks"]
     }
-    warnings = ["Chunk id compatibility is checked later against the retrieval chunks cache."]
     chunks_file_sha256 = canonical.get("metadata", {}).get("chunks_file_sha256")
 
     return {
         "declared_chunks_file_sha256": chunks_file_sha256,
+        "compatibility_status": "not_checked",
         "referenced_chunk_count": len(relevant_chunk_ids),
-        "status": "unvalidated",
-        "warnings": warnings,
+        "status": "format_valid",
+        "warnings": [],
     }
 
 

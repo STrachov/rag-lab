@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import {
   DataAsset,
   deleteGroundTruthSet,
+  getGroundTruthSetFileUrl,
   GroundTruthSet,
   listDataAssets,
   listGroundTruthSets,
@@ -145,22 +146,37 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
       ) : (
         <div className="table">
           <div className="table-row ground-truth-table table-head">
-            <span>ID</span>
             <span>Name</span>
             <span>Status</span>
             <span>Questions</span>
-            <span>Chunks file hash</span>
-            <span>Actions</span>
+            <span>Files</span>
+            <span>Delete</span>
           </div>
           {groundTruthSets.map((groundTruthSet) => (
             <div className="table-row ground-truth-table" key={groundTruthSet.id}>
-              <span>{groundTruthSet.id}</span>
               <span>{groundTruthSet.name}</span>
               <span>
                 <ValidationBadge groundTruthSet={groundTruthSet} />
               </span>
               <span>{formatQuestionSummary(groundTruthSet)}</span>
-              <span>{formatShortHash(groundTruthSet.metadata_json.chunks_file_sha256)}</span>
+              <span className="row-actions">
+                <a
+                  className="text-action"
+                  href={getGroundTruthSetFileUrl(currentProject.id, groundTruthSet.id, "canonical")}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Canonical
+                </a>
+                <a
+                  className="text-action"
+                  href={getGroundTruthSetFileUrl(currentProject.id, groundTruthSet.id, "original")}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Original
+                </a>
+              </span>
               <span>
                 <button
                   className="text-action danger"
@@ -182,7 +198,12 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
 function ValidationBadge({ groundTruthSet }: { groundTruthSet: GroundTruthSet }) {
   const validation = groundTruthSet.metadata_json.validation as { status?: string; warnings?: string[] } | undefined;
   const status = validation?.status ?? "unvalidated";
-  const className = status === "valid" ? "badge good" : status === "invalid" ? "badge danger" : "badge warning";
+  const className =
+    status === "format_valid" || status === "valid"
+      ? "badge good"
+      : status === "invalid"
+        ? "badge danger"
+        : "badge warning";
   const title = validation?.warnings?.join("\n") || undefined;
   return (
     <span className={className} title={title}>
@@ -204,12 +225,4 @@ function formatMetadataValue(value: unknown): string {
     return "-";
   }
   return String(value);
-}
-
-function formatShortHash(value: unknown): string {
-  const text = formatMetadataValue(value);
-  if (text === "-" || text.length <= 18) {
-    return text;
-  }
-  return `${text.slice(0, 18)}...`;
 }

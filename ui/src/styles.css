@@ -464,6 +464,13 @@ h1 {
   color: #a94442;
 }
 
+.row-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .modal-backdrop {
   align-items: center;
   background: rgb(23 32 38 / 0.45);
@@ -870,7 +877,7 @@ h1 {
 }
 
 .ground-truth-table {
-  grid-template-columns: 1.1fr 0.8fr 0.6fr 1.4fr 1fr 0.5fr;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 0.6fr) minmax(240px, 1.4fr) minmax(160px, 0.8fr) minmax(80px, 0.4fr);
 }
 
 .parameter-table {

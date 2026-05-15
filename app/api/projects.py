@@ -550,6 +550,23 @@ def upload_ground_truth_set(
     return ground_truth_set
 
 
+@router.get("/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/files/{file_kind}")
+def download_ground_truth_set_file(
+    project_id: str,
+    ground_truth_set_id: str,
+    file_kind: str,
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    _get_project_or_404(db, project_id)
+    ground_truth_set = _get_ground_truth_set_or_404(db, project_id, ground_truth_set_id)
+    path, filename, media_type = _resolve_ground_truth_file_or_404(
+        project_id,
+        ground_truth_set,
+        file_kind,
+    )
+    return FileResponse(path, filename=filename, media_type=media_type)
+
+
 @router.delete(
     "/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}",
     response_model=GroundTruthSetDeleteResponse,
@@ -1041,20 +1058,71 @@ def _delete_asset_storage(storage_path: str | None) -> None:
 
 
 def _delete_ground_truth_storage(project_id: str, storage_path: str | None) -> None:
-    if storage_path is None:
-        return
-    path = Path(storage_path)
-    root = get_settings().data_dir / "ground_truth" / project_id / "ground_truths"
     try:
-        resolved_path = path.resolve()
-        resolved_root = root.resolve()
+        ground_truth_dir = _ground_truth_storage_dir(project_id, storage_path)
+    except HTTPException:
+        raise
     except OSError:
         return
-    if resolved_root not in resolved_path.parents:
+    if ground_truth_dir.exists():
+        shutil.rmtree(ground_truth_dir)
+
+
+def _resolve_ground_truth_file_or_404(
+    project_id: str,
+    ground_truth_set: models.GroundTruthSet,
+    file_kind: str,
+) -> tuple[Path, str, str]:
+    ground_truth_dir = _ground_truth_storage_dir(project_id, ground_truth_set.storage_path)
+    if file_kind == "canonical":
+        path = ground_truth_dir / "ground_truth.json"
+        if not path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Canonical ground truth file not found")
+        return path, "ground_truth.canonical.json", "application/json"
+    if file_kind != "original":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="file_kind must be canonical or original",
+        )
+
+    manifest_path = ground_truth_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ground truth manifest not found")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ground truth manifest is invalid",
+        ) from exc
+    original = manifest.get("original") or {}
+    stored_path = original.get("stored_path")
+    if not isinstance(stored_path, str):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original ground truth file not found")
+    path = ground_truth_dir / stored_path
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original ground truth file not found")
+    filename = str(original.get("original_name") or path.name)
+    media_type = str(original.get("content_type") or "application/octet-stream")
+    return path, filename, media_type
+
+
+def _ground_truth_storage_dir(project_id: str, storage_path: str | None) -> Path:
+    if storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ground truth set has no storage path",
+        )
+    path = Path(storage_path)
+    ground_truth_dir = path.parent
+    root = get_settings().data_dir / "ground_truth" / project_id / "ground_truths"
+    resolved_dir = ground_truth_dir.resolve()
+    resolved_root = root.resolve()
+    if resolved_root not in resolved_dir.parents:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ground truth storage path is outside project ground truth storage",
         )
-    ground_truth_dir = resolved_path.parent
-    if ground_truth_dir.exists():
-        shutil.rmtree(ground_truth_dir)
+    if not ground_truth_dir.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ground truth storage is missing")
+    return ground_truth_dir

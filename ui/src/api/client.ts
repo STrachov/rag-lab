@@ -700,6 +700,14 @@ export async function deleteGroundTruthSet(
   });
 }
 
+export function getGroundTruthSetFileUrl(
+  projectId: string,
+  groundTruthSetId: string,
+  fileKind: "canonical" | "original",
+): string {
+  return `${API_BASE_URL}/projects/${projectId}/ground-truth-sets/${groundTruthSetId}/files/${fileKind}`;
+}
+
 export async function listSavedExperiments(
   projectId: string,
 ): Promise<{ saved_experiments: SavedExperiment[] }> {

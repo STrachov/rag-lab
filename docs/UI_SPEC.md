@@ -262,10 +262,12 @@ Show optional ground truth sets and their data asset references.
 The Ground Truth page owns ground truth upload and file-shape validation. Uploads should accept a
 JSON or JSONL file and an optional prepared data asset. Ground truth creation should not require a
 chunks cache; chunk id compatibility belongs to retrieval/reranking evaluation, where the selected
-GT set can be checked against the active chunks cache. The table should show validation status,
-question counts, any declared `chunks_file_sha256`, and a delete action. Deleting a ground truth set
-used by a saved experiment must be blocked. Retrieval and reranking screens may select a ground truth
-set for live metrics, but they should not own ground truth file management.
+GT set can be checked against the active chunks cache. The default table should show name,
+validation status, question counts, links to the canonical and original files, and a separate delete
+action. Technical identifiers and chunk-file hashes may be kept in details/debug views rather than
+the default table. Deleting a ground truth set used by a saved experiment must be blocked. Retrieval and
+reranking screens may select a ground truth set for live metrics, but they should not own ground
+truth file management.
 
 ## Saved Experiments
 
