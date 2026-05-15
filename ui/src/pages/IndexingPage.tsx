@@ -539,22 +539,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                     Last indexing error: {errorMessage(selectedIndexCache.metadata_json.error_json)}
                   </div>
                 ) : null}
-                <div className="parameter-grid">
-                  <label>
-                    Mode
-                    <select
-                      value={retrievalMode}
-                      onChange={(event) => {
-                        setRetrievalMode(event.target.value as typeof retrievalMode);
-                        setRetrievalMetrics(null);
-                        setRerankMetrics(null);
-                      }}
-                    >
-                      <option value="hybrid">hybrid</option>
-                      <option value="dense">dense</option>
-                      <option value="sparse">sparse</option>
-                    </select>
-                  </label>
+                <div className="gt-question-panel">
+                  <h3>Ground Truth Metrics</h3>
+                  <div className="parameter-grid">
                   <label>
                     Question source
                     <select
@@ -569,8 +556,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       <option value="ground_truth">Ground Truth</option>
                     </select>
                   </label>
-                  {questionSource === "ground_truth" ? (
-                    <>
+                    {questionSource === "ground_truth" ? (
+                      <>
                       <label>
                         Ground truth set
                         <select
@@ -610,8 +597,28 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                           ))}
                         </select>
                       </label>
-                    </>
-                  ) : null}
+                      </>
+                    ) : (
+                      <div className="form-note">Manual queries run without GT metrics.</div>
+                    )}
+                  </div>
+                </div>
+                <div className="parameter-grid">
+                  <label>
+                    Mode
+                    <select
+                      value={retrievalMode}
+                      onChange={(event) => {
+                        setRetrievalMode(event.target.value as typeof retrievalMode);
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
+                    >
+                      <option value="hybrid">hybrid</option>
+                      <option value="dense">dense</option>
+                      <option value="sparse">sparse</option>
+                    </select>
+                  </label>
                   <label>
                     Query
                     <input

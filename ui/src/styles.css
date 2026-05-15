@@ -664,6 +664,21 @@ h1 {
   gap: 12px;
 }
 
+.gt-question-panel {
+  background: #f8fafb;
+  border: 1px solid #edf1f3;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.gt-question-panel h3 {
+  color: #425864;
+  font-size: 13px;
+  margin: 0;
+}
+
 .metric-strip {
   display: grid;
   gap: 8px;
