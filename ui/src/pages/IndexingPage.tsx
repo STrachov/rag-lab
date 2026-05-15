@@ -8,9 +8,14 @@ import {
   DerivedCache,
   EmbeddingModel,
   EmbeddingParamValue,
+  GroundTruthQuestion,
+  GroundTruthRankingScore,
+  GroundTruthSet,
   listDataAssets,
   listDerivedCaches,
   listEmbeddingModels,
+  listGroundTruthQuestions,
+  listGroundTruthSets,
   listParameterSets,
   listRerankerModels,
   listSparseModels,
@@ -21,6 +26,7 @@ import {
   Project,
   RerankerModel,
   RetrievalPreviewResponse,
+  scoreGroundTruthRanking,
   SparseModel,
 } from "../api/client";
 
@@ -47,6 +53,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModel[]>([]);
   const [sparseModels, setSparseModels] = useState<SparseModel[]>([]);
   const [rerankerModels, setRerankerModels] = useState<RerankerModel[]>([]);
+  const [groundTruthSets, setGroundTruthSets] = useState<GroundTruthSet[]>([]);
+  const [groundTruthQuestions, setGroundTruthQuestions] = useState<GroundTruthQuestion[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [selectedParameterSetId, setSelectedParameterSetId] = useState("");
   const [chunksCacheId, setChunksCacheId] = useState(searchParams.get("chunks_cache_id") ?? "");
@@ -58,6 +66,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [sparseParams, setSparseParams] = useState<Record<string, EmbeddingParamValue>>({});
   const [indexMode, setIndexMode] = useState<"dense" | "sparse" | "hybrid">("hybrid");
   const [retrievalMode, setRetrievalMode] = useState<"dense" | "sparse" | "hybrid">("hybrid");
+  const [questionSource, setQuestionSource] = useState<"manual" | "ground_truth">("manual");
+  const [selectedGroundTruthSetId, setSelectedGroundTruthSetId] = useState("");
+  const [selectedGroundTruthQuestionId, setSelectedGroundTruthQuestionId] = useState("");
   const [query, setQuery] = useState("Where from is Wayne Xin Zhao?");
   const [topK, setTopK] = useState(5);
   const [candidateK, setCandidateK] = useState(30);
@@ -66,6 +77,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [rerankerParams, setRerankerParams] = useState<Record<string, EmbeddingParamValue>>({});
   const [retrievalResult, setRetrievalResult] = useState<RetrievalPreviewResponse | null>(null);
   const [rerankResult, setRerankResult] = useState<RetrievalPreviewResponse | null>(null);
+  const [retrievalMetrics, setRetrievalMetrics] = useState<GroundTruthRankingScore | null>(null);
+  const [rerankMetrics, setRerankMetrics] = useState<GroundTruthRankingScore | null>(null);
   const [isMaterializing, setIsMaterializing] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isRetrieving, setIsRetrieving] = useState(false);
@@ -93,6 +106,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       setEmbeddingModels([]);
       setSparseModels([]);
       setRerankerModels([]);
+      setGroundTruthSets([]);
+      setGroundTruthQuestions([]);
       return;
     }
 
@@ -103,14 +118,17 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       listEmbeddingModels(currentProject.id),
       listSparseModels(currentProject.id),
       listRerankerModels(currentProject.id),
+      listGroundTruthSets(currentProject.id),
     ])
-      .then(([assetResult, cacheResult, parameterResult, modelResult, sparseResult, rerankerResult]) => {
+      .then(([assetResult, cacheResult, parameterResult, modelResult, sparseResult, rerankerResult, groundTruthResult]) => {
         setDataAssets(assetResult.data_assets);
         setIndexCaches(cacheResult.derived_caches);
         setParameterSets(parameterResult.parameter_sets);
         setEmbeddingModels(modelResult.models);
         setSparseModels(sparseResult.models);
         setRerankerModels(rerankerResult.models);
+        setGroundTruthSets(groundTruthResult.ground_truth_sets);
+        setSelectedGroundTruthSetId((current) => current || groundTruthResult.ground_truth_sets[0]?.id || "");
         setSelectedAssetId((current) => current || firstPreparedId(assetResult.data_assets));
         const firstChunkingSet = parameterResult.parameter_sets.find((set) => set.category === "chunking");
         setSelectedParameterSetId((current) => current || firstChunkingSet?.id || "");
@@ -141,6 +159,34 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       })
       .catch((err: Error) => setError(err.message));
   }, [currentProject]);
+
+  useEffect(() => {
+    if (!currentProject || !selectedGroundTruthSetId) {
+      setGroundTruthQuestions([]);
+      setSelectedGroundTruthQuestionId("");
+      return;
+    }
+    listGroundTruthQuestions(currentProject.id, selectedGroundTruthSetId)
+      .then((result) => {
+        setGroundTruthQuestions(result.questions);
+        setSelectedGroundTruthQuestionId((current) => current || result.questions[0]?.question_id || "");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, [currentProject, selectedGroundTruthSetId]);
+
+  useEffect(() => {
+    if (questionSource !== "ground_truth") {
+      return;
+    }
+    const selectedQuestion = groundTruthQuestions.find(
+      (question) => question.question_id === selectedGroundTruthQuestionId,
+    );
+    if (selectedQuestion) {
+      setQuery(selectedQuestion.question);
+      setRetrievalMetrics(null);
+      setRerankMetrics(null);
+    }
+  }, [groundTruthQuestions, questionSource, selectedGroundTruthQuestionId]);
 
   useEffect(() => {
     const model = embeddingModels.find((item) => item.id === embeddingModelId);
@@ -211,6 +257,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       setSelectedIndexCacheId(cache.id);
       setRetrievalResult(null);
       setRerankResult(null);
+      setRetrievalMetrics(null);
+      setRerankMetrics(null);
       setRetrievalCacheId("");
       setError(null);
     } catch (err) {
@@ -236,7 +284,10 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       });
       setRetrievalResult(result);
       setRerankResult(null);
+      setRerankMetrics(null);
       setRetrievalCacheId(result.retrieval_cache_id ?? "");
+      const metrics = await scoreSelectedGroundTruth(result);
+      setRetrievalMetrics(metrics);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to retrieve chunks");
@@ -261,12 +312,34 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
         top_k: topK,
       });
       setRerankResult(result);
+      const metrics = await scoreSelectedGroundTruth(result);
+      setRerankMetrics(metrics);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rerank chunks");
     } finally {
       setIsReranking(false);
     }
+  }
+
+  async function scoreSelectedGroundTruth(
+    result: RetrievalPreviewResponse,
+  ): Promise<GroundTruthRankingScore | null> {
+    if (
+      !currentProject ||
+      questionSource !== "ground_truth" ||
+      !selectedGroundTruthSetId ||
+      !selectedGroundTruthQuestionId ||
+      !selectedIndexCache
+    ) {
+      return null;
+    }
+    return scoreGroundTruthRanking(currentProject.id, selectedGroundTruthSetId, {
+      index_cache_id: selectedIndexCache.id,
+      k: result.top_k,
+      question_id: selectedGroundTruthQuestionId,
+      retrieved_chunks: result.retrieved_chunks,
+    });
   }
 
   function refreshIndexCaches(projectId: string) {
@@ -430,6 +503,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       setSelectedIndexCacheId(cache.id);
                       setRetrievalResult(null);
                       setRerankResult(null);
+                      setRetrievalMetrics(null);
+                      setRerankMetrics(null);
                       setRetrievalCacheId("");
                     }}
                     type="button"
@@ -467,15 +542,87 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 <div className="parameter-grid">
                   <label>
                     Mode
-                    <select value={retrievalMode} onChange={(event) => setRetrievalMode(event.target.value as typeof retrievalMode)}>
+                    <select
+                      value={retrievalMode}
+                      onChange={(event) => {
+                        setRetrievalMode(event.target.value as typeof retrievalMode);
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
+                    >
                       <option value="hybrid">hybrid</option>
                       <option value="dense">dense</option>
                       <option value="sparse">sparse</option>
                     </select>
                   </label>
                   <label>
+                    Question source
+                    <select
+                      value={questionSource}
+                      onChange={(event) => {
+                        setQuestionSource(event.target.value as typeof questionSource);
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
+                    >
+                      <option value="manual">Manual</option>
+                      <option value="ground_truth">Ground Truth</option>
+                    </select>
+                  </label>
+                  {questionSource === "ground_truth" ? (
+                    <>
+                      <label>
+                        Ground truth set
+                        <select
+                          value={selectedGroundTruthSetId}
+                          onChange={(event) => {
+                            setSelectedGroundTruthSetId(event.target.value);
+                            setSelectedGroundTruthQuestionId("");
+                            setRetrievalMetrics(null);
+                            setRerankMetrics(null);
+                          }}
+                        >
+                          {groundTruthSets.length === 0 ? <option value="">No GT sets</option> : null}
+                          {groundTruthSets.map((groundTruthSet) => (
+                            <option key={groundTruthSet.id} value={groundTruthSet.id}>
+                              {groundTruthSet.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Question
+                        <select
+                          value={selectedGroundTruthQuestionId}
+                          onChange={(event) => {
+                            setSelectedGroundTruthQuestionId(event.target.value);
+                            setRetrievalResult(null);
+                            setRerankResult(null);
+                            setRetrievalMetrics(null);
+                            setRerankMetrics(null);
+                          }}
+                        >
+                          {groundTruthQuestions.length === 0 ? <option value="">No questions</option> : null}
+                          {groundTruthQuestions.map((question) => (
+                            <option key={question.question_id} value={question.question_id}>
+                              {question.question_id}: {question.question}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  ) : null}
+                  <label>
                     Query
-                    <input value={query} onChange={(event) => setQuery(event.target.value)} />
+                    <input
+                      readOnly={questionSource === "ground_truth"}
+                      value={query}
+                      onChange={(event) => {
+                        setQuery(event.target.value);
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
+                    />
                   </label>
                   <label>
                     Top K
@@ -484,7 +631,11 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       min={1}
                       type="number"
                       value={topK}
-                      onChange={(event) => setTopK(Number(event.target.value))}
+                      onChange={(event) => {
+                        setTopK(Number(event.target.value));
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
                     />
                   </label>
                   <label>
@@ -494,7 +645,11 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       min={topK}
                       type="number"
                       value={candidateK}
-                      onChange={(event) => setCandidateK(Number(event.target.value))}
+                      onChange={(event) => {
+                        setCandidateK(Number(event.target.value));
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
                     />
                   </label>
                 </div>
@@ -507,6 +662,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                   {isRetrieving ? "Retrieving..." : "Retrieve"}
                 </button>
                 {retrievalCacheId ? <div className="nested-empty">Retrieval cache: {retrievalCacheId}</div> : null}
+                {retrievalMetrics ? <RankingMetrics score={retrievalMetrics} title="Retrieval Metrics" /> : null}
                 {retrievalResult ? <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" /> : null}
               </>
             ) : (
@@ -566,6 +722,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
             {!retrievalCacheId ? (
               <div className="nested-empty">Run retrieval first, then rerank the current candidate cache.</div>
             ) : null}
+            {rerankMetrics ? <RankingMetrics score={rerankMetrics} title="Reranking Metrics" /> : null}
             {rerankResult ? <RetrievalResult retrieval={rerankResult} title="Reranked Chunks" /> : null}
           </div>
 
@@ -673,6 +830,29 @@ function RetrievalResult({ retrieval, title }: { retrieval: RetrievalPreviewResp
   );
 }
 
+function RankingMetrics({ score, title }: { score: GroundTruthRankingScore; title: string }) {
+  return (
+    <div className="chunk-preview">
+      <h3>{title}</h3>
+      <div className="metric-strip retrieval-metrics-strip">
+        {Object.entries(score.metrics).map(([name, value]) => (
+          <div key={name}>
+            <span>{formatMetricName(name)}</span>
+            <strong>{formatMetricValue(value)}</strong>
+          </div>
+        ))}
+      </div>
+      {score.warnings.length > 0 ? (
+        <div className="warning-list">
+          {score.warnings.map((warning) => (
+            <span key={warning}>{warning}</span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function firstPreparedId(dataAssets: DataAsset[]): string {
   return dataAssets.find((asset) => asset.asset_type === "prepared")?.id ?? "";
 }
@@ -712,4 +892,18 @@ function errorMessage(value: unknown): string {
     return String((value as { message?: unknown }).message ?? "Unknown error");
   }
   return "Unknown error";
+}
+
+function formatMetricName(name: string): string {
+  return name.replace(/_/g, " ");
+}
+
+function formatMetricValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+  if (Number.isInteger(value) && Math.abs(value) >= 10) {
+    return String(value);
+  }
+  return value.toFixed(3);
 }

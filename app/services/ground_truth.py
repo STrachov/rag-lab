@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 from datetime import UTC, datetime
@@ -21,6 +22,101 @@ GT_SET_SCHEMA_VERSION = "raglab.ground_truth_set.v1"
 
 def new_ground_truth_set_id() -> str:
     return models.new_id()
+
+
+def list_ground_truth_questions(ground_truth_set: models.GroundTruthSet) -> list[dict[str, Any]]:
+    canonical = read_canonical_ground_truth(ground_truth_set)
+    questions = []
+    for question in canonical["questions"]:
+        questions.append(
+            {
+                "expected_answer_type": question["expected_answer_type"],
+                "question": question["question"],
+                "question_id": question["question_id"],
+                "question_type": question["question_type"],
+                "relevant_chunk_count": len(question["relevant_chunks"]),
+            }
+        )
+    return questions
+
+
+def score_ground_truth_ranking(
+    *,
+    ground_truth_set: models.GroundTruthSet,
+    index_cache: models.DerivedCache | None,
+    k: int,
+    question_id: str,
+    retrieved_chunks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    canonical = read_canonical_ground_truth(ground_truth_set)
+    question = next(
+        (item for item in canonical["questions"] if item["question_id"] == question_id),
+        None,
+    )
+    if question is None:
+        raise ValueError("Ground truth question not found")
+
+    warnings = _ranking_warnings(canonical, index_cache)
+    top_chunks = retrieved_chunks[:k]
+    if question["expected_answer_type"] == "not_found":
+        top_score = _top_score(top_chunks)
+        return {
+            "expected_answer_type": "not_found",
+            "k": k,
+            "metrics": {
+                "expected_not_found": 1.0,
+                "returned_count": float(len(top_chunks)),
+                "top_score": top_score if top_score is not None else 0.0,
+            },
+            "question_id": question_id,
+            "warnings": warnings,
+        }
+
+    relevance_by_chunk_id = {
+        str(chunk["chunk_id"]): int(chunk["relevance"])
+        for chunk in question["relevant_chunks"]
+    }
+    retrieved_ids = [str(chunk.get("chunk_id")) for chunk in top_chunks if chunk.get("chunk_id")]
+    found_relevant_ids = [chunk_id for chunk_id in retrieved_ids if chunk_id in relevance_by_chunk_id]
+    first_relevant_rank = next(
+        (rank for rank, chunk_id in enumerate(retrieved_ids, start=1) if chunk_id in relevance_by_chunk_id),
+        None,
+    )
+    relevant_count = len(relevance_by_chunk_id)
+    dcg = sum(
+        _dcg_gain(relevance_by_chunk_id.get(chunk_id, 0), rank)
+        for rank, chunk_id in enumerate(retrieved_ids, start=1)
+    )
+    ideal_relevances = sorted(relevance_by_chunk_id.values(), reverse=True)[:k]
+    idcg = sum(_dcg_gain(relevance, rank) for rank, relevance in enumerate(ideal_relevances, start=1))
+    return {
+        "expected_answer_type": "found",
+        "k": k,
+        "metrics": {
+            "hit_at_k": 1.0 if found_relevant_ids else 0.0,
+            "mrr_at_k": (1.0 / first_relevant_rank) if first_relevant_rank else 0.0,
+            "ndcg_at_k": (dcg / idcg) if idcg else 0.0,
+            "precision_at_k": len(found_relevant_ids) / k if k else 0.0,
+            "recall_at_k": len(set(found_relevant_ids)) / relevant_count if relevant_count else 0.0,
+        },
+        "question_id": question_id,
+        "warnings": warnings,
+    }
+
+
+def read_canonical_ground_truth(ground_truth_set: models.GroundTruthSet) -> dict[str, Any]:
+    if ground_truth_set.storage_path is None:
+        raise ValueError("Ground truth set has no storage path")
+    path = Path(ground_truth_set.storage_path)
+    if not path.exists():
+        raise ValueError("Ground truth canonical file is missing")
+    try:
+        canonical = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("Ground truth canonical file is invalid") from exc
+    if canonical.get("schema_version") != GT_SCHEMA_VERSION or not isinstance(canonical.get("questions"), list):
+        raise ValueError("Ground truth canonical file has an unsupported format")
+    return canonical
 
 
 def store_uploaded_ground_truth_set(
@@ -217,6 +313,40 @@ def _validate_ground_truth(
         "status": "format_valid",
         "warnings": [],
     }
+
+
+def _ranking_warnings(
+    canonical: dict[str, Any],
+    index_cache: models.DerivedCache | None,
+) -> list[str]:
+    declared_hash = canonical.get("metadata", {}).get("chunks_file_sha256")
+    if not declared_hash or index_cache is None:
+        return []
+    chunks_cache_key = index_cache.metadata_json.get("chunks_cache_key")
+    if not chunks_cache_key:
+        return ["Selected index has no chunks cache key; GT chunk hash was not checked."]
+    chunks_path = get_settings().data_dir / "cache" / "chunks" / str(chunks_cache_key) / "chunks.jsonl"
+    if not chunks_path.exists():
+        return ["Selected index chunks file is missing; GT chunk hash was not checked."]
+    actual_hash = hashlib.sha256(chunks_path.read_bytes()).hexdigest()
+    if str(declared_hash) != actual_hash:
+        return ["GT chunks_file_sha256 does not match the selected index chunks cache."]
+    return []
+
+
+def _dcg_gain(relevance: int, rank: int) -> float:
+    if relevance <= 0:
+        return 0.0
+    return (math.pow(2, relevance) - 1.0) / math.log2(rank + 1)
+
+
+def _top_score(chunks: list[dict[str, Any]]) -> float | None:
+    scores = [
+        float(chunk["score"])
+        for chunk in chunks
+        if chunk.get("score") is not None
+    ]
+    return max(scores) if scores else None
 
 
 def _build_manifest(

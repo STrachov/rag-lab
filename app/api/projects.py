@@ -25,6 +25,9 @@ from app.models.api import (
     GroundTruthSetDeleteResponse,
     GroundTruthSetListResponse,
     GroundTruthSetResponse,
+    GroundTruthQuestionListResponse,
+    GroundTruthRankingScoreRequest,
+    GroundTruthRankingScoreResponse,
     ParameterSetCreate,
     ParameterSetDeleteResponse,
     ParameterSetListResponse,
@@ -49,7 +52,9 @@ from app.services.data_assets import (
     store_uploaded_data_asset_files,
 )
 from app.services.ground_truth import (
+    list_ground_truth_questions,
     new_ground_truth_set_id,
+    score_ground_truth_ranking,
     store_uploaded_ground_truth_set,
 )
 from app.services.preparation import list_preparation_methods
@@ -567,6 +572,60 @@ def download_ground_truth_set_file(
     return FileResponse(path, filename=filename, media_type=media_type)
 
 
+@router.get(
+    "/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/questions",
+    response_model=GroundTruthQuestionListResponse,
+)
+def list_ground_truth_set_questions(
+    project_id: str,
+    ground_truth_set_id: str,
+    db: Session = Depends(get_db),
+) -> GroundTruthQuestionListResponse:
+    _get_project_or_404(db, project_id)
+    ground_truth_set = _get_ground_truth_set_or_404(db, project_id, ground_truth_set_id)
+    try:
+        questions = list_ground_truth_questions(ground_truth_set)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return GroundTruthQuestionListResponse(questions=questions)
+
+
+@router.post(
+    "/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/score-ranking",
+    response_model=GroundTruthRankingScoreResponse,
+)
+def score_ground_truth_set_ranking(
+    project_id: str,
+    ground_truth_set_id: str,
+    payload: GroundTruthRankingScoreRequest,
+    db: Session = Depends(get_db),
+) -> GroundTruthRankingScoreResponse:
+    _get_project_or_404(db, project_id)
+    ground_truth_set = _get_ground_truth_set_or_404(db, project_id, ground_truth_set_id)
+    index_cache = None
+    if payload.index_cache_id is not None:
+        index_cache = _get_project_cache_or_404(db, project_id, payload.index_cache_id)
+        if index_cache.cache_type != "qdrant_index":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="index_cache_id must reference a qdrant_index cache",
+            )
+    try:
+        scored = score_ground_truth_ranking(
+            ground_truth_set=ground_truth_set,
+            index_cache=index_cache,
+            k=payload.k,
+            question_id=payload.question_id,
+            retrieved_chunks=[
+                chunk.model_dump(mode="json", exclude_none=True)
+                for chunk in payload.retrieved_chunks
+            ],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return GroundTruthRankingScoreResponse.model_validate(scored)
+
+
 @router.delete(
     "/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}",
     response_model=GroundTruthSetDeleteResponse,
@@ -686,6 +745,13 @@ def _get_ground_truth_set_or_404(
     if ground_truth_set is None or ground_truth_set.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ground truth set not found")
     return ground_truth_set
+
+
+def _get_project_cache_or_404(db: Session, project_id: str, cache_id: str) -> models.DerivedCache:
+    cache = db.get(models.DerivedCache, cache_id)
+    if cache is None or cache.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Derived cache not found")
+    return cache
 
 
 def _get_parameter_set_or_404(

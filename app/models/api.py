@@ -384,6 +384,33 @@ class GroundTruthSetDeleteResponse(BaseModel):
     deleted_ground_truth_set_id: str
 
 
+class GroundTruthQuestionResponse(BaseModel):
+    question_id: str
+    question: str
+    question_type: str
+    expected_answer_type: str
+    relevant_chunk_count: int
+
+
+class GroundTruthQuestionListResponse(BaseModel):
+    questions: list[GroundTruthQuestionResponse]
+
+
+class GroundTruthRankingScoreRequest(BaseModel):
+    question_id: str
+    retrieved_chunks: list[RetrievedChunk]
+    k: int = Field(default=5, ge=1, le=100)
+    index_cache_id: str | None = None
+
+
+class GroundTruthRankingScoreResponse(BaseModel):
+    question_id: str
+    expected_answer_type: str
+    k: int
+    metrics: dict[str, float]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SavedExperimentCreate(BaseModel):
     name: str
     data_asset_id: str

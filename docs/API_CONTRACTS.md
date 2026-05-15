@@ -123,6 +123,8 @@ Canonical chunking payload:
 GET  /v1/projects/{project_id}/ground-truth-sets
 POST /v1/projects/{project_id}/ground-truth-sets/upload
 GET  /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/files/{canonical|original}
+GET  /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/questions
+POST /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/score-ranking
 DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
 ```
 
@@ -154,6 +156,12 @@ compatibility check.
 
 The `files/canonical` endpoint returns the normalized `ground_truth.json`; `files/original` returns
 the uploaded source file preserved under `original/`.
+
+`questions` returns compact question metadata for UI selection. `score-ranking` evaluates one ranked
+retrieval or reranking preview result for one ground-truth question and returns metrics only, such as
+`hit_at_k`, `mrr_at_k`, `ndcg_at_k`, `precision_at_k`, and `recall_at_k`. Negative not-found questions
+return not-found diagnostics such as `expected_not_found`, `returned_count`, and `top_score`. The UI
+may ignore debug details; batch evaluation should reuse the same scorer later.
 
 Deleting a ground truth set removes its project-scoped storage directory and database row. Deletion is
 blocked when a saved experiment references the ground truth set.

@@ -383,6 +383,22 @@ export type GroundTruthSetDeleteResponse = {
   deleted_ground_truth_set_id: string;
 };
 
+export type GroundTruthQuestion = {
+  expected_answer_type: string;
+  question: string;
+  question_id: string;
+  question_type: string;
+  relevant_chunk_count: number;
+};
+
+export type GroundTruthRankingScore = {
+  expected_answer_type: string;
+  k: number;
+  metrics: Record<string, number>;
+  question_id: string;
+  warnings: string[];
+};
+
 export type SavedExperiment = {
   id: string;
   project_id: string;
@@ -706,6 +722,29 @@ export function getGroundTruthSetFileUrl(
   fileKind: "canonical" | "original",
 ): string {
   return `${API_BASE_URL}/projects/${projectId}/ground-truth-sets/${groundTruthSetId}/files/${fileKind}`;
+}
+
+export async function listGroundTruthQuestions(
+  projectId: string,
+  groundTruthSetId: string,
+): Promise<{ questions: GroundTruthQuestion[] }> {
+  return request(`/projects/${projectId}/ground-truth-sets/${groundTruthSetId}/questions`);
+}
+
+export async function scoreGroundTruthRanking(
+  projectId: string,
+  groundTruthSetId: string,
+  payload: {
+    index_cache_id?: string;
+    k: number;
+    question_id: string;
+    retrieved_chunks: RetrievedChunk[];
+  },
+): Promise<GroundTruthRankingScore> {
+  return request(`/projects/${projectId}/ground-truth-sets/${groundTruthSetId}/score-ranking`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
 }
 
 export async function listSavedExperiments(

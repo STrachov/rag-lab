@@ -1372,6 +1372,112 @@ def test_download_ground_truth_original_and_canonical_files(
     assert "ground_truth.json" in original_response.headers["content-disposition"]
 
 
+def test_ground_truth_questions_and_ranking_metrics(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+
+    questions_response = client.get(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/questions",
+    )
+    score_response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/score-ranking",
+        json={
+            "k": 3,
+            "question_id": "q001",
+            "retrieved_chunks": [
+                {"chunk_id": "chunk_000003", "score": 0.9},
+                {"chunk_id": "chunk_000001", "score": 0.8},
+                {"chunk_id": "chunk_000004", "score": 0.7},
+            ],
+        },
+    )
+
+    assert questions_response.status_code == 200
+    questions = questions_response.json()["questions"]
+    assert questions == [
+        {
+            "expected_answer_type": "found",
+            "question": "When is payment due?",
+            "question_id": "q001",
+            "question_type": "factual",
+            "relevant_chunk_count": 1,
+        }
+    ]
+    assert score_response.status_code == 200
+    body = score_response.json()
+    assert body["question_id"] == "q001"
+    assert body["expected_answer_type"] == "found"
+    assert body["metrics"]["hit_at_k"] == 1.0
+    assert body["metrics"]["mrr_at_k"] == 0.5
+    assert body["metrics"]["precision_at_k"] == 1 / 3
+    assert body["metrics"]["recall_at_k"] == 1.0
+    assert body["metrics"]["ndcg_at_k"] > 0
+
+
+def test_ground_truth_not_found_question_returns_not_found_metrics(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    gt_payload = {
+        "metadata": {"ground_truth_type": "chunk_level_qrels"},
+        "questions": [
+            {
+                "expected_answer_type": "not_found",
+                "question": "What is the refund policy?",
+                "question_id": "q_not_found",
+                "relevant_chunks": [],
+            }
+        ],
+    }
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={"data_asset_id": data_asset_id, "name": "Policy not found qrels"},
+        files={"file": ("ground_truth.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
+    )
+    assert upload_response.status_code == 201
+    ground_truth_set = upload_response.json()
+
+    score_response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/score-ranking",
+        json={
+            "k": 5,
+            "question_id": "q_not_found",
+            "retrieved_chunks": [
+                {"chunk_id": "chunk_000001", "score": 0.82},
+                {"chunk_id": "chunk_000002", "score": 0.5},
+            ],
+        },
+    )
+
+    assert score_response.status_code == 200
+    metrics = score_response.json()["metrics"]
+    assert metrics == {
+        "expected_not_found": 1.0,
+        "returned_count": 2.0,
+        "top_score": 0.82,
+    }
+
+
 def test_delete_ground_truth_set_removes_db_row_and_storage(
     client: TestClient,
     monkeypatch,

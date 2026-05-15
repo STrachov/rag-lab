@@ -224,6 +224,8 @@ create a Qdrant index cache
 run retrieval preview against an index cache
 store the retrieval candidate set as a retrieval_temp cache
 rerank the current retrieval cache with a backend-driven reranker catalog
+optionally select a ground truth set and question instead of typing a manual query
+show compact retrieval and reranking metrics for the selected ground truth question
 ```
 
 Existing indexes should remain visible after navigation because they are loaded from
@@ -254,6 +256,10 @@ Embedding and sparse controls must be backend-driven. The UI should not hardcode
 parameter ranges. BM25-style `k1` and `b` are floats, so numeric inputs must support decimal steps.
 Reranker controls must follow the same registry pattern and should support candidate count, device,
 batch size, max length, score normalization, and model-specific fields such as Qwen instructions.
+
+When a ground truth question is selected, the Retrieval page should fill the query from the selected
+question and show compact ranking metrics after retrieval and reranking. The default UI should not
+show expected/found/missing chunk lists; those may be added later as a debug/details view.
 
 ## Ground Truth
 
