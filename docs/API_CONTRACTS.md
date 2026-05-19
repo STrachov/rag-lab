@@ -2,7 +2,8 @@
 
 ## Purpose
 
-Planned API surface for RAG Lab.
+This document defines the UI/backend boundary for RAG Lab. Product intent lives in
+`PRODUCT_SPEC.md`; domain entities live in `DOMAIN_MODEL.md`.
 
 ## Error Shape
 
@@ -24,50 +25,35 @@ POST /v1/projects
 GET  /v1/projects/{project_id}
 ```
 
-## Data Assets
+## Data Assets And Preparation
 
 ```http
-GET  /v1/projects/{project_id}/data-assets
-POST /v1/projects/{project_id}/data-assets
-GET  /v1/projects/{project_id}/data-assets/preparation/methods
-POST /v1/projects/{project_id}/data-assets/raw/upload
-POST /v1/projects/{project_id}/data-assets/prepared/upload
-POST /v1/projects/{project_id}/data-assets/{data_asset_id}/files
+GET    /v1/projects/{project_id}/data-assets
+POST   /v1/projects/{project_id}/data-assets
+POST   /v1/projects/{project_id}/data-assets/raw/upload
+POST   /v1/projects/{project_id}/data-assets/prepared/upload
+POST   /v1/projects/{project_id}/data-assets/{data_asset_id}/files
 DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}/files?stored_path=...
 DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}
-GET  /v1/projects/{project_id}/data-assets/{data_asset_id}/files/download?stored_path=...
-POST /v1/projects/{project_id}/data-assets/{data_asset_id}/prepare
+GET    /v1/projects/{project_id}/data-assets/{data_asset_id}/files/download?stored_path=...
+GET    /v1/projects/{project_id}/data-assets/preparation/methods
+POST   /v1/projects/{project_id}/data-assets/{data_asset_id}/prepare
 ```
 
-Upload endpoints store files under project-scoped storage using generated safe filenames. Original filenames are recorded in manifest JSON.
+Uploads store files under generated safe filenames and keep original filenames in manifest JSON.
+PDF uploads should record lightweight inspection hints such as page count, encryption status,
+text-layer signal, image counts, scan likelihood, and inspection failure details.
 
-PDF uploads are inspected with a lightweight CPU pass. Manifest entries may include page count, encryption status, text-layer metrics, image counts, scan likelihood, and document metadata. Inspection failures are recorded in the manifest and should not fail the upload.
+Preparation methods are backend-driven registry entries. The UI must render the method selector and
+method-specific controls from the registry response.
 
-Adding or deleting files creates a new manifest snapshot in `data_asset_manifests` and updates `data_assets.manifest_hash`.
-
-Deleting an individual file preserves prior manifest snapshots for that asset. Deleting a whole source data asset deletes its linked prepared versions as well. Deleting any data asset used by saved experiments is blocked.
-
-Prepared data uploads must include preparation provenance metadata. Saved experiments should reference prepared data assets, not raw data assets, and snapshot `data_asset_manifest_hash`.
-
-Preparation methods are backend-driven and exposed through `preparation/methods`. The first methods are:
-
-```text
-pymupdf_text -> Markdown from PDFs with text layers, text files, and Markdown files
-docling -> Markdown plus Docling JSON through an external Docling Serve endpoint
-```
-
-Docling output stores `*.md` and `*.docling.json` files in the prepared data asset manifest. No separate RAG Lab metadata JSON is created at preparation time.
-
-Docling preparation uses the async Docling Serve flow internally: submit to `/v1/convert/source/async`, poll `/v1/status/poll/{task_id}`, then read `/v1/result/{task_id}`. This avoids the server-side timeout of synchronous conversion for slow CPU/OCR jobs.
-
-Preparation requests use method-specific settings rather than fixed top-level fields:
+Preparation request:
 
 ```json
 {
   "name": "Policy docling",
-  "method": "docling",
-  "settings": {
-    "base_url": "http://localhost:5001",
+  "method_id": "docling",
+  "params": {
     "do_ocr": true,
     "force_ocr": false,
     "image_export_mode": "placeholder"
@@ -75,104 +61,73 @@ Preparation requests use method-specific settings rather than fixed top-level fi
 }
 ```
 
-RAG Lab exposes Docling image export modes `placeholder` and `embedded`. Docling also supports `referenced`, but RAG Lab does not expose it yet because referenced image files must be captured and stored as prepared asset files.
+The first methods are:
 
-## Parameter Sets
-
-```http
-GET  /v1/projects/{project_id}/parameter-sets
-POST /v1/projects/{project_id}/parameter-sets
-DELETE /v1/projects/{project_id}/parameter-sets/{parameter_set_id}
-GET  /v1/projects/{project_id}/parameter-sets/chunking/strategies
-POST /v1/projects/{project_id}/parameter-sets/chunking/preview
+```text
+pymupdf_text
+docling
 ```
 
-Parameter sets include a `category` field such as `chunking`, `embedding`, `indexing`,
-`retrieval`, `generation`, `evaluation`, or `general`. Deleting a parameter set used by a saved
-experiment is blocked.
+Docling uses the async Docling Serve flow internally and stores Markdown plus `*.docling.json`.
+Expose `image_export_mode` values `placeholder` and `embedded`; do not expose `referenced` until
+referenced image files are stored as prepared asset files.
 
-`chunking/strategies` is the backend-owned catalog for available chunking methods. Each strategy
-declares its id, label, description, default parameters, and UI fields. Adding a strategy in code and
-registering it in the chunking registry should make it available to the Chunking UI without a
-frontend code change.
+## Stage Catalogs And Parameter Sets
 
-Strategies may be native or adapter-backed. For example, `langchain_recursive_character` uses
-LangChain's `RecursiveCharacterTextSplitter` through the chunking adapter boundary while still
-returning RAG Lab chunk preview records.
+```http
+GET    /v1/projects/{project_id}/parameter-sets
+POST   /v1/projects/{project_id}/parameter-sets
+DELETE /v1/projects/{project_id}/parameter-sets/{parameter_set_id}
 
-`chunking/preview` accepts a prepared `data_asset_id` plus chunking parameters and returns
-summary statistics, warnings, and preview chunks. It does not create a product result or saved
-experiment. Preview chunks are derived runtime/debug output and may be recomputed from the prepared
-data asset manifest plus chunking parameters.
+GET    /v1/projects/{project_id}/parameter-sets/chunking/strategies
+POST   /v1/projects/{project_id}/parameter-sets/chunking/preview
 
-Canonical chunking payload:
+GET    /v1/projects/{project_id}/embedding/models
+GET    /v1/projects/{project_id}/sparse/models
+GET    /v1/projects/{project_id}/reranking/models
+GET    /v1/projects/{project_id}/generation/models
+GET    /v1/projects/{project_id}/generation/prompts
+GET    /v1/projects/{project_id}/evaluation/metrics
+```
+
+Parameter sets include a `category` such as:
+
+```text
+chunking
+embedding
+indexing
+retrieval
+reranking
+generation
+evaluation
+general
+```
+
+Deleting a parameter set used by a saved experiment is blocked. Preparation provenance is stored on
+prepared data assets, not edited from later runtime screens.
+
+Chunking preview payload:
 
 ```json
 {
-  "strategy": "heading_recursive",
-  "params": {
-    "chunk_size": 900,
-    "chunk_overlap": 120
+  "data_asset_id": "uuid",
+  "chunking": {
+    "strategy": "heading_recursive",
+    "params": {
+      "chunk_size": 900,
+      "chunk_overlap": 120
+    }
   }
 }
 ```
 
-## Ground Truth Sets
+Preview responses return summary statistics, warnings, and preview chunks. They do not create saved
+experiment results.
 
-```http
-GET  /v1/projects/{project_id}/ground-truth-sets
-POST /v1/projects/{project_id}/ground-truth-sets/upload
-GET  /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/files/{canonical|original}
-GET  /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/questions
-POST /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/score-ranking
-DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
-```
-
-`ground-truth-sets/upload` accepts multipart form data:
-
-```text
-name
-data_asset_id optional prepared data asset id
-file JSON or JSONL ground truth file
-```
-
-Uploaded ground truth is stored under:
-
-```text
-data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/
-```
-
-The backend preserves the uploaded file under `original/`, writes a normalized
-`ground_truth.json`, and writes `manifest.json` plus `validation.json`. Chunk-level qrels may be
-uploaded as a JSON object with `questions[]` and `relevant_chunks[]`, including graded relevance
-values `1..3`. JSONL files following the GT authoring pack schema are also normalized into the same
-canonical chunk-qrels shape.
-
-Ground truth upload validates the file shape, writes the canonical form, and stores summary counts.
-Upload-time validation status is `format_valid` when parsing and canonicalization succeed. Chunk id
-compatibility is checked later against the retrieval chunks cache when evaluation runs. If the source
-file provides `chunks_file_sha256`, it is stored in `GroundTruthSet.metadata_json` for that later
-compatibility check.
-
-The `files/canonical` endpoint returns the normalized `ground_truth.json`; `files/original` returns
-the uploaded source file preserved under `original/`.
-
-`questions` returns compact question metadata for UI selection. `score-ranking` evaluates one ranked
-retrieval or reranking preview result for one ground-truth question and returns metrics only, such as
-`hit_at_k`, `mrr_at_k`, `ndcg_at_k`, `precision_at_k`, and `recall_at_k`. Negative not-found questions
-return not-found diagnostics such as `expected_not_found`, `returned_count`, and `top_score`. The UI
-may ignore debug details; batch evaluation should reuse the same scorer later.
-
-Deleting a ground truth set removes its project-scoped storage directory and database row. Deletion is
-blocked when a saved experiment references the ground truth set.
-
-## Runtime Caches, Indexing, And Retrieval
+## Runtime Caches, Indexing, Retrieval, Reranking
 
 ```http
 GET  /v1/projects/{project_id}/derived-cache?cache_type=...
-GET  /v1/projects/{project_id}/embedding/models
-GET  /v1/projects/{project_id}/sparse/models
-GET  /v1/projects/{project_id}/reranking/models
 POST /v1/projects/{project_id}/chunks/materialize
 GET  /v1/projects/{project_id}/chunks/{chunks_cache_id}/gt-authoring-pack
 POST /v1/projects/{project_id}/indexes/qdrant
@@ -180,60 +135,16 @@ POST /v1/projects/{project_id}/retrieve/preview
 POST /v1/projects/{project_id}/rerank/preview
 ```
 
-`derived-cache` returns project-scoped `DerivedCache` entries. The Retrieval UI uses it to restore
-existing Qdrant index caches after navigation and to show failed index attempts.
+`chunks/materialize` accepts a prepared data asset and canonical chunking snapshot, writes
+`raglab.chunks.v1` JSONL, and creates or reuses `DerivedCache(cache_type="chunks")`.
 
-`embedding/models` and `sparse/models` are backend-owned catalogs. The first embedding models are
-local SentenceTransformers models:
-
-```text
-intfloat_multilingual_e5_small -> intfloat/multilingual-e5-small
-baai_bge_small_en_v1_5 -> BAAI/bge-small-en-v1.5
-```
-
-The first sparse model is `bm25_local`. Its user-tunable params include `k1` and `b` as floats:
-
-```text
-k1: 0.0..4.0, default 1.2, step 0.05
-b:  0.0..1.0, default 0.75, step 0.05
-```
-
-The first reranker models are local cross-encoders exposed through a backend-owned catalog:
-
-```text
-baai_bge_reranker_v2_m3 -> BAAI/bge-reranker-v2-m3
-qwen3_reranker_0_6b -> Qwen/Qwen3-Reranker-0.6B
-ms_marco_minilm_l6_v2 -> cross-encoder/ms-marco-MiniLM-L6-v2
-```
-
-`chunks/materialize` accepts a prepared `data_asset_id` plus a canonical chunking snapshot and writes
-normalized chunk JSONL under `data/cache/chunks/{cache_key}/`. It creates or reuses
-`DerivedCache(cache_type="chunks")`. Docling JSON files are recorded as sidecar metadata, not indexed
-as chunk text by default.
-
-`gt-authoring-pack` downloads a zip for offline/manual or ChatGPT-assisted ground truth authoring.
-The pack includes:
-
-```text
-manifest.json
-chunks.jsonl
-chunks_manifest.json
-prepared_text/
-ground_truth.schema.json
-ground_truth.template.jsonl
-instructions.md
-```
-
-This endpoint requires a materialized chunks cache. It is a debug/export affordance, not a saved
-experiment result.
-
-Qdrant index creation accepts a chunks cache plus indexing options:
+Qdrant index request:
 
 ```json
 {
   "chunks_cache_id": "uuid",
   "index_mode": "hybrid",
-  "collection_name": "optional_collection_name",
+  "collection_name": "",
   "embedding": {
     "model_id": "intfloat_multilingual_e5_small",
     "params": {
@@ -253,11 +164,11 @@ Qdrant index creation accepts a chunks cache plus indexing options:
 }
 ```
 
-Current Qdrant collections use named vectors: `dense` for dense embeddings and `sparse` for BM25-style
-sparse vectors. `index_mode` may be `dense`, `sparse`, or `hybrid`. Failed Qdrant indexing should
-return an HTTP error and also create `DerivedCache(status="failed")` with `metadata_json.error_json`.
+Current Qdrant collections use named vectors: `dense` and optional `sparse`. Failed index attempts
+should return an HTTP error and also create `DerivedCache(status="failed")` with
+`metadata_json.error_json`.
 
-Retrieval preview accepts a Qdrant index cache, query, mode, and `top_k`:
+Retrieval preview request:
 
 ```json
 {
@@ -269,13 +180,11 @@ Retrieval preview accepts a Qdrant index cache, query, mode, and `top_k`:
 }
 ```
 
-Response rows include source metadata, `score`, optional `dense_score`, optional `sparse_score`, and a
-clipped `text_preview`. Hybrid preview currently merges dense and sparse Qdrant searches in the
-application layer with reciprocal rank fusion. The response includes `retrieval_cache_id`; the
-backend stores the full candidate set in `DerivedCache(cache_type="retrieval_temp")` so reranking can
-be repeated without another Qdrant search.
+Retrieval preview returns source metadata, scores, clipped `text_preview`, and a
+`retrieval_cache_id`. Reranking reads the saved candidate set from `retrieval_temp` so users can
+sweep reranker params without repeating Qdrant retrieval.
 
-Rerank preview accepts a retrieval cache and reranker settings:
+Rerank preview request:
 
 ```json
 {
@@ -294,35 +203,68 @@ Rerank preview accepts a retrieval cache and reranker settings:
 }
 ```
 
-Reranking loads the saved candidate set from `retrieval_temp`, loads full chunk text from the
-materialized chunks cache, scores query/chunk pairs with the selected reranker, and returns the final
-`top_k`. Result rows include `rerank_score`, `original_score`, and `original_rank`. Full chunk text is
-not stored in Qdrant payloads or retrieval temp metadata.
+## Ground Truth Sets
 
-## Saved Experiments
+```http
+GET    /v1/projects/{project_id}/ground-truth-sets
+POST   /v1/projects/{project_id}/ground-truth-sets/upload
+GET    /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/files/{canonical|original}
+GET    /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/questions
+POST   /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/score-ranking
+DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
+```
+
+Ground truth upload accepts JSON or JSONL plus an optional prepared `data_asset_id`. Upload validates
+shape and canonicalizes the file. Chunk-id compatibility is checked later against the selected
+chunks cache during retrieval/reranking evaluation.
+
+`score-ranking` evaluates one ranked preview result for one ground-truth question and returns metrics
+only. Batch evaluation should reuse the same scorer family.
+
+## Saved Experiments And Evaluation
 
 ```http
 GET  /v1/projects/{project_id}/saved-experiments
 POST /v1/projects/{project_id}/saved-experiments
+GET  /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
+POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate
+GET  /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/metrics
 ```
 
-Saved experiment creation snapshots the current `data_assets.manifest_hash` into `data_asset_manifest_hash`.
+Saved experiment creation snapshots the current prepared data asset manifest hash and stores the
+full parameter snapshot. Evaluation should run asynchronously when it may call models, build caches,
+or score many ground-truth questions.
 
-## Metrics
+Create saved experiment request:
 
-Saved experiment results are metrics only. Metrics may be returned in:
+```json
+{
+  "name": "Hybrid e5 bm25 qwen strict",
+  "data_asset_id": "prepared-data-uuid",
+  "ground_truth_set_id": "ground-truth-uuid",
+  "params_snapshot_json": {},
+  "debug_level": "none",
+  "notes": ""
+}
+```
+
+Evaluate response:
+
+```json
+{
+  "saved_experiment_id": "uuid",
+  "status": "queued"
+}
+```
+
+Metrics may be returned in:
 
 ```text
-metrics_summary_json
+SavedExperiment.metrics_summary_json
 MetricValue rows
 ```
 
-## Derived Cache
-
-Chunks, embeddings, sparse statistics, Qdrant indexes, traces, prompts, and generated answers are not
-core API results. Debug/runtime endpoints must keep the cache/debug status explicit and must not turn
-retrieval previews into saved experiment metrics.
-
 ## Breaking-Change Rule
 
-After implementation, treat endpoint renames, required-field changes, response-shape changes, and error-shape changes as breaking.
+After implementation, endpoint renames, required-field changes, response-shape changes, and
+error-shape changes are breaking changes.

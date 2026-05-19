@@ -18,31 +18,21 @@ python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
 ```
 
-## Start services
+## Start Services
 
 ```bash
 docker compose up -d postgres qdrant
+alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
-PostgreSQL is exposed on host port `5433` to avoid collisions with a local PostgreSQL install:
+PostgreSQL is exposed on host port `5433`:
 
 ```text
 DATABASE_URL=postgresql+psycopg://raglab:raglab@localhost:5433/raglab
 ```
 
-## Start backend
-
-```bash
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
-```
-
-Run database migrations before starting the backend against PostgreSQL:
-
-```bash
-alembic upgrade head
-```
-
-## Start UI
+Start the UI:
 
 ```bash
 cd ui
@@ -50,41 +40,83 @@ npm install
 npm run dev
 ```
 
-## Run tests
+## Run Tests
 
 ```bash
 python -m pytest
 ```
 
-## Minimal manual workflow
+The first local embedding and reranking models are SentenceTransformers models and may download
+weights on first use. Qdrant must be running before creating or previewing indexes.
+
+## Minimal Manual Workflow
 
 ```text
 1. Create project
 2. Upload source data asset
 3. Inspect PDF/text-layer hints
-4. Create prepared version by upload, `pymupdf_text`, or `docling`
-5. Open Chunking and create a chunking ParameterSet with preview
-6. Optionally download a GT authoring pack from the current chunking snapshot
-7. Click Next or open Retrieval to materialize chunks
-8. Choose embedding, sparse, and Qdrant index settings
-9. Create a dense, sparse, or hybrid Qdrant index cache
-10. Run retrieval preview, creating a retrieval cache for the candidate set
-11. Optionally rerank the current retrieval cache with different models or params
-12. Register optional ground truth set
-13. Save experiment with full parameter snapshot and data manifest hash
-14. Inspect metrics
-15. Compare saved experiments
-16. Promote validated parameter snapshot later
+4. Select a registered preparation method and params
+5. Create prepared data asset
+6. Open Chunking and preview registered chunking strategies
+7. Save reusable stage ParameterSets where useful
+8. Materialize chunks
+9. Optionally download a GT authoring pack
+10. Create a dense, sparse, or hybrid Qdrant index cache
+11. Run retrieval preview with manual questions or one GT question
+12. Rerank the retrieval cache with different models or params
+13. Register optional ground truth set
+14. Save experiment with full parameter snapshot and prepared data manifest hash
+15. Run async evaluation over all selected GT questions
+16. Inspect metrics and failures
+17. Compare saved experiments
+18. Promote validated parameter snapshot later
 ```
 
-The first local embedding and reranking models are SentenceTransformers models and may download model
-weights on first use. Qdrant must be running before creating or previewing indexes.
+## Test Coverage Guide
 
-## Review checklist
+Use unit tests for:
 
-- docs updated;
-- tests added or updated;
-- no secrets committed;
-- no real client data committed;
-- configs are explicit;
-- traces are inspectable.
+```text
+file inspection
+preparation registries and adapters
+parameter set create/delete protections
+chunking strategy catalog and chunkers
+token counting
+embedding model registry
+sparse model registry and BM25 vector building
+Qdrant vector store adapter
+hybrid retrieval fusion
+reranker model registry and ordering
+prompt rendering
+citation building
+evaluation metrics
+recipe export
+artifact writers
+```
+
+Use integration or smoke tests for:
+
+```text
+source upload -> inspection -> prepared version
+document ingest -> chunk -> index -> retrieve
+chunk materialization -> Qdrant index cache -> retrieval preview
+chunk materialization -> GT authoring pack download
+retrieval preview -> rerank candidates
+retrieve -> answer trace
+saved experiment -> async evaluation -> metrics
+recipe promotion
+```
+
+Golden tests should use fixed synthetic documents and expected outputs, such as expected PDF
+inspection, prepared Markdown, chunks, source-found retrieval, and not-found behavior.
+
+## Review Checklist
+
+```text
+docs updated
+tests added or updated where behavior changed
+no secrets committed
+no real client data committed
+configs are explicit
+derived cache/debug outputs are inspectable but not product-facing results
+```

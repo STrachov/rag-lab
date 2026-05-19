@@ -9,6 +9,7 @@ Core flow:
 ```text
 Project
 -> Source Data Asset
+-> Preparation method and parameters
 -> Prepared Data Asset
 -> Data Asset Manifest snapshot
 -> categorized Parameter Set
@@ -18,12 +19,14 @@ Project
 -> retrieval_temp candidate cache
 -> optional reranking preview
 -> optional Ground Truth Set
--> Saved Experiment
+-> Saved Experiment with full parameter snapshot
+-> async evaluation metrics
 -> metrics comparison
 -> validated recipe
 ```
 
-In the UI, create or open a project first. The Data, Chunking, Retrieval, Ground Truth, Saved Experiments, and Comparison sections then operate inside that current project context.
+In the UI, create or open a project first. The Data, Preparation, Chunking, Retrieval, Ground Truth,
+Saved Experiments, and Comparison sections then operate inside that current project context.
 
 Current implemented foundation:
 
@@ -42,10 +45,10 @@ Current implemented foundation:
 
 Start with these files:
 
-1. `docs/PROJECT_BRIEF.md`
+1. `docs/PRODUCT_SPEC.md`
 2. `docs/ARCHITECTURE.md`
 3. `docs/DOMAIN_MODEL.md`
-4. `docs/EXPERIMENTS.md`
-5. `docs/EVALUATION.md`
-6. `docs/UI_SPEC.md`
-7. `docs/DEVELOPMENT_WORKFLOW.md`
+4. `docs/API_CONTRACTS.md`
+5. `docs/DEVELOPMENT_WORKFLOW.md`
+6. `docs/DECISIONS.md`
+7. `docs/DATA_POLICY.md`

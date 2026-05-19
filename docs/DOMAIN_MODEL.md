@@ -39,7 +39,9 @@ status
 created_at
 ```
 
-Prepared data is produced from source data by preparation parameters. PDF-to-Markdown, OCR, and document conversion settings belong in `preparation_params_json`.
+Prepared data is produced from source data by a registered preparation method and method-specific
+parameters. PDF-to-Markdown, OCR, and document conversion settings belong in
+`preparation_params_json`.
 
 Data assets may be edited by adding or deleting files. Each edit creates a new `DataAssetManifest` snapshot and updates `DataAsset.manifest_hash` to the current manifest hash.
 
@@ -73,22 +75,25 @@ Prepared data must include preparation provenance in `preparation_params_json`, 
 
 ```json
 {
-  "method": "external_gpu",
+  "method_id": "marker",
   "tool": "marker",
   "tool_version": "1.2.3",
   "source_format": "pdf",
   "output_format": "markdown",
-  "command": "marker_single ...",
-  "settings": {
+  "params": {
     "ocr": true
-  },
-  "notes": "Parsed on a rented GPU server"
+  }
 }
 ```
 
-Built-in preparation requests carry method-specific `settings`; the saved `preparation_params_json` records normalized settings plus service provenance such as a Docling base URL.
+Built-in preparation requests carry method-specific params; the saved `preparation_params_json`
+records normalized params plus service provenance such as a Docling base URL.
 
 The first preparation adapters are `pymupdf_text` and `docling`. `pymupdf_text` creates prepared Markdown from PDFs with extractable text layers and from plain text/Markdown source files. `docling` calls an external Docling Serve endpoint and stores both Markdown and full Docling JSON as prepared asset files.
+
+Preparation methods are backend-registered implementations, not hardcoded frontend choices. A
+registry entry declares id, label, defaults, field metadata, validation rules, and the adapter used to
+create the prepared asset.
 
 ## ParameterSet
 
@@ -124,6 +129,10 @@ Prepared data provenance is stored on `DataAsset.preparation_params_json`, not e
 Chunking/Retrieval screens after preparation has already run. A saved experiment may still include preparation
 provenance in its full parameter snapshot for reproducibility.
 
+Preparation is not normally a `ParameterSet` category because running preparation creates a prepared
+`DataAsset`. If reusable preparation presets are added later, they must still materialize into
+prepared data assets with explicit provenance.
+
 Chunking parameter sets use a backend-driven strategy catalog and canonical snapshot shape:
 
 ```json
@@ -133,6 +142,22 @@ Chunking parameter sets use a backend-driven strategy catalog and canonical snap
     "params": {
       "chunk_size": 900,
       "chunk_overlap": 120
+    }
+  }
+}
+```
+
+Other stage parameter sets should follow the same inspectable shape:
+
+```json
+{
+  "retrieval": {
+    "mode": "hybrid",
+    "params": {
+      "top_k": 8,
+      "candidate_k": 30,
+      "fusion": "rrf",
+      "rrf_k": 60
     }
   }
 }
@@ -171,6 +196,10 @@ A persisted experiment record. Do not model a separate `ExperimentRun` as a main
 
 Saved experiments snapshot the current prepared data manifest via `data_asset_manifest_hash` when they are created. Later edits to the data asset do not change existing experiment records.
 
+Saved experiments are the product-facing unit of evaluation. They may be created before metrics are
+available, run asynchronously, and move through statuses such as `draft`, `queued`, `running`,
+`completed`, and `failed`.
+
 Fields:
 
 ```text
@@ -184,7 +213,7 @@ parameter_set_id
 params_snapshot_json
 params_hash
 metrics_summary_json
-status
+status: draft | queued | running | completed | failed
 notes
 debug_level: none | summary | full
 code_commit
@@ -194,6 +223,10 @@ started_at
 finished_at
 error_json
 ```
+
+`params_snapshot_json` is the source of truth for the evaluated pipeline. It may be assembled from
+multiple category-specific `ParameterSet` records, live stage selections, and read-only preparation
+provenance from the prepared data asset.
 
 ## MetricValue
 
@@ -233,6 +266,8 @@ Current cache types:
 
 ```text
 chunks
+embeddings
+sparse
 qdrant_index
 retrieval_temp
 answer_temp
@@ -286,3 +321,7 @@ citation metrics
 latency/cost metrics
 manual or LLM-judge scores
 ```
+
+Generated answers, prompts, retrieval traces, and reranked candidate lists may be persisted only when
+the saved experiment debug level requests them. Even then, they remain debug outputs, not primary
+results.
