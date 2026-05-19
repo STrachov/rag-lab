@@ -5,6 +5,7 @@ import type { Project } from "../api/client";
 export type PageKey =
   | "projects"
   | "data"
+  | "preparation"
   | "chunking"
   | "retrieval"
   | "groundTruth"
@@ -12,15 +13,34 @@ export type PageKey =
   | "comparison"
   | "settings";
 
-const navItems: Array<{ key: PageKey; label: string }> = [
-  { key: "projects", label: "Projects" },
-  { key: "data", label: "Data" },
-  { key: "chunking", label: "Chunking" },
-  { key: "retrieval", label: "Retrieval" },
-  { key: "groundTruth", label: "Ground Truth" },
-  { key: "savedExperiments", label: "Saved Experiments" },
-  { key: "comparison", label: "Comparison" },
-  { key: "settings", label: "Settings" },
+const navGroups: Array<{ label: string; items: Array<{ key: PageKey; label: string }> }> = [
+  {
+    label: "Project",
+    items: [
+      { key: "projects", label: "Projects" },
+      { key: "data", label: "Data" },
+      { key: "groundTruth", label: "Ground Truth" },
+    ],
+  },
+  {
+    label: "Pipeline",
+    items: [
+      { key: "preparation", label: "Preparation" },
+      { key: "chunking", label: "Chunking" },
+      { key: "retrieval", label: "Retrieval" },
+    ],
+  },
+  {
+    label: "Evaluation",
+    items: [
+      { key: "savedExperiments", label: "Saved Experiments" },
+      { key: "comparison", label: "Comparison" },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [{ key: "settings", label: "Settings" }],
+  },
 ];
 
 type AppShellProps = {
@@ -47,15 +67,20 @@ export function AppShell({ activePage, children, currentProject, onPageChange }:
           {currentProject?.domain ? <small>{currentProject.domain}</small> : null}
         </div>
         <nav className="nav-list" aria-label="Primary">
-          {navItems.map((item) => (
-            <button
-              className={item.key === activePage ? "nav-item active" : "nav-item"}
-              key={item.key}
-              onClick={() => onPageChange(item.key)}
-              type="button"
-            >
-              {item.label}
-            </button>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group-label">{group.label}</span>
+              {group.items.map((item) => (
+                <button
+                  className={item.key === activePage ? "nav-item active" : "nav-item"}
+                  key={item.key}
+                  onClick={() => onPageChange(item.key)}
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
       </aside>

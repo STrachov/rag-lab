@@ -842,7 +842,7 @@ def test_prepare_source_asset_with_pymupdf_text(client: TestClient, monkeypatch,
 
     prepare_response = client.post(
         f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
-        json={"method": "pymupdf_text", "settings": {"page_breaks": True}},
+        json={"method_id": "pymupdf_text", "params": {"page_breaks": True}},
     )
 
     assert prepare_response.status_code == 201
@@ -850,7 +850,8 @@ def test_prepare_source_asset_with_pymupdf_text(client: TestClient, monkeypatch,
     assert prepared["asset_type"] == "prepared"
     assert prepared["parent_id"] == source_asset["id"]
     assert prepared["data_format"] == "markdown"
-    assert prepared["preparation_params_json"]["method"] == "pymupdf_text"
+    assert prepared["preparation_params_json"]["method_id"] == "pymupdf_text"
+    assert prepared["preparation_params_json"]["params"] == {"page_breaks": True}
     assert prepared["current_manifest_json"]["files"][0]["original_name"] == "policy.md"
 
     download_response = client.get(
@@ -934,8 +935,8 @@ def test_prepare_source_asset_with_docling_stores_markdown_and_json(
     prepare_response = client.post(
         f"/v1/projects/{project_id}/data-assets/{source_asset['id']}/prepare",
         json={
-            "method": "docling",
-            "settings": {
+            "method_id": "docling",
+            "params": {
                 "base_url": "http://docling.local:5001",
                 "do_ocr": True,
                 "force_ocr": False,
@@ -949,9 +950,9 @@ def test_prepare_source_asset_with_docling_stores_markdown_and_json(
     assert prepared["asset_type"] == "prepared"
     assert prepared["parent_id"] == source_asset["id"]
     assert prepared["data_format"] == "mixed"
-    assert prepared["preparation_params_json"]["method"] == "docling"
+    assert prepared["preparation_params_json"]["method_id"] == "docling"
     assert prepared["preparation_params_json"]["output_formats"] == ["markdown", "json"]
-    assert prepared["preparation_params_json"]["settings"] == {
+    assert prepared["preparation_params_json"]["params"] == {
         "do_ocr": True,
         "force_ocr": False,
         "image_export_mode": "placeholder",

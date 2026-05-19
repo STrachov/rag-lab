@@ -115,6 +115,7 @@ created_at
 Parameter sets use `category` to distinguish reusable presets:
 
 ```text
+preparation
 chunking
 embedding
 indexing
@@ -125,13 +126,10 @@ evaluation
 general
 ```
 
-Prepared data provenance is stored on `DataAsset.preparation_params_json`, not edited again from the
-Chunking/Retrieval screens after preparation has already run. A saved experiment may still include preparation
-provenance in its full parameter snapshot for reproducibility.
-
-Preparation is not normally a `ParameterSet` category because running preparation creates a prepared
-`DataAsset`. If reusable preparation presets are added later, they must still materialize into
-prepared data assets with explicit provenance.
+Preparation ParameterSets describe reusable preparation intent. Running one against a source
+`DataAsset` creates a prepared `DataAsset`; the applied immutable snapshot is stored on
+`DataAsset.preparation_params_json`. A saved experiment may include that preparation provenance in
+its full parameter snapshot for reproducibility.
 
 Chunking parameter sets use a backend-driven strategy catalog and canonical snapshot shape:
 

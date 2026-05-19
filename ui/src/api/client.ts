@@ -125,8 +125,8 @@ export type DataAssetDeleteResponse = {
 
 export type DataAssetPrepareRequest = {
   name?: string;
-  method?: "pymupdf_text" | "docling";
-  settings?: Record<string, unknown>;
+  method_id?: string;
+  params?: Record<string, unknown>;
 };
 
 export type PreparationMethodField = {
@@ -142,6 +142,7 @@ export type PreparationMethod = {
   id: "pymupdf_text" | "docling" | string;
   label: string;
   description: string;
+  default_params: Record<string, unknown>;
   output_formats: string[];
   fields: PreparationMethodField[];
 };

@@ -48,7 +48,7 @@ Project
     prepared data assets
     manifest snapshots
   Parameter Sets
-    reusable stage presets
+    reusable stage presets, including preparation
   Ground Truth
     optional evaluation references
   Saved Experiments
@@ -171,9 +171,12 @@ generation
 evaluation
 ```
 
-Reusable `ParameterSet` records are category-scoped presets. Preparation is special: it creates a
-prepared data asset, so its provenance is stored on `DataAsset.preparation_params_json` rather than
-being edited later from runtime screens.
+Reusable `ParameterSet` records are category-scoped presets. `preparation` is a first-class
+category: it describes the reusable intent for converting source data into RAG-ready data.
+Applying a preparation ParameterSet to a source `DataAsset` creates a prepared `DataAsset`.
+
+The prepared `DataAsset` stores an immutable applied snapshot in `preparation_params_json`, so it
+remains reproducible even if the reusable ParameterSet is later renamed, changed, or deleted.
 
 Example snapshot:
 
@@ -315,20 +318,25 @@ metadata_filter_problem
 The UI is organized around one current project:
 
 ```text
-Projects
-Data
-Preparation
-Chunking
-Retrieval
-Ground Truth
-Saved Experiments
-Comparison
-Settings
+Project
+  Projects
+  Data
+  Ground Truth
+Pipeline
+  Preparation
+  Chunking
+  Retrieval
+Evaluation
+  Saved Experiments
+  Comparison
+Admin
+  Settings
 ```
 
-The Data page owns source/prepared asset management and file inspection. Preparation may be a
-dedicated page or a clear stage within Data, but it must be presented as an explicit registered
-method plus parameter step after upload.
+The Data page owns source/prepared asset inventory, upload, file inspection, download, and deletion.
+The Preparation page owns registered preparation methods, parameter editing, preparation
+ParameterSet creation, and materializing prepared data assets. Preparation should not be hidden in a
+modal inside Data.
 
 The Chunking page previews registered chunking strategies and can materialize chunk caches. The
 Retrieval page builds and reuses Qdrant index caches, previews retrieval, and reranks saved candidate

@@ -339,7 +339,7 @@ def prepare_data_asset(
             detail="Source data asset has no storage path",
         )
 
-    job_key = (project_id, source_asset.id, payload.method)
+    job_key = (project_id, source_asset.id, payload.method_id)
     _claim_preparation_job(job_key)
     try:
         preparation_params = _build_preparation_params(source_asset, source_manifest, payload)
@@ -364,9 +364,9 @@ def prepare_data_asset(
         asset = models.DataAsset(
             id=asset_id,
             project_id=project_id,
-            name=payload.name or f"{source_asset.name} {payload.method}",
+            name=payload.name or f"{source_asset.name} {payload.method_id}",
             asset_type="prepared",
-            data_format="mixed" if payload.method == "docling" else "markdown",
+            data_format="mixed" if payload.method_id == "docling" else "markdown",
             storage_kind="generated",
             parent_id=source_asset.id,
             storage_path=stored["storage_path"],
@@ -864,13 +864,13 @@ def _build_preparation_params(
     payload: DataAssetPrepareRequest,
 ) -> dict:
     settings = _normalize_preparation_settings(payload)
-    if payload.method == "docling":
+    if payload.method_id == "docling":
         base_url = _docling_base_url(settings)
         return {
-            "method": "docling",
+            "method_id": "docling",
             "output_format": "markdown_json",
             "output_formats": ["markdown", "json"],
-            "settings": {
+            "params": {
                 "do_ocr": settings["do_ocr"],
                 "force_ocr": settings["force_ocr"],
                 "image_export_mode": settings["image_export_mode"],
@@ -882,9 +882,9 @@ def _build_preparation_params(
         }
 
     return {
-        "method": "pymupdf_text",
+        "method_id": "pymupdf_text",
         "output_format": "markdown",
-        "settings": {"page_breaks": settings["page_breaks"]},
+        "params": {"page_breaks": settings["page_breaks"]},
         "source_format": source_asset.data_format,
         "source_manifest_hash": source_manifest.get("manifest_hash"),
         "tool": "pymupdf",
@@ -904,7 +904,7 @@ def _prepare_generated_files(
         )
 
     settings = _normalize_preparation_settings(payload)
-    if payload.method == "docling":
+    if payload.method_id == "docling":
         return prepare_docling(
             source_storage_path=source_asset.storage_path,
             source_manifest=source_manifest,
@@ -922,20 +922,26 @@ def _prepare_generated_files(
 
 
 def _normalize_preparation_settings(payload: DataAssetPrepareRequest) -> dict:
-    if payload.method == "docling":
+    if payload.method_id == "docling":
         return {
-            "base_url": str(payload.settings.get("base_url") or get_settings().docling_base_url),
-            "do_ocr": _bool_setting(payload.settings, "do_ocr", True),
-            "force_ocr": _bool_setting(payload.settings, "force_ocr", False),
+            "base_url": str(payload.params.get("base_url") or get_settings().docling_base_url),
+            "do_ocr": _bool_setting(payload.params, "do_ocr", True),
+            "force_ocr": _bool_setting(payload.params, "force_ocr", False),
             "image_export_mode": _choice_setting(
-                payload.settings,
+                payload.params,
                 "image_export_mode",
                 "placeholder",
                 {"placeholder", "embedded"},
             ),
         }
 
-    return {"page_breaks": _bool_setting(payload.settings, "page_breaks", True)}
+    if payload.method_id == "pymupdf_text":
+        return {"page_breaks": _bool_setting(payload.params, "page_breaks", True)}
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unknown preparation method: {payload.method_id}",
+    )
 
 
 def _docling_base_url(settings: dict) -> str:
@@ -994,9 +1000,13 @@ def _validate_data_asset_payload(
 def _validate_prepared_provenance(preparation_params: dict) -> None:
     missing = [
         field
-        for field in ("method", "output_format")
+        for field in ("output_format",)
         if not str(preparation_params.get(field, "")).strip()
     ]
+    if not str(
+        preparation_params.get("method_id") or preparation_params.get("method") or ""
+    ).strip():
+        missing.append("method_id")
     if missing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

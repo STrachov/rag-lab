@@ -103,15 +103,19 @@ Use React/Vite.
 The UI is a project workbench focused on:
 
 ```text
-Projects
-Data
-Preparation
-Chunking
-Retrieval
-Ground Truth
-Saved Experiments
-Comparison
-Settings
+Project
+  Projects
+  Data
+  Ground Truth
+Pipeline
+  Preparation
+  Chunking
+  Retrieval
+Evaluation
+  Saved Experiments
+  Comparison
+Admin
+  Settings
 ```
 
 Debug views for chunks, traces, prompts, and answers may be added later, but they should be clearly marked as derived runtime/debug data.
@@ -119,9 +123,9 @@ Debug views for chunks, traces, prompts, and answers may be added later, but the
 The Data UI shows source assets as rows with linked prepared versions. Users can download files by
 original filename, add/delete files, delete assets, and inspect PDF signals.
 
-Preparation is an explicit stage after upload. It may be presented as its own page or as a clear
-stage inside Data, but it must use the backend preparation method catalog and show method-specific
-settings before creating a prepared data asset.
+Preparation is an explicit Pipeline page after upload. It uses the backend preparation method
+catalog, creates `ParameterSet(category="preparation")` presets when requested, and materializes
+prepared data assets from source assets.
 
 The Chunking UI owns chunking preview and reusable chunking `ParameterSet` creation. The Retrieval UI
 materializes chunks, selects embedding, sparse, and reranker model parameters, creates Qdrant index

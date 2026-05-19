@@ -93,6 +93,7 @@ GET    /v1/projects/{project_id}/evaluation/metrics
 Parameter sets include a `category` such as:
 
 ```text
+preparation
 chunking
 embedding
 indexing
@@ -103,8 +104,9 @@ evaluation
 general
 ```
 
-Deleting a parameter set used by a saved experiment is blocked. Preparation provenance is stored on
-prepared data assets, not edited from later runtime screens.
+Deleting a parameter set used by a saved experiment is blocked. Preparation ParameterSets are
+reusable presets; prepared data assets store the applied preparation snapshot in
+`preparation_params_json`.
 
 Chunking preview payload:
 

@@ -28,6 +28,7 @@ def list_preparation_methods() -> list[dict[str, Any]]:
             ],
             "id": "pymupdf_text",
             "label": "PyMuPDF text",
+            "default_params": {"page_breaks": True},
             "output_formats": ["markdown"],
         },
         {
@@ -68,6 +69,12 @@ def list_preparation_methods() -> list[dict[str, Any]]:
             ],
             "id": "docling",
             "label": "Docling",
+            "default_params": {
+                "base_url": settings.docling_base_url,
+                "do_ocr": True,
+                "force_ocr": False,
+                "image_export_mode": "placeholder",
+            },
             "output_formats": ["markdown", "json"],
         },
     ]

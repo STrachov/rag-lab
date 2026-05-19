@@ -17,6 +17,7 @@ import { DataPage } from "./pages/DataPage";
 import { GroundTruthPage } from "./pages/GroundTruthPage";
 import { IndexingPage } from "./pages/IndexingPage";
 import { ParametersPage } from "./pages/ParametersPage";
+import { PreparationPage } from "./pages/PreparationPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SavedExperimentsPage } from "./pages/SavedExperimentsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -28,6 +29,7 @@ const pagePathByKey: Record<Exclude<PageKey, "projects">, string> = {
   comparison: "comparison",
   data: "data",
   groundTruth: "ground-truth",
+  preparation: "preparation",
   retrieval: "retrieval",
   savedExperiments: "saved-experiments",
   settings: "settings",
@@ -109,6 +111,10 @@ export default function App() {
           path="/projects/:projectId/data"
         />
         <Route
+          element={projectScopedPage(<PreparationPage currentProject={currentProject} />)}
+          path="/projects/:projectId/preparation"
+        />
+        <Route
           element={projectScopedPage(<ParametersPage currentProject={currentProject} />)}
           path="/projects/:projectId/chunking"
         />
@@ -172,6 +178,9 @@ function getRouteProjectId(pathname: string): string | null {
 function getActivePage(pathname: string): PageKey {
   if (matchPath("/projects/:projectId/data", pathname)) {
     return "data";
+  }
+  if (matchPath("/projects/:projectId/preparation", pathname)) {
+    return "preparation";
   }
   if (matchPath("/projects/:projectId/chunking", pathname) || matchPath("/projects/:projectId/parameters", pathname)) {
     return "chunking";

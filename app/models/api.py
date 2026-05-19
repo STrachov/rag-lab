@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 JsonObject = dict[str, Any]
@@ -79,6 +79,7 @@ class PreparationMethodResponse(BaseModel):
     id: str
     label: str
     description: str
+    default_params: JsonObject = Field(default_factory=dict)
     output_formats: list[str]
     fields: list[PreparationMethodField] = Field(default_factory=list)
 
@@ -89,8 +90,20 @@ class PreparationMethodListResponse(BaseModel):
 
 class DataAssetPrepareRequest(BaseModel):
     name: str | None = None
-    method: Literal["pymupdf_text", "docling"] = "pymupdf_text"
-    settings: JsonObject = Field(default_factory=dict)
+    method_id: str = "pymupdf_text"
+    params: JsonObject = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_method_settings(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if "method_id" not in normalized and "method" in normalized:
+            normalized["method_id"] = normalized["method"]
+        if "params" not in normalized and "settings" in normalized:
+            normalized["params"] = normalized["settings"]
+        return normalized
 
 
 class ParameterSetCreate(BaseModel):

@@ -80,7 +80,21 @@ button {
 
 .nav-list {
   display: grid;
+  gap: 16px;
+}
+
+.nav-group {
+  display: grid;
   gap: 6px;
+}
+
+.nav-group-label {
+  color: #8fa0a9;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0 10px;
+  text-transform: uppercase;
 }
 
 .nav-item {
@@ -588,6 +602,39 @@ h1 {
   margin-bottom: 18px;
 }
 
+.preparation-workbench {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(340px, 0.95fr) minmax(360px, 1.05fr);
+}
+
+.preparation-results {
+  grid-column: 1 / -1;
+}
+
+.preset-form {
+  display: grid;
+  gap: 12px;
+}
+
+.preset-form label {
+  color: #425864;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.preset-form input {
+  border: 1px solid #c9d4da;
+  border-radius: 6px;
+  color: #182026;
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
 .chunking-form,
 .chunk-preview-panel {
   display: grid;
@@ -955,6 +1002,7 @@ h1 {
   }
 
   .parameter-workbench,
+  .preparation-workbench,
   .parameter-grid,
   .metric-strip {
     grid-template-columns: 1fr;
