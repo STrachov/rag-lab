@@ -954,8 +954,10 @@ def test_prepare_source_asset_with_docling_stores_markdown_and_json(
     assert prepared["preparation_params_json"]["output_formats"] == ["markdown", "json"]
     assert prepared["preparation_params_json"]["params"] == {
         "do_ocr": True,
+        "extract_parent_units": True,
         "force_ocr": False,
         "image_export_mode": "placeholder",
+        "max_chapter_tokens": 2500,
     }
     assert prepared["preparation_params_json"]["service"] == {"base_url": "http://docling.local:5001"}
     files = prepared["current_manifest_json"]["files"]

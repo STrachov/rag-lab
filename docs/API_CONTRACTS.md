@@ -177,14 +177,18 @@ Retrieval preview request:
   "index_cache_id": "uuid",
   "query": "What is the policy?",
   "mode": "hybrid",
+  "strategy": "parent_page_retrieval",
+  "parent_score": "max",
   "top_k": 5,
   "candidate_k": 30
 }
 ```
 
 Retrieval preview returns source metadata, scores, clipped `text_preview`, and a
-`retrieval_cache_id`. Reranking reads the saved candidate set from `retrieval_temp` so users can
-sweep reranker params without repeating Qdrant retrieval.
+`retrieval_cache_id`. `strategy` may be `chunk_retrieval`, `parent_page_retrieval`, or
+`parent_chapter_retrieval`. Parent retrieval strategies group retrieved child chunks by parent id and
+return parent page/chapter contexts. Reranking reads the saved candidate set from `retrieval_temp` so
+users can sweep reranker params without repeating Qdrant retrieval.
 
 Rerank preview request:
 

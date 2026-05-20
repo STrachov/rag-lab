@@ -127,6 +127,11 @@ Preparation is an explicit Pipeline page after upload. It uses the backend prepa
 catalog, creates `ParameterSet(category="preparation")` presets when requested, and materializes
 prepared data assets from source assets.
 
+Docling preparation may materialize parent-unit sidecars (`*.pages.jsonl` and `*.chapters.jsonl`).
+The `page_recursive` and `chapter_recursive` chunking strategies use those sidecars to create child
+chunks with parent metadata. Parent retrieval strategies then retrieve child chunks, aggregate by
+parent id, and return full parent page or chapter context.
+
 The Chunking UI owns chunking preview and reusable chunking `ParameterSet` creation. The Retrieval UI
 materializes chunks, selects embedding, sparse, and reranker model parameters, creates Qdrant index
 caches, lists existing/failed index caches, and previews retrieval. Saved Experiments owns full

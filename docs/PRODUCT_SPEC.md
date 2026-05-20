@@ -120,6 +120,18 @@ PDFs with extractable text layers plus text/Markdown files. `docling` calls Docl
 both Markdown and full `*.docling.json` sidecars. Docling JSON is preserved for later structure-aware
 work; it is not indexed as chunk text by default.
 
+Docling preparation can also create parent-unit sidecars:
+
+```text
+*.pages.jsonl
+*.chapters.jsonl
+```
+
+Page units represent page-level parent contexts. Chapter units represent section/chapter-level
+parent contexts derived from Docling section headers. If a chapter exceeds `max_chapter_tokens`, the
+chapter-level representation falls back to page units for that chapter so retrieval can still return
+bounded parent contexts.
+
 Preparation provenance belongs to the prepared data asset and is included in saved experiment
 snapshots for reproducibility.
 
@@ -136,7 +148,9 @@ Canonical preparation snapshot:
     "params": {
       "do_ocr": true,
       "force_ocr": false,
-      "image_export_mode": "placeholder"
+      "image_export_mode": "placeholder",
+      "extract_parent_units": true,
+      "max_chapter_tokens": 2500
     },
     "service": {
       "base_url_env": "RAG_LAB_DOCLING_BASE_URL"
@@ -178,6 +192,25 @@ Applying a preparation ParameterSet to a source `DataAsset` creates a prepared `
 The prepared `DataAsset` stores an immutable applied snapshot in `preparation_params_json`, so it
 remains reproducible even if the reusable ParameterSet is later renamed, changed, or deleted.
 
+Parent-unit chunking strategies read prepared parent JSONL sidecars rather than raw Markdown:
+
+```text
+page_recursive -> *.pages.jsonl
+chapter_recursive -> *.chapters.jsonl
+```
+
+They produce child chunks with `parent_id`, `parent_type`, page range, and parent text metadata.
+Parent-aware retrieval strategies retrieve child chunks first, group them by parent id, aggregate
+scores, and return full parent page or chapter contexts:
+
+```text
+parent_page_retrieval
+parent_chapter_retrieval
+```
+
+LLM reranking remains a separate later reranking catalog item, not part of these retrieval
+strategies.
+
 Example snapshot:
 
 ```json
@@ -194,6 +227,13 @@ Example snapshot:
     "params": {
       "chunk_size": 900,
       "chunk_overlap": 120
+    }
+  },
+  "parent_chunking": {
+    "strategy": "page_recursive",
+    "params": {
+      "chunk_size": 300,
+      "chunk_overlap": 50
     }
   },
   "indexing": {
@@ -213,11 +253,13 @@ Example snapshot:
     }
   },
   "retrieval": {
+    "strategy": "parent_page_retrieval",
     "mode": "hybrid",
     "top_k": 8,
     "candidate_k": 30,
     "fusion": "rrf",
-    "rrf_k": 60
+    "rrf_k": 60,
+    "parent_score": "max"
   },
   "reranking": {
     "enabled": true,

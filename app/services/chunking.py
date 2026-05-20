@@ -84,6 +84,7 @@ class ChunkingParams:
 class PreparedFile:
     original_name: str
     path: Path
+    role: str | None
     stored_path: str
 
 
@@ -185,6 +186,37 @@ LANGCHAIN_MARKDOWN_HEADER_RECURSIVE_FIELDS = [
     *LANGCHAIN_RECURSIVE_CHARACTER_FIELDS,
 ]
 
+PARENT_UNIT_FIELDS = [
+    ChunkingParamField(
+        name="chunk_size",
+        label="Chunk size",
+        field_type="number",
+        default=300,
+        help_text="Approximate whitespace-token target per child chunk.",
+        min_value=1,
+        max_value=8000,
+    ),
+    ChunkingParamField(
+        name="chunk_overlap",
+        label="Overlap",
+        field_type="number",
+        default=50,
+        help_text="Approximate whitespace-token overlap between child chunks.",
+        min_value=0,
+        max_value=4000,
+    ),
+    ChunkingParamField(
+        name="tokenizer",
+        label="Tokenizer",
+        field_type="select",
+        default="approx_words",
+        options=[
+            {"label": "Approximate words", "value": "approx_words"},
+            {"label": "cl100k_base", "value": "cl100k_base"},
+        ],
+    ),
+]
+
 def list_chunking_strategies() -> list[dict[str, Any]]:
     return [strategy.to_dict() for strategy in CHUNKING_STRATEGIES.values()]
 
@@ -234,7 +266,7 @@ def chunk_prepared_asset(
     params = chunking.merged_params()
     warnings = _validate_common_params(strategy, params)
     normalized_chunking = ChunkingParams(strategy=chunking.strategy, params=params)
-    files = _prepared_files(storage_path, manifest_json)
+    files = _prepared_files(storage_path, manifest_json, strategy_id=strategy.id)
     chunks: list[Chunk] = []
     chunks_by_file: dict[str, int] = {}
 
@@ -449,27 +481,47 @@ def _heading_path_from_langchain_metadata(metadata: dict[str, Any]) -> list[str]
     ]
 
 
-def _prepared_files(storage_path: str, manifest_json: dict[str, Any]) -> list[PreparedFile]:
+def _prepared_files(
+    storage_path: str,
+    manifest_json: dict[str, Any],
+    *,
+    strategy_id: str,
+) -> list[PreparedFile]:
     base_dir = Path(storage_path)
     prepared_files: list[PreparedFile] = []
     for file_entry in manifest_json.get("files", []):
         stored_path = file_entry.get("stored_path")
         original_name = str(file_entry.get("original_name") or "")
+        role = str(file_entry.get("role") or "")
         if not isinstance(stored_path, str):
             continue
+        if strategy_id == "page_recursive":
+            if role != "prepared_parent_pages":
+                continue
+        elif strategy_id == "chapter_recursive":
+            if role != "prepared_parent_chapters":
+                continue
+        else:
+            if role in {"prepared_parent_pages", "prepared_parent_chapters", "docling_document_json"}:
+                continue
         suffix = Path(original_name).suffix.lower()
         content_type = str(file_entry.get("content_type") or "")
-        if suffix not in {".md", ".markdown", ".txt"} and content_type not in {
-            "text/markdown",
-            "text/plain",
-        }:
-            continue
+        if strategy_id in {"page_recursive", "chapter_recursive"}:
+            if suffix != ".jsonl" and content_type != "application/x-jsonlines":
+                continue
+        else:
+            if suffix not in {".md", ".markdown", ".txt"} and content_type not in {
+                "text/markdown",
+                "text/plain",
+            }:
+                continue
         path = base_dir / stored_path
         if path.exists():
             prepared_files.append(
                 PreparedFile(
                     original_name=original_name or path.name,
                     path=path,
+                    role=role or None,
                     stored_path=stored_path,
                 )
             )
@@ -503,6 +555,58 @@ def _chunk_token_window(
         source_name=source_name,
         stored_path=stored_path,
     )
+
+
+def _chunk_parent_units(
+    text: str,
+    chunking: ChunkingParams,
+    source_name: str,
+    stored_path: str,
+) -> list[Chunk]:
+    chunks: list[Chunk] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        unit = _parse_parent_unit(line, source_name)
+        unit_text = str(unit.get("text") or "").strip()
+        if not unit_text:
+            continue
+        sections = [
+            {
+                "heading_path": list(unit.get("heading_path") or []),
+                "page": unit.get("page") or unit.get("page_start"),
+                "section": unit.get("title"),
+                "text": unit_text,
+            }
+        ]
+        for chunk in _chunk_sections(
+            sections,
+            chunking=chunking,
+            source_name=str(unit.get("source_name") or source_name),
+            stored_path=stored_path,
+        ):
+            chunk.update(
+                {
+                    "parent_id": unit.get("parent_id"),
+                    "parent_type": unit.get("parent_type"),
+                    "page_end": unit.get("page_end"),
+                    "page_start": unit.get("page_start"),
+                    "parent_text": unit_text,
+                    "parent_token_count": unit.get("token_count"),
+                    "parent_stored_path": stored_path,
+                }
+            )
+            chunks.append(chunk)
+    return chunks
+
+
+def _parse_parent_unit(line: str, fallback_source_name: str) -> dict[str, Any]:
+    import json
+
+    value = json.loads(line)
+    if not isinstance(value, dict):
+        raise ValueError(f"Parent unit record in {fallback_source_name} must be a JSON object")
+    return value
 
 
 def _chunk_sections(
@@ -662,5 +766,19 @@ CHUNKING_STRATEGIES: dict[str, ChunkingStrategy] = {
         description="Use LangChain MarkdownHeaderTextSplitter, then RecursiveCharacterTextSplitter inside each header section.",
         fields=LANGCHAIN_MARKDOWN_HEADER_RECURSIVE_FIELDS,
         chunker=_chunk_langchain_markdown_header_recursive,
+    ),
+    "page_recursive": ChunkingStrategy(
+        id="page_recursive",
+        label="Page recursive",
+        description="Split page-level prepared parent JSONL records into child chunks that retain parent page ids.",
+        fields=PARENT_UNIT_FIELDS,
+        chunker=_chunk_parent_units,
+    ),
+    "chapter_recursive": ChunkingStrategy(
+        id="chapter_recursive",
+        label="Chapter recursive",
+        description="Split chapter-level prepared parent JSONL records into child chunks that retain parent chapter ids.",
+        fields=PARENT_UNIT_FIELDS,
+        chunker=_chunk_parent_units,
     ),
 }

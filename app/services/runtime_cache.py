@@ -232,7 +232,9 @@ def retrieve_from_qdrant(
     candidate_k: int | None = None,
     query: str,
     mode: str,
+    parent_score: str = "max",
     reranking_snapshot: dict[str, Any] | None = None,
+    strategy: str = "chunk_retrieval",
     top_k: int,
     vector_store: Any,
 ) -> dict[str, Any]:
@@ -279,6 +281,15 @@ def retrieve_from_qdrant(
         )
         retrieved = _rrf_merge(dense_results, sparse_results)
     candidate_chunks = retrieved
+    if strategy in {"parent_page_retrieval", "parent_chapter_retrieval"}:
+        parent_type = "page" if strategy == "parent_page_retrieval" else "chapter"
+        retrieved = _parent_retrieval_results(
+            chunks=retrieved,
+            index_metadata=metadata,
+            parent_score=parent_score,
+            parent_type=parent_type,
+        )
+        candidate_chunks = retrieved
     if reranking_snapshot is not None:
         reranking = reranking_snapshot["reranking"]
         retrieved = rerank_chunks(
@@ -296,6 +307,7 @@ def retrieve_from_qdrant(
         "query": query,
         "reranking": reranking_snapshot["reranking"] if reranking_snapshot else None,
         "retrieved_chunks": retrieved[:top_k],
+        "strategy": strategy,
         "top_k": top_k,
     }
 
@@ -307,6 +319,7 @@ def build_retrieval_temp_payload(
     mode: str,
     candidate_k: int,
     candidate_chunks: list[dict[str, Any]],
+    strategy: str = "chunk_retrieval",
 ) -> dict[str, Any]:
     params_hash = stable_sha256(
         {
@@ -315,6 +328,7 @@ def build_retrieval_temp_payload(
             "mode": mode,
             "pipeline_version": PIPELINE_VERSION,
             "query": query,
+            "strategy": strategy,
         }
     )
     cache_key = f"retrieval_{short_hash(params_hash, 20)}"
@@ -331,6 +345,7 @@ def build_retrieval_temp_payload(
         "query": query,
         "retrieved_chunks": candidate_chunks,
         "schema_version": "raglab.retrieval_temp.v1",
+        "strategy": strategy,
     }
     return {"cache_key": cache_key, "metadata_json": metadata, "params_hash": params_hash}
 
@@ -360,6 +375,7 @@ def rerank_retrieval_candidates(
         "reranking": reranking,
         "retrieval_cache_id": retrieval_cache.id,
         "retrieved_chunks": reranked[:top_k],
+        "strategy": str(metadata.get("strategy") or "chunk_retrieval"),
         "top_k": top_k,
     }
 
@@ -398,7 +414,7 @@ def _chunk_cache_key(
 
 
 def _normalize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
-    return {
+    normalized = {
         "char_count": int(chunk["char_count"]),
         "chunk_id": str(chunk["chunk_id"]),
         "heading_path": list(chunk.get("heading_path") or []),
@@ -409,13 +425,30 @@ def _normalize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
         "text": str(chunk["text"]),
         "token_count": int(chunk["token_count"]),
     }
+    for key in (
+        "page_end",
+        "page_start",
+        "parent_id",
+        "parent_stored_path",
+        "parent_text",
+        "parent_token_count",
+        "parent_type",
+    ):
+        value = chunk.get(key)
+        if value is not None:
+            normalized[key] = value
+    return normalized
 
 
 def _chunk_payload(chunk: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in {
-            **{item_key: item_value for item_key, item_value in chunk.items() if item_key != "text"},
+            **{
+                item_key: item_value
+                for item_key, item_value in chunk.items()
+                if item_key not in {"parent_text", "text"}
+            },
             "text_preview": _clip_text(str(chunk["text"]), RETRIEVAL_TEXT_PREVIEW_CHARS),
         }.items()
         if value is not None
@@ -456,6 +489,88 @@ def _full_text_by_chunk_id(metadata: dict[str, Any]) -> dict[str, str]:
         if line.strip()
     ]
     return {str(chunk["chunk_id"]): str(chunk["text"]) for chunk in chunks}
+
+
+def _chunks_by_id(metadata: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    chunks_cache_key = metadata.get("chunks_cache_key")
+    if not chunks_cache_key:
+        return {}
+    chunks_path = _cache_root() / "chunks" / str(chunks_cache_key) / "chunks.jsonl"
+    if not chunks_path.exists():
+        return {}
+    chunks = [
+        json.loads(line)
+        for line in chunks_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return {str(chunk["chunk_id"]): chunk for chunk in chunks}
+
+
+def _parent_retrieval_results(
+    *,
+    chunks: list[dict[str, Any]],
+    index_metadata: dict[str, Any],
+    parent_score: str,
+    parent_type: str,
+) -> list[dict[str, Any]]:
+    full_chunks = _chunks_by_id(index_metadata)
+    groups: dict[str, dict[str, Any]] = {}
+    for rank, retrieved in enumerate(chunks, start=1):
+        chunk_id = str(retrieved.get("chunk_id") or "")
+        full_chunk = full_chunks.get(chunk_id, {})
+        parent_id = str(retrieved.get("parent_id") or full_chunk.get("parent_id") or "")
+        actual_parent_type = str(retrieved.get("parent_type") or full_chunk.get("parent_type") or "")
+        if not parent_id:
+            continue
+        if parent_type == "page" and actual_parent_type != "page":
+            continue
+        if parent_type == "chapter" and actual_parent_type not in {"chapter", "page_fallback"}:
+            continue
+        score = float(retrieved.get("score") or 0.0)
+        group = groups.setdefault(
+            parent_id,
+            {
+                "chunk_id": parent_id,
+                "evidence_chunks": [],
+                "heading_path": list(retrieved.get("heading_path") or full_chunk.get("heading_path") or []),
+                "page": retrieved.get("page") or full_chunk.get("page"),
+                "page_end": retrieved.get("page_end") or full_chunk.get("page_end"),
+                "page_start": retrieved.get("page_start") or full_chunk.get("page_start"),
+                "parent_id": parent_id,
+                "parent_type": actual_parent_type,
+                "score_values": [],
+                "source_name": retrieved.get("source_name") or full_chunk.get("source_name"),
+                "stored_path": retrieved.get("parent_stored_path") or full_chunk.get("parent_stored_path"),
+                "text_preview": _clip_text(
+                    str(full_chunk.get("parent_text") or full_chunk.get("text") or retrieved.get("text_preview") or ""),
+                    RETRIEVAL_TEXT_PREVIEW_CHARS,
+                ),
+                "token_count": full_chunk.get("parent_token_count"),
+            },
+        )
+        group["score_values"].append(score)
+        group["evidence_chunks"].append(
+            {
+                "chunk_id": chunk_id,
+                "rank": rank,
+                "score": score,
+            }
+        )
+        if group.get("dense_score") is None and retrieved.get("dense_score") is not None:
+            group["dense_score"] = retrieved.get("dense_score")
+        if group.get("sparse_score") is None and retrieved.get("sparse_score") is not None:
+            group["sparse_score"] = retrieved.get("sparse_score")
+
+    for group in groups.values():
+        scores = [float(value) for value in group.pop("score_values")]
+        if parent_score == "sum":
+            group["score"] = sum(scores)
+        elif parent_score == "mean":
+            group["score"] = sum(scores) / len(scores)
+        else:
+            group["score"] = max(scores)
+        group["char_count"] = len(str(group.get("text_preview") or ""))
+    return sorted(groups.values(), key=lambda value: value["score"], reverse=True)
 
 
 def _format_results(results: list[dict[str, Any]], *, score_key: str) -> list[dict[str, Any]]:

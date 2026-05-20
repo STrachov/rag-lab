@@ -69,7 +69,7 @@ class DataAssetDeleteResponse(BaseModel):
 class PreparationMethodField(BaseModel):
     name: str
     label: str
-    type: Literal["boolean", "select", "text"]
+    type: Literal["boolean", "number", "select", "text"]
     default: Any
     help_text: str | None = None
     options: list[dict[str, str]] | None = None
@@ -174,6 +174,10 @@ class ChunkPreview(BaseModel):
     section: str | None = None
     heading_path: list[str] = Field(default_factory=list)
     page: int | None = None
+    page_end: int | None = None
+    page_start: int | None = None
+    parent_id: str | None = None
+    parent_type: str | None = None
     token_count: int
     char_count: int
     text_preview: str
@@ -334,6 +338,8 @@ class RetrievalPreviewRequest(BaseModel):
     index_cache_id: str
     query: str
     mode: Literal["dense", "sparse", "hybrid"] = "hybrid"
+    strategy: Literal["chunk_retrieval", "parent_page_retrieval", "parent_chapter_retrieval"] = "chunk_retrieval"
+    parent_score: Literal["max", "mean", "sum"] = "max"
     top_k: int = Field(default=5, ge=1, le=50)
     candidate_k: int | None = Field(default=None, ge=1, le=100)
     reranking: RerankingParams = Field(default_factory=RerankingParams)
@@ -358,6 +364,10 @@ class RetrievedChunk(BaseModel):
     section: str | None = None
     heading_path: list[str] = Field(default_factory=list)
     page: int | None = None
+    page_end: int | None = None
+    page_start: int | None = None
+    parent_id: str | None = None
+    parent_type: str | None = None
     token_count: int | None = None
     char_count: int | None = None
     text_preview: str | None = None
@@ -370,6 +380,7 @@ class RetrievalPreviewResponse(BaseModel):
     retrieval_cache_id: str | None = None
     mode: Literal["dense", "sparse", "hybrid"]
     query: str
+    strategy: str = "chunk_retrieval"
     top_k: int
     candidate_k: int | None = None
     reranking: JsonObject | None = None

@@ -320,6 +320,19 @@ function PreparationField({
     );
   }
 
+  if (field.type === "number") {
+    return (
+      <label title={field.help_text ?? undefined}>
+        {field.label}
+        <input
+          type="number"
+          value={Number(value ?? field.default)}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </label>
+    );
+  }
+
   return (
     <label title={field.help_text ?? undefined}>
       {field.label}

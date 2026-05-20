@@ -132,8 +132,8 @@ export type DataAssetPrepareRequest = {
 export type PreparationMethodField = {
   name: string;
   label: string;
-  type: "boolean" | "select" | "text";
-  default: boolean | string;
+  type: "boolean" | "number" | "select" | "text";
+  default: boolean | number | string;
   help_text?: string | null;
   options?: Array<{ label: string; value: string }> | null;
 };
@@ -210,6 +210,10 @@ export type ChunkPreview = {
   section?: string | null;
   heading_path: string[];
   page?: number | null;
+  page_end?: number | null;
+  page_start?: number | null;
+  parent_id?: string | null;
+  parent_type?: string | null;
   token_count: number;
   char_count: number;
   text_preview: string;
@@ -347,6 +351,10 @@ export type RetrievedChunk = {
   section?: string | null;
   heading_path?: string[];
   page?: number | null;
+  page_end?: number | null;
+  page_start?: number | null;
+  parent_id?: string | null;
+  parent_type?: string | null;
   token_count?: number | null;
   char_count?: number | null;
   text_preview?: string | null;
@@ -357,6 +365,7 @@ export type RetrievalPreviewResponse = {
   retrieval_cache_id?: string | null;
   mode: "dense" | "sparse" | "hybrid";
   query: string;
+  strategy: string;
   top_k: number;
   candidate_k?: number | null;
   reranking?: Record<string, unknown> | null;
@@ -657,7 +666,9 @@ export async function previewRetrieval(
     candidate_k?: number | null;
     index_cache_id: string;
     mode?: "dense" | "sparse" | "hybrid";
+    parent_score?: "max" | "mean" | "sum";
     query: string;
+    strategy?: "chunk_retrieval" | "parent_page_retrieval" | "parent_chapter_retrieval";
     top_k?: number;
   },
 ): Promise<RetrievalPreviewResponse> {

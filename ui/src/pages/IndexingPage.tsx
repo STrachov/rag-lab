@@ -66,6 +66,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [sparseParams, setSparseParams] = useState<Record<string, EmbeddingParamValue>>({});
   const [indexMode, setIndexMode] = useState<"dense" | "sparse" | "hybrid">("hybrid");
   const [retrievalMode, setRetrievalMode] = useState<"dense" | "sparse" | "hybrid">("hybrid");
+  const [retrievalStrategy, setRetrievalStrategy] = useState<"chunk_retrieval" | "parent_page_retrieval" | "parent_chapter_retrieval">("chunk_retrieval");
+  const [parentScore, setParentScore] = useState<"max" | "mean" | "sum">("max");
   const [questionSource, setQuestionSource] = useState<"manual" | "ground_truth">("manual");
   const [selectedGroundTruthSetId, setSelectedGroundTruthSetId] = useState("");
   const [selectedGroundTruthQuestionId, setSelectedGroundTruthQuestionId] = useState("");
@@ -279,7 +281,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
         candidate_k: candidateK,
         index_cache_id: selectedIndexCache.id,
         mode: retrievalMode,
+        parent_score: parentScore,
         query: query.trim(),
+        strategy: retrievalStrategy,
         top_k: topK,
       });
       setRetrievalResult(result);
@@ -605,6 +609,21 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 </div>
                 <div className="parameter-grid">
                   <label>
+                    Strategy
+                    <select
+                      value={retrievalStrategy}
+                      onChange={(event) => {
+                        setRetrievalStrategy(event.target.value as typeof retrievalStrategy);
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
+                    >
+                      <option value="chunk_retrieval">chunk retrieval</option>
+                      <option value="parent_page_retrieval">parent page retrieval</option>
+                      <option value="parent_chapter_retrieval">parent chapter retrieval</option>
+                    </select>
+                  </label>
+                  <label>
                     Mode
                     <select
                       value={retrievalMode}
@@ -617,6 +636,22 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       <option value="hybrid">hybrid</option>
                       <option value="dense">dense</option>
                       <option value="sparse">sparse</option>
+                    </select>
+                  </label>
+                  <label>
+                    Parent Score
+                    <select
+                      disabled={retrievalStrategy === "chunk_retrieval"}
+                      value={parentScore}
+                      onChange={(event) => {
+                        setParentScore(event.target.value as typeof parentScore);
+                        setRetrievalMetrics(null);
+                        setRerankMetrics(null);
+                      }}
+                    >
+                      <option value="max">max</option>
+                      <option value="mean">mean</option>
+                      <option value="sum">sum</option>
                     </select>
                   </label>
                   <label>
@@ -825,6 +860,16 @@ function RetrievalResult({ retrieval, title }: { retrieval: RetrievalPreviewResp
             ) : null}
             {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
             {chunk.source_name ? <span>{chunk.source_name}</span> : null}
+            {chunk.parent_type ? <span>{chunk.parent_type}</span> : null}
+            {chunk.parent_id ? <span>{chunk.parent_id}</span> : null}
+            {chunk.page_start || chunk.page_end ? (
+              <span>
+                pages {chunk.page_start ?? chunk.page}
+                {chunk.page_end && chunk.page_end !== chunk.page_start ? `-${chunk.page_end}` : ""}
+              </span>
+            ) : chunk.page ? (
+              <span>page {chunk.page}</span>
+            ) : null}
             {chunk.token_count ? <span>{chunk.token_count} tokens</span> : null}
           </div>
           {chunk.heading_path && chunk.heading_path.length > 0 ? (

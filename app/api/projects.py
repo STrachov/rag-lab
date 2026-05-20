@@ -872,8 +872,10 @@ def _build_preparation_params(
             "output_formats": ["markdown", "json"],
             "params": {
                 "do_ocr": settings["do_ocr"],
+                "extract_parent_units": settings["extract_parent_units"],
                 "force_ocr": settings["force_ocr"],
                 "image_export_mode": settings["image_export_mode"],
+                "max_chapter_tokens": settings["max_chapter_tokens"],
             },
             "service": {"base_url": base_url},
             "source_format": source_asset.data_format,
@@ -910,8 +912,10 @@ def _prepare_generated_files(
             source_manifest=source_manifest,
             base_url=_docling_base_url(settings),
             do_ocr=settings["do_ocr"],
+            extract_parent_units=settings["extract_parent_units"],
             force_ocr=settings["force_ocr"],
             image_export_mode=settings["image_export_mode"],
+            max_chapter_tokens=settings["max_chapter_tokens"],
         )
 
     return prepare_pymupdf_text(
@@ -926,6 +930,7 @@ def _normalize_preparation_settings(payload: DataAssetPrepareRequest) -> dict:
         return {
             "base_url": str(payload.params.get("base_url") or get_settings().docling_base_url),
             "do_ocr": _bool_setting(payload.params, "do_ocr", True),
+            "extract_parent_units": _bool_setting(payload.params, "extract_parent_units", True),
             "force_ocr": _bool_setting(payload.params, "force_ocr", False),
             "image_export_mode": _choice_setting(
                 payload.params,
@@ -933,6 +938,7 @@ def _normalize_preparation_settings(payload: DataAssetPrepareRequest) -> dict:
                 "placeholder",
                 {"placeholder", "embedded"},
             ),
+            "max_chapter_tokens": _int_setting(payload.params, "max_chapter_tokens", 2500),
         }
 
     if payload.method_id == "pymupdf_text":
@@ -961,6 +967,23 @@ def _bool_setting(settings: dict, name: str, default: bool) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _int_setting(settings: dict, name: str, default: int) -> int:
+    value = settings.get(name, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{name} must be an integer",
+        ) from exc
+    if parsed < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{name} must be positive",
+        )
+    return parsed
 
 
 def _choice_setting(settings: dict, name: str, default: str, allowed: set[str]) -> str:

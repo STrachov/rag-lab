@@ -301,7 +301,9 @@ def preview_project_retrieval(
             candidate_k=payload.candidate_k,
             index_cache=index_cache,
             mode=payload.mode,
+            parent_score=payload.parent_score,
             query=payload.query,
+            strategy=payload.strategy,
             top_k=payload.top_k,
             vector_store=_qdrant_store(),
         )
@@ -510,6 +512,7 @@ def _save_retrieval_temp_cache(
         index_cache=index_cache,
         mode=str(result["mode"]),
         query=str(result["query"]),
+        strategy=str(result.get("strategy") or "chunk_retrieval"),
     )
     existing_cache = _find_cache(
         db,

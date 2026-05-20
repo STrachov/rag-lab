@@ -10,6 +10,7 @@ import fitz
 import httpx
 
 from app.core.config import get_settings
+from app.services.parent_units import build_docling_parent_unit_files
 
 
 def list_preparation_methods() -> list[dict[str, Any]]:
@@ -66,6 +67,20 @@ def list_preparation_methods() -> list[dict[str, Any]]:
                     "name": "base_url",
                     "type": "text",
                 },
+                {
+                    "default": True,
+                    "help_text": "Create page-level and chapter-level JSONL parent units from Docling JSON.",
+                    "label": "Extract parent units",
+                    "name": "extract_parent_units",
+                    "type": "boolean",
+                },
+                {
+                    "default": 2500,
+                    "help_text": "Maximum whitespace-token size for chapter parent units before falling back to page units.",
+                    "label": "Max chapter tokens",
+                    "name": "max_chapter_tokens",
+                    "type": "number",
+                },
             ],
             "id": "docling",
             "label": "Docling",
@@ -74,6 +89,8 @@ def list_preparation_methods() -> list[dict[str, Any]]:
                 "do_ocr": True,
                 "force_ocr": False,
                 "image_export_mode": "placeholder",
+                "extract_parent_units": True,
+                "max_chapter_tokens": 2500,
             },
             "output_formats": ["markdown", "json"],
         },
@@ -128,8 +145,10 @@ def prepare_docling(
     source_manifest: dict[str, Any],
     base_url: str | None = None,
     do_ocr: bool = True,
+    extract_parent_units: bool = True,
     force_ocr: bool = False,
     image_export_mode: str = "placeholder",
+    max_chapter_tokens: int = 2500,
 ) -> list[dict[str, Any]]:
     settings = get_settings()
     service_base_url = base_url or settings.docling_base_url
@@ -187,6 +206,15 @@ def prepare_docling(
                         "source": source,
                     }
                 )
+                if extract_parent_units and isinstance(json_content, dict):
+                    prepared_files.extend(
+                        build_docling_parent_unit_files(
+                            docling_document=json_content,
+                            max_chapter_tokens=max_chapter_tokens,
+                            source_name=original_name,
+                            stem=stem,
+                        )
+                    )
 
     if not prepared_files:
         raise ValueError("Docling did not return supported Markdown or JSON output")
