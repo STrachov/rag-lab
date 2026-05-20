@@ -51,6 +51,11 @@ from app.services.data_assets import (
     store_generated_data_asset_files,
     store_uploaded_data_asset_files,
 )
+from app.services.derived_cache_cleanup import (
+    collect_derived_caches_for_data_assets,
+    delete_derived_cache_storage,
+    order_derived_caches_for_delete,
+)
 from app.services.ground_truth import (
     list_ground_truth_questions,
     new_ground_truth_set_id,
@@ -299,15 +304,15 @@ def delete_data_asset(
     )
     deleted_ids = [item.id for item in assets_to_delete]
     derived_caches_to_delete = (
-        _collect_derived_caches_for_data_assets(db, project_id, deleted_ids)
+        collect_derived_caches_for_data_assets(db, project_id, deleted_ids)
         if cascade_derived_cache
         else []
     )
-    ordered_derived_caches = _order_derived_caches_for_delete(derived_caches_to_delete)
+    ordered_derived_caches = order_derived_caches_for_delete(derived_caches_to_delete)
     deleted_cache_ids = [cache.id for cache in ordered_derived_caches]
 
     for cache in ordered_derived_caches:
-        _delete_derived_cache_storage(cache)
+        delete_derived_cache_storage(cache)
         db.delete(cache)
 
     for item in assets_to_delete:
@@ -864,33 +869,6 @@ def _collect_deletable_data_assets(
     return list(reversed(assets))
 
 
-def _collect_derived_caches_for_data_assets(
-    db: Session,
-    project_id: str,
-    data_asset_ids: list[str],
-) -> list[models.DerivedCache]:
-    if not data_asset_ids:
-        return []
-    return db.scalars(
-        select(models.DerivedCache)
-        .where(models.DerivedCache.project_id == project_id)
-        .where(models.DerivedCache.data_asset_id.in_(data_asset_ids))
-    ).all()
-
-
-def _order_derived_caches_for_delete(
-    caches: list[models.DerivedCache],
-) -> list[models.DerivedCache]:
-    priority = {
-        "answer_temp": 0,
-        "retrieval_temp": 1,
-        "qdrant_index": 2,
-        "embeddings": 3,
-        "chunks": 4,
-    }
-    return sorted(caches, key=lambda cache: priority.get(cache.cache_type, 10))
-
-
 def _ensure_data_assets_not_referenced(
     db: Session,
     assets: list[models.DataAsset],
@@ -1240,38 +1218,6 @@ def _delete_asset_storage(storage_path: str | None) -> None:
     path = Path(storage_path)
     if path.exists():
         shutil.rmtree(path)
-
-
-def _delete_derived_cache_storage(cache: models.DerivedCache) -> None:
-    for path in _derived_cache_storage_paths(cache):
-        _delete_cache_path(path)
-
-
-def _derived_cache_storage_paths(cache: models.DerivedCache) -> list[Path]:
-    metadata = cache.metadata_json or {}
-    paths: list[Path] = []
-    for key in ("chunks_path", "manifest_path", "sparse_stats_path"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            path = Path(value)
-            paths.append(path.parent if path.name else path)
-    return list(dict.fromkeys(paths))
-
-
-def _delete_cache_path(path: Path) -> None:
-    cache_root = (get_settings().data_dir / "cache").resolve()
-    try:
-        resolved_path = path.resolve()
-    except OSError:
-        return
-    if resolved_path != cache_root and cache_root not in resolved_path.parents:
-        return
-    if not resolved_path.exists():
-        return
-    if resolved_path.is_dir():
-        shutil.rmtree(resolved_path)
-    else:
-        resolved_path.unlink()
 
 
 def _delete_ground_truth_storage(project_id: str, storage_path: str | None) -> None:

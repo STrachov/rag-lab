@@ -256,6 +256,10 @@ export type DerivedCacheListResponse = {
   derived_caches: DerivedCache[];
 };
 
+export type DerivedCacheDeleteResponse = {
+  deleted_derived_cache_ids: string[];
+};
+
 export type EmbeddingParamValue = string | number | boolean;
 
 export type EmbeddingModelField = {
@@ -653,6 +657,19 @@ export async function listDerivedCaches(
 ): Promise<DerivedCacheListResponse> {
   const params = cacheType ? `?${new URLSearchParams({ cache_type: cacheType }).toString()}` : "";
   return request(`/projects/${projectId}/derived-cache${params}`);
+}
+
+export async function deleteDerivedCache(
+  projectId: string,
+  cacheId: string,
+  options: { cascadeDependents?: boolean } = {},
+): Promise<DerivedCacheDeleteResponse> {
+  const params = options.cascadeDependents
+    ? `?${new URLSearchParams({ cascade_dependents: "true" }).toString()}`
+    : "";
+  return request(`/projects/${projectId}/derived-cache/${cacheId}${params}`, {
+    method: "DELETE",
+  });
 }
 
 export async function createQdrantIndex(

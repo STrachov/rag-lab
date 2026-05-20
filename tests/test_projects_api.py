@@ -423,6 +423,141 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     assert retrieval_caches[0]["metadata_json"]["retrieved_chunks"]
 
 
+def test_delete_chunks_cache_blocks_dependent_runtime_caches(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    fake_qdrant = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_response.json()["id"],
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+    assert index_response.status_code == 201
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/derived-cache/{chunks_response.json()['id']}",
+    )
+
+    assert delete_response.status_code == 409
+    assert "dependent runtime caches" in delete_response.json()["detail"]
+
+
+def test_delete_chunks_cache_with_cascade_removes_dependent_runtime_caches(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    chunks_cache = chunks_response.json()
+    chunks_dir = Path(chunks_cache["metadata_json"]["chunks_path"]).parent
+    fake_qdrant = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_cache["id"],
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+    assert index_response.status_code == 201
+    index_cache = index_response.json()
+    sparse_dir = Path(index_cache["metadata_json"]["sparse_stats_path"]).parent
+    retrieve_response = client.post(
+        f"/v1/projects/{project_id}/retrieve/preview",
+        json={
+            "index_cache_id": index_cache["id"],
+            "mode": "hybrid",
+            "query": "When is payment due?",
+            "top_k": 1,
+        },
+    )
+    assert retrieve_response.status_code == 200
+    retrieval_cache_id = retrieve_response.json()["retrieval_cache_id"]
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/derived-cache/{chunks_cache['id']}",
+        params={"cascade_dependents": True},
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_derived_cache_ids"] == [
+        retrieval_cache_id,
+        index_cache["id"],
+        chunks_cache["id"],
+    ]
+    assert not chunks_dir.exists()
+    assert not sparse_dir.exists()
+    cache_response = client.get(f"/v1/projects/{project_id}/derived-cache")
+    assert cache_response.status_code == 200
+    assert cache_response.json()["derived_caches"] == []
+
+
 def test_retrieval_preview_can_rerank_candidates(
     client: TestClient,
     monkeypatch,
@@ -1782,6 +1917,7 @@ def _patch_data_dirs(monkeypatch, tmp_path) -> None:
         },
     )()
     monkeypatch.setattr("app.api.projects.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.derived_cache_cleanup.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.data_assets.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.ground_truth.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.runtime_cache.get_settings", lambda: settings)

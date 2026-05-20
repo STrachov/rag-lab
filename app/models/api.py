@@ -228,6 +228,10 @@ class DerivedCacheListResponse(BaseModel):
     derived_caches: list[DerivedCacheResponse]
 
 
+class DerivedCacheDeleteResponse(BaseModel):
+    deleted_derived_cache_ids: list[str]
+
+
 class ChunkMaterializeRequest(BaseModel):
     data_asset_id: str
     chunking: ChunkingParams = Field(default_factory=ChunkingParams)

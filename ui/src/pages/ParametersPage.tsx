@@ -8,10 +8,13 @@ import {
   ChunkingStrategy,
   createParameterSet,
   DataAsset,
+  deleteDerivedCache,
   deleteParameterSet,
+  DerivedCache,
   downloadGroundTruthAuthoringPack,
   listChunkingStrategies,
   listDataAssets,
+  listDerivedCaches,
   listParameterSets,
   materializeChunks,
   ParameterSet,
@@ -24,14 +27,7 @@ type ParametersPageProps = {
 };
 
 const DEFAULT_CHUNKING: ChunkingParams = {
-  params: {
-    chunk_overlap: 120,
-    chunk_size: 900,
-    page_boundary_mode: "soft",
-    preserve_headings: true,
-    preserve_tables: true,
-    tokenizer: "cl100k_base",
-  },
+  params: {},
   strategy: "heading_recursive",
 };
 
@@ -39,32 +35,50 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   const [parameterSets, setParameterSets] = useState<ParameterSet[]>([]);
   const [dataAssets, setDataAssets] = useState<DataAsset[]>([]);
   const [strategies, setStrategies] = useState<ChunkingStrategy[]>([]);
+  const [chunkCaches, setChunkCaches] = useState<DerivedCache[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isContinuing, setIsContinuing] = useState(false);
+  const [isMaterializing, setIsMaterializing] = useState(false);
   const [isDownloadingPack, setIsDownloadingPack] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState("");
-  const [name, setName] = useState("Dense chunking baseline");
+  const [selectedCacheId, setSelectedCacheId] = useState("");
+  const [name, setName] = useState("Chunking baseline");
   const [description, setDescription] = useState("");
   const [chunking, setChunking] = useState<ChunkingParams>(DEFAULT_CHUNKING);
+  const [maxChunks, setMaxChunks] = useState(50);
+  const [textPreviewChars, setTextPreviewChars] = useState(900);
   const [preview, setPreview] = useState<ChunkingPreviewResponse | null>(null);
+  const navigate = useNavigate();
 
   const preparedAssets = useMemo(
     () => dataAssets.filter((asset) => asset.asset_type === "prepared"),
     [dataAssets],
   );
-  const selectedAsset = preparedAssets.find((asset) => asset.id === selectedAssetId);
-  const selectedStrategy = strategies.find((strategy) => strategy.id === chunking.strategy);
-  const paramsJson = useMemo(() => ({ chunking }), [chunking]);
-  const navigate = useNavigate();
+  const chunkingParameterSets = useMemo(
+    () => parameterSets.filter((set) => set.category === "chunking"),
+    [parameterSets],
+  );
+  const selectedAsset = preparedAssets.find((asset) => asset.id === selectedAssetId) ?? null;
+  const selectedStrategy = strategies.find((strategy) => strategy.id === chunking.strategy) ?? null;
+  const linkedChunkCaches = selectedAsset
+    ? chunkCaches.filter((cache) => cache.data_asset_id === selectedAsset.id)
+    : [];
+  const selectedCache =
+    linkedChunkCaches.find((cache) => cache.id === selectedCacheId) ?? linkedChunkCaches[0] ?? null;
+  const snapshot = useMemo(() => ({ chunking }), [chunking]);
+  const strategyWarning = selectedAsset && selectedStrategy
+    ? parentUnitWarning(selectedAsset, selectedStrategy.id)
+    : null;
 
   useEffect(() => {
     if (!currentProject) {
       setParameterSets([]);
       setDataAssets([]);
       setStrategies([]);
+      setChunkCaches([]);
       setSelectedAssetId("");
+      setSelectedCacheId("");
       return;
     }
 
@@ -72,11 +86,13 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       listParameterSets(currentProject.id),
       listDataAssets(currentProject.id),
       listChunkingStrategies(currentProject.id),
+      listDerivedCaches(currentProject.id, "chunks"),
     ])
-      .then(([parameterResult, assetResult, strategyResult]) => {
+      .then(([parameterResult, assetResult, strategyResult, cacheResult]) => {
         setParameterSets(parameterResult.parameter_sets);
         setDataAssets(assetResult.data_assets);
         setStrategies(strategyResult.strategies);
+        setChunkCaches(cacheResult.derived_caches);
         const firstPrepared = assetResult.data_assets.find((asset) => asset.asset_type === "prepared");
         setSelectedAssetId((current) => current || firstPrepared?.id || "");
         const firstStrategy = strategyResult.strategies[0];
@@ -92,6 +108,24 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       })
       .catch((err: Error) => setError(err.message));
   }, [currentProject]);
+
+  useEffect(() => {
+    if (!linkedChunkCaches.some((cache) => cache.id === selectedCacheId)) {
+      setSelectedCacheId(linkedChunkCaches[0]?.id ?? "");
+    }
+  }, [linkedChunkCaches, selectedCacheId]);
+
+  async function refreshChunkCaches(projectId: string) {
+    const cacheResult = await listDerivedCaches(projectId, "chunks");
+    setChunkCaches(cacheResult.derived_caches);
+    return cacheResult.derived_caches;
+  }
+
+  function updateAsset(assetId: string) {
+    setSelectedAssetId(assetId);
+    setSelectedCacheId("");
+    setPreview(null);
+  }
 
   function updateStrategy(strategyId: string) {
     const strategy = strategies.find((item) => item.id === strategyId);
@@ -117,8 +151,8 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       const result = await previewChunking(currentProject.id, {
         chunking,
         data_asset_id: selectedAssetId,
-        max_chunks: 50,
-        text_preview_chars: 900,
+        max_chunks: maxChunks,
+        text_preview_chars: textPreviewChars,
       });
       setPreview(result);
       setError(null);
@@ -126,6 +160,26 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       setError(err instanceof Error ? err.message : "Failed to preview chunks");
     } finally {
       setIsPreviewing(false);
+    }
+  }
+
+  async function handleMaterialize() {
+    if (!currentProject || !selectedAssetId || isMaterializing) {
+      return;
+    }
+    setIsMaterializing(true);
+    try {
+      const cache = await materializeChunks(currentProject.id, {
+        chunking,
+        data_asset_id: selectedAssetId,
+      });
+      await refreshChunkCaches(currentProject.id);
+      setSelectedCacheId(cache.id);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to materialize chunks");
+    } finally {
+      setIsMaterializing(false);
     }
   }
 
@@ -137,13 +191,13 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
 
     setIsSaving(true);
     try {
-      const paramsHash = `sha256:${await sha256Hex(stableStringify(paramsJson))}`;
+      const paramsHash = `sha256:${await sha256Hex(stableStringify(snapshot))}`;
       const parameterSet = await createParameterSet(currentProject.id, {
         category: "chunking",
         description: description.trim() || undefined,
         name: name.trim(),
         params_hash: paramsHash,
-        params_json: paramsJson,
+        params_json: snapshot,
       });
       setParameterSets((current) => [...current, parameterSet]);
       setError(null);
@@ -154,35 +208,67 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     }
   }
 
-  async function handleContinueToRetrieval() {
-    if (!currentProject || !selectedAssetId) {
+  function handleApplyPreset(parameterSet: ParameterSet) {
+    const maybeChunking = parameterSet.params_json.chunking;
+    if (!isChunkingParams(maybeChunking)) {
+      setError("Selected ParameterSet does not contain a valid chunking snapshot");
       return;
     }
-    setIsContinuing(true);
+    const strategy = strategies.find((item) => item.id === maybeChunking.strategy);
+    setChunking({
+      strategy: maybeChunking.strategy,
+      params: strategy ? mergeDefaults(strategy, maybeChunking.params) : maybeChunking.params,
+    });
+    setName(parameterSet.name);
+    setDescription(parameterSet.description ?? "");
+    setPreview(null);
+    setError(null);
+  }
+
+  async function handleDeletePreset(parameterSet: ParameterSet) {
+    if (!currentProject || !window.confirm(`Delete chunking ParameterSet "${parameterSet.name}"?`)) {
+      return;
+    }
     try {
-      const cache = await materializeChunks(currentProject.id, {
-        chunking,
-        data_asset_id: selectedAssetId,
-      });
+      await deleteParameterSet(currentProject.id, parameterSet.id);
+      setParameterSets((current) => current.filter((item) => item.id !== parameterSet.id));
       setError(null);
-      navigate(`/projects/${currentProject.id}/retrieval?chunks_cache_id=${cache.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to materialize chunks");
-    } finally {
-      setIsContinuing(false);
+      setError(err instanceof Error ? err.message : "Failed to delete chunking ParameterSet");
     }
   }
 
-  async function handleDownloadAuthoringPack() {
-    if (!currentProject || !selectedAssetId) {
+  async function handleDeleteCache(cache: DerivedCache) {
+    const message = [
+      `Delete materialized chunks "${cache.cache_key}"?`,
+      "This will also remove dependent runtime caches, such as indexes and retrieval previews created from these chunks.",
+      "Prepared data and saved ParameterSets will stay unchanged.",
+    ].join("\n\n");
+    if (!currentProject || !window.confirm(message)) {
+      return;
+    }
+    try {
+      const result = await deleteDerivedCache(currentProject.id, cache.id, {
+        cascadeDependents: true,
+      });
+      setChunkCaches((current) =>
+        current.filter((item) => !result.deleted_derived_cache_ids.includes(item.id)),
+      );
+      if (result.deleted_derived_cache_ids.includes(selectedCacheId)) {
+        setSelectedCacheId("");
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete materialized chunks");
+    }
+  }
+
+  async function handleDownloadAuthoringPack(cache: DerivedCache) {
+    if (!currentProject || isDownloadingPack) {
       return;
     }
     setIsDownloadingPack(true);
     try {
-      const cache = await materializeChunks(currentProject.id, {
-        chunking,
-        data_asset_id: selectedAssetId,
-      });
       const blob = await downloadGroundTruthAuthoringPack(currentProject.id, cache.id);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -200,31 +286,20 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     }
   }
 
-  async function handleDelete(parameterSet: ParameterSet) {
+  function handleUseInRetrieval(cache: DerivedCache) {
     if (!currentProject) {
       return;
     }
-    const confirmed = window.confirm(`Delete parameter set "${parameterSet.name}"?`);
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await deleteParameterSet(currentProject.id, parameterSet.id);
-      setParameterSets((current) => current.filter((item) => item.id !== parameterSet.id));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete parameter set");
-    }
+    navigate(`/projects/${currentProject.id}/retrieval?chunks_cache_id=${cache.id}`);
   }
 
   if (!currentProject) {
     return (
       <section className="page">
         <header className="page-header">
-          <p className="eyebrow">Chunking</p>
+          <p className="eyebrow">Pipeline</p>
           <h1>Chunking</h1>
-          <p>Select or create a project first. Parameter sets are scoped to the current project.</p>
+          <p>Select or create a project first.</p>
         </header>
         <div className="empty-state">No project selected.</div>
       </section>
@@ -234,29 +309,23 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   return (
     <section className="page">
       <header className="page-header">
-        <p className="eyebrow">Chunking</p>
-        <h1>Chunking Lab</h1>
-        <p>Choose a prepared data asset, tune chunking, inspect the preview, then save a reusable ParameterSet.</p>
+        <p className="eyebrow">Pipeline</p>
+        <h1>Chunking</h1>
+        <p>Choose a prepared data asset, tune a registered chunking strategy, preview chunks, and materialize a reusable chunks cache.</p>
       </header>
 
       {error ? <div className="notice">Chunking unavailable: {error}</div> : null}
 
       {preparedAssets.length === 0 ? (
-        <div className="empty-state">Create a prepared data asset in Data before previewing chunks.</div>
+        <div className="empty-state">Create a prepared data asset on Preparation before previewing chunks.</div>
       ) : (
-        <div className="parameter-workbench">
-          <form className="chunking-form" onSubmit={handleSave}>
+        <div className="stage-workbench">
+          <div className="stage-left">
             <div className="parameter-section">
-              <h2>Source</h2>
+              <h2>Source And Strategy</h2>
               <label>
                 Prepared data asset
-                <select
-                  value={selectedAssetId}
-                  onChange={(event) => {
-                    setSelectedAssetId(event.target.value);
-                    setPreview(null);
-                  }}
-                >
+                <select value={selectedAssetId} onChange={(event) => updateAsset(event.target.value)}>
                   {preparedAssets.map((asset) => (
                     <option key={asset.id} value={asset.id}>
                       {asset.name}
@@ -264,100 +333,210 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
                   ))}
                 </select>
               </label>
-              {selectedAsset ? (
-                <div className="asset-mini-summary">
-                  <span>{selectedAsset.data_format}</span>
-                  <span title={selectedAsset.manifest_hash ?? undefined}>
-                    {shortHash(selectedAsset.manifest_hash)}
-                  </span>
-                  <span>{selectedAsset.current_manifest_json?.files.length ?? 0} file(s)</span>
+              {selectedAsset ? <PreparedAssetSummary asset={selectedAsset} /> : null}
+              <label>
+                Strategy
+                <select value={chunking.strategy} onChange={(event) => updateStrategy(event.target.value)}>
+                  {strategies.map((strategy) => (
+                    <option key={strategy.id} value={strategy.id}>
+                      {strategy.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedStrategy ? <p className="form-note">{selectedStrategy.description}</p> : null}
+              {strategyWarning ? <div className="notice warning">{strategyWarning}</div> : null}
+              <div className="parameter-grid">
+                {selectedStrategy?.fields.map((field) => (
+                  <ChunkingFieldControl
+                    field={field}
+                    key={field.name}
+                    onChange={(value) => updateChunkingParam(field.name, value)}
+                    value={chunking.params[field.name] ?? field.default}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="parameter-section">
+              <h2>Preview And Materialize</h2>
+              <div className="parameter-grid">
+                <label>
+                  Preview chunks
+                  <input
+                    max={200}
+                    min={1}
+                    type="number"
+                    value={maxChunks}
+                    onChange={(event) => setMaxChunks(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  Preview chars
+                  <input
+                    max={4000}
+                    min={120}
+                    type="number"
+                    value={textPreviewChars}
+                    onChange={(event) => setTextPreviewChars(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+              <div className="row-actions">
+                <button className="secondary-action" disabled={isPreviewing || !selectedAssetId} type="button" onClick={handlePreview}>
+                  {isPreviewing ? "Previewing..." : "Preview"}
+                </button>
+                <button className="primary-action" disabled={isMaterializing || !selectedAssetId} type="button" onClick={handleMaterialize}>
+                  {isMaterializing ? "Materializing..." : "Materialize Chunks"}
+                </button>
+              </div>
+            </div>
+
+            <form className="parameter-section" onSubmit={handleSave}>
+              <h2>Save ParameterSet</h2>
+              <label>
+                Name
+                <input value={name} onChange={(event) => setName(event.target.value)} required />
+              </label>
+              <label>
+                Description
+                <input value={description} onChange={(event) => setDescription(event.target.value)} />
+              </label>
+              <button className="secondary-action" disabled={isSaving} type="submit">
+                {isSaving ? "Saving..." : "Save Chunking ParameterSet"}
+              </button>
+            </form>
+
+            <div className="parameter-section">
+              <h2>Saved Chunking ParameterSets</h2>
+              {chunkingParameterSets.length === 0 ? (
+                <div className="nested-empty">No chunking ParameterSets saved yet.</div>
+              ) : (
+                <div className="index-cache-list">
+                  {chunkingParameterSets.map((parameterSet) => (
+                    <div className="cache-item" key={parameterSet.id}>
+                      <strong>{parameterSet.name}</strong>
+                      <span>{chunkingStrategyLabel(parameterSet)}</span>
+                      <small>{parameterSet.params_hash.slice(0, 18)}</small>
+                      <div className="row-actions">
+                        <button className="text-action" onClick={() => handleApplyPreset(parameterSet)} type="button">
+                          Apply
+                        </button>
+                        <button className="text-action danger" onClick={() => handleDeletePreset(parameterSet)} type="button">
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="parameter-section">
+              <h2>Materialized Chunks</h2>
+              {linkedChunkCaches.length === 0 ? (
+                <div className="nested-empty">No materialized chunks for this prepared asset yet.</div>
+              ) : (
+                <div className="index-cache-list">
+                  {linkedChunkCaches.map((cache) => (
+                    <button
+                      className={cache.id === selectedCache?.id ? "cache-item selected" : "cache-item"}
+                      key={cache.id}
+                      onClick={() => setSelectedCacheId(cache.id)}
+                      type="button"
+                    >
+                      <strong>{cache.cache_key}</strong>
+                      <span>{cacheChunkingStrategy(cache)}</span>
+                      <span>{cacheChunkCount(cache)} chunks</span>
+                      <small>{cache.params_hash.slice(0, 18)}</small>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedCache ? (
+                <div className="row-actions">
+                  <button className="text-action" onClick={() => handleUseInRetrieval(selectedCache)} type="button">
+                    Use in Retrieval
+                  </button>
+                  <button
+                    className="text-action"
+                    disabled={isDownloadingPack}
+                    onClick={() => handleDownloadAuthoringPack(selectedCache)}
+                    type="button"
+                  >
+                    {isDownloadingPack ? "Preparing pack..." : "GT authoring pack"}
+                  </button>
+                  <button className="text-action danger" onClick={() => handleDeleteCache(selectedCache)} type="button">
+                    Delete
+                  </button>
                 </div>
               ) : null}
             </div>
+          </div>
 
+          <div className="stage-right">
             <div className="parameter-section">
-              <h2>Chunking</h2>
-              <div className="parameter-grid">
-                <label>
-                  Strategy
-                  <select
-                    value={chunking.strategy}
-                    onChange={(event) => updateStrategy(event.target.value)}
-                  >
-                    {strategies.map((strategy) => (
-                      <option key={strategy.id} value={strategy.id}>
-                        {strategy.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {selectedStrategy
-                  ? selectedStrategy.fields.map((field) => (
-                      <ChunkingFieldControl
-                        field={field}
-                        key={field.name}
-                        value={chunking.params[field.name] ?? field.default}
-                        onChange={(value) => updateChunkingParam(field.name, value)}
-                      />
-                    ))
-                  : null}
-              </div>
-              {selectedStrategy ? <p className="form-note">{selectedStrategy.description}</p> : null}
-              <button className="secondary-action" disabled={isPreviewing || !selectedAssetId} type="button" onClick={handlePreview}>
-                {isPreviewing ? "Previewing..." : "Preview chunks"}
-              </button>
-              <button
-                className="secondary-action"
-                disabled={isDownloadingPack || !selectedAssetId}
-                type="button"
-                onClick={handleDownloadAuthoringPack}
-              >
-                {isDownloadingPack ? "Preparing pack..." : "Download GT authoring pack"}
-              </button>
-              <button
-                className="primary-action"
-                disabled={isContinuing || !selectedAssetId}
-                type="button"
-                onClick={handleContinueToRetrieval}
-              >
-                {isContinuing ? "Materializing..." : "Next: Retrieval"}
-              </button>
+              <h2>Chunking Snapshot</h2>
+              <pre className="json-preview">{JSON.stringify(snapshot, null, 2)}</pre>
             </div>
 
             <div className="parameter-section">
-              <h2>Save ParameterSet</h2>
-              <div className="parameter-grid">
-                <label>
-                  Name
-                  <input value={name} onChange={(event) => setName(event.target.value)} required />
-                </label>
-                <label>
-                  Description
-                  <input value={description} onChange={(event) => setDescription(event.target.value)} />
-                </label>
-              </div>
-              <button className="primary-action" disabled={isSaving} type="submit">
-                {isSaving ? "Saving..." : "Save chunking parameters"}
-              </button>
+              <h2>Prepared Asset Snapshot</h2>
+              {selectedAsset ? (
+                <pre className="json-preview">
+                  {JSON.stringify(
+                    {
+                      asset_id: selectedAsset.id,
+                      data_format: selectedAsset.data_format,
+                      files: selectedAsset.current_manifest_json?.files.map((file) => ({
+                        name: file.original_name,
+                        role: file.role ?? null,
+                        size_bytes: file.size_bytes,
+                      })) ?? [],
+                      manifest_hash: selectedAsset.manifest_hash,
+                      preparation: selectedAsset.preparation_params_json ?? {},
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              ) : (
+                <div className="nested-empty">No prepared asset selected.</div>
+              )}
             </div>
-          </form>
 
-          <div className="chunk-preview-panel">
             <div className="parameter-section">
               <h2>Preview</h2>
               {preview ? <ChunkPreviewResult preview={preview} /> : <div className="nested-empty">No preview yet.</div>}
             </div>
 
             <div className="parameter-section">
-              <h2>Snapshot</h2>
-              <pre className="json-preview">{JSON.stringify(paramsJson, null, 2)}</pre>
+              <h2>Selected Chunks Cache</h2>
+              {selectedCache ? (
+                <pre className="json-preview">{JSON.stringify(selectedCache.metadata_json, null, 2)}</pre>
+              ) : (
+                <div className="nested-empty">Materialize chunks or select an existing chunks cache.</div>
+              )}
             </div>
           </div>
         </div>
       )}
-
-      <SavedParameterSets parameterSets={parameterSets} onDelete={handleDelete} />
     </section>
+  );
+}
+
+function PreparedAssetSummary({ asset }: { asset: DataAsset }) {
+  const files = asset.current_manifest_json?.files ?? [];
+  const pageUnits = files.filter((file) => file.role === "prepared_parent_pages").length;
+  const chapterUnits = files.filter((file) => file.role === "prepared_parent_chapters").length;
+  return (
+    <div className="asset-mini-summary">
+      <span>{asset.data_format}</span>
+      <span title={asset.manifest_hash ?? undefined}>{shortHash(asset.manifest_hash)}</span>
+      <span>{files.length} file(s)</span>
+      {pageUnits > 0 ? <span>{pageUnits} page unit file(s)</span> : null}
+      {chapterUnits > 0 ? <span>{chapterUnits} chapter unit file(s)</span> : null}
+    </div>
   );
 }
 
@@ -393,7 +572,9 @@ function ChunkPreviewResult({ preview }: { preview: ChunkingPreviewResponse }) {
             <div className="chunk-meta">
               <strong>{chunk.chunk_id}</strong>
               <span>{chunk.source_name}</span>
-              {chunk.page ? <span>Page {chunk.page}</span> : null}
+              {chunk.parent_type ? <span>{chunk.parent_type}</span> : null}
+              {chunk.parent_id ? <span>{compactId(chunk.parent_id)}</span> : null}
+              {chunk.page_start ? <span>Page {chunk.page_start}{chunk.page_end && chunk.page_end !== chunk.page_start ? `-${chunk.page_end}` : ""}</span> : null}
               <span>{chunk.token_count} tokens</span>
               <span>{chunk.char_count} chars</span>
             </div>
@@ -473,47 +654,6 @@ function ChunkingFieldControl({
   );
 }
 
-function SavedParameterSets({
-  onDelete,
-  parameterSets,
-}: {
-  onDelete: (parameterSet: ParameterSet) => void;
-  parameterSets: ParameterSet[];
-}) {
-  if (parameterSets.length === 0) {
-    return <div className="empty-state">No parameter sets saved for this project yet.</div>;
-  }
-
-  return (
-    <div className="table">
-      <div className="table-row parameter-table table-head">
-        <span>ID</span>
-        <span>Name</span>
-        <span>Category</span>
-        <span>Description</span>
-        <span>Hash</span>
-        <span>Created</span>
-        <span>Actions</span>
-      </div>
-      {parameterSets.map((parameterSet) => (
-        <div className="table-row parameter-table" key={parameterSet.id}>
-          <span>{parameterSet.id}</span>
-          <span>{parameterSet.name}</span>
-          <span>{parameterSet.category}</span>
-          <span>{parameterSet.description ?? "-"}</span>
-          <span>{parameterSet.params_hash.slice(0, 18)}</span>
-          <span>{new Date(parameterSet.created_at).toLocaleString()}</span>
-          <span>
-            <button className="text-action danger" onClick={() => onDelete(parameterSet)} type="button">
-              Delete
-            </button>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 async function sha256Hex(input: string): Promise<string> {
   const encoded = new TextEncoder().encode(input);
   const digest = await window.crypto.subtle.digest("SHA-256", encoded);
@@ -550,9 +690,55 @@ function sortJson(value: unknown): unknown {
   return value;
 }
 
+function parentUnitWarning(asset: DataAsset, strategyId: string): string | null {
+  const files = asset.current_manifest_json?.files ?? [];
+  if (strategyId === "page_recursive" && !files.some((file) => file.role === "prepared_parent_pages")) {
+    return "Selected strategy expects page unit sidecars, but this prepared asset does not include prepared_parent_pages.";
+  }
+  if (strategyId === "chapter_recursive" && !files.some((file) => file.role === "prepared_parent_chapters")) {
+    return "Selected strategy expects chapter unit sidecars, but this prepared asset does not include prepared_parent_chapters.";
+  }
+  return null;
+}
+
+function isChunkingParams(value: unknown): value is ChunkingParams {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    typeof (value as ChunkingParams).strategy === "string" &&
+    Boolean((value as ChunkingParams).params) &&
+    typeof (value as ChunkingParams).params === "object"
+  );
+}
+
+function chunkingStrategyLabel(parameterSet: ParameterSet): string {
+  const maybeChunking = parameterSet.params_json.chunking;
+  return isChunkingParams(maybeChunking) ? maybeChunking.strategy : "chunking";
+}
+
+function cacheChunkingStrategy(cache: DerivedCache): string {
+  const chunking = cache.metadata_json.chunking;
+  if (chunking && typeof chunking === "object" && typeof (chunking as { strategy?: unknown }).strategy === "string") {
+    return (chunking as { strategy: string }).strategy;
+  }
+  return "-";
+}
+
+function cacheChunkCount(cache: DerivedCache): number {
+  const summary = cache.metadata_json.summary;
+  if (summary && typeof summary === "object" && typeof (summary as { chunk_count?: unknown }).chunk_count === "number") {
+    return (summary as { chunk_count: number }).chunk_count;
+  }
+  return typeof cache.metadata_json.chunk_count === "number" ? cache.metadata_json.chunk_count : 0;
+}
+
 function shortHash(hash?: string | null): string {
   if (!hash) {
     return "no manifest";
   }
-  return hash.length > 18 ? `${hash.slice(0, 18)}...` : hash;
+  return hash.replace("sha256:", "").slice(0, 12);
+}
+
+function compactId(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 18)}...` : value;
 }

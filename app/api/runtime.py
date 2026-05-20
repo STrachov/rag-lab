@@ -12,6 +12,7 @@ from app.db import models
 from app.db.session import get_db
 from app.models.api import (
     ChunkMaterializeRequest,
+    DerivedCacheDeleteResponse,
     DerivedCacheListResponse,
     DerivedCacheResponse,
     EmbeddingModelListResponse,
@@ -25,6 +26,11 @@ from app.models.api import (
 from app.services.hashing import short_hash, stable_sha256
 from app.services.embeddings import list_embedding_models
 from app.services.gt_authoring_pack import build_gt_authoring_pack
+from app.services.derived_cache_cleanup import (
+    collect_derived_cache_dependents,
+    delete_derived_cache_storage,
+    order_derived_caches_for_delete,
+)
 from app.services.rerankers import list_reranker_models
 from app.services.sparse import list_sparse_models
 from app.services.runtime_cache import (
@@ -57,6 +63,34 @@ def list_project_derived_cache(
         query = query.where(models.DerivedCache.cache_type == cache_type)
     caches = db.scalars(query.order_by(models.DerivedCache.created_at.desc())).all()
     return DerivedCacheListResponse(derived_caches=caches)
+
+
+@router.delete(
+    "/projects/{project_id}/derived-cache/{cache_id}",
+    response_model=DerivedCacheDeleteResponse,
+)
+def delete_project_derived_cache(
+    project_id: str,
+    cache_id: str,
+    cascade_dependents: bool = Query(False),
+    db: Session = Depends(get_db),
+) -> DerivedCacheDeleteResponse:
+    _get_project_or_404(db, project_id)
+    cache = _get_cache_or_404(db, project_id, cache_id)
+    dependents = collect_derived_cache_dependents(db, project_id, cache)
+    if dependents and not cascade_dependents:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete derived cache while dependent runtime caches reference it.",
+        )
+
+    caches_to_delete = order_derived_caches_for_delete([cache, *dependents])
+    deleted_ids = [item.id for item in caches_to_delete]
+    for item in caches_to_delete:
+        delete_derived_cache_storage(item)
+        db.delete(item)
+    db.commit()
+    return DerivedCacheDeleteResponse(deleted_derived_cache_ids=deleted_ids)
 
 
 @router.get(
