@@ -43,6 +43,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   const [isDownloadingPack, setIsDownloadingPack] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState("");
   const [selectedCacheId, setSelectedCacheId] = useState("");
+  const [selectedParameterSetId, setSelectedParameterSetId] = useState("");
   const [name, setName] = useState("Chunking baseline");
   const [description, setDescription] = useState("");
   const [chunking, setChunking] = useState<ChunkingParams>(DEFAULT_CHUNKING);
@@ -79,6 +80,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       setChunkCaches([]);
       setSelectedAssetId("");
       setSelectedCacheId("");
+      setSelectedParameterSetId("");
       return;
     }
 
@@ -133,11 +135,13 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
       return;
     }
     setChunking({ strategy: strategy.id, params: strategy.default_params });
+    setSelectedParameterSetId("");
     setPreview(null);
   }
 
   function updateChunkingParam(name: string, value: ChunkingParamValue) {
     setChunking((current) => ({ ...current, params: { ...current.params, [name]: value } }));
+    setSelectedParameterSetId("");
     setPreview(null);
   }
 
@@ -221,17 +225,23 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
     });
     setName(parameterSet.name);
     setDescription(parameterSet.description ?? "");
+    setSelectedParameterSetId(parameterSet.id);
     setPreview(null);
     setError(null);
   }
 
-  async function handleDeletePreset(parameterSet: ParameterSet) {
-    if (!currentProject || !window.confirm(`Delete chunking ParameterSet "${parameterSet.name}"?`)) {
+  async function handleDeleteSelectedPreset() {
+    const selectedParameterSet = chunkingParameterSets.find((item) => item.id === selectedParameterSetId);
+    if (!currentProject || !selectedParameterSet) {
+      return;
+    }
+    if (!window.confirm(`Delete chunking ParameterSet "${selectedParameterSet.name}"?`)) {
       return;
     }
     try {
-      await deleteParameterSet(currentProject.id, parameterSet.id);
-      setParameterSets((current) => current.filter((item) => item.id !== parameterSet.id));
+      await deleteParameterSet(currentProject.id, selectedParameterSet.id);
+      setParameterSets((current) => current.filter((item) => item.id !== selectedParameterSet.id));
+      setSelectedParameterSetId("");
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete chunking ParameterSet");
@@ -393,7 +403,7 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
             </div>
 
             <form className="parameter-section" onSubmit={handleSave}>
-              <h2>Save ParameterSet</h2>
+              <h2>Save Parameters</h2>
               <label>
                 Name
                 <input value={name} onChange={(event) => setName(event.target.value)} required />
@@ -408,28 +418,32 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
             </form>
 
             <div className="parameter-section">
-              <h2>Saved Chunking ParameterSets</h2>
+              <h2>Saved Chunking parameters</h2>
               {chunkingParameterSets.length === 0 ? (
-                <div className="nested-empty">No chunking ParameterSets saved yet.</div>
+                <div className="nested-empty">No chunking parameters saved yet.</div>
               ) : (
                 <div className="index-cache-list">
                   {chunkingParameterSets.map((parameterSet) => (
-                    <div className="cache-item" key={parameterSet.id}>
+                    <button
+                      className={parameterSet.id === selectedParameterSetId ? "cache-item selected" : "cache-item"}
+                      key={parameterSet.id}
+                      onClick={() => handleApplyPreset(parameterSet)}
+                      type="button"
+                    >
                       <strong>{parameterSet.name}</strong>
                       <span>{chunkingStrategyLabel(parameterSet)}</span>
                       <small>{parameterSet.params_hash.slice(0, 18)}</small>
-                      <div className="row-actions">
-                        <button className="text-action" onClick={() => handleApplyPreset(parameterSet)} type="button">
-                          Apply
-                        </button>
-                        <button className="text-action danger" onClick={() => handleDeletePreset(parameterSet)} type="button">
-                          Delete
-                        </button>
-                      </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
+              {selectedParameterSetId ? (
+                <div className="row-actions">
+                <button className="text-action danger" onClick={handleDeleteSelectedPreset} type="button">
+                  Delete selected parameters
+                </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="parameter-section">
@@ -455,22 +469,32 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
               )}
               {selectedCache ? (
                 <div className="row-actions">
-                  <button className="text-action" onClick={() => handleUseInRetrieval(selectedCache)} type="button">
+                  <button className="text-action danger" onClick={() => handleDeleteCache(selectedCache)} type="button">
+                    Delete selected chunks
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="parameter-section">
+              <h2>Selected Chunks Actions</h2>
+              {selectedCache ? (
+                <div className="row-actions">
+                  <button className="secondary-action" onClick={() => handleUseInRetrieval(selectedCache)} type="button">
                     Use in Retrieval
                   </button>
                   <button
-                    className="text-action"
+                    className="secondary-action"
                     disabled={isDownloadingPack}
                     onClick={() => handleDownloadAuthoringPack(selectedCache)}
                     type="button"
                   >
                     {isDownloadingPack ? "Preparing pack..." : "GT authoring pack"}
                   </button>
-                  <button className="text-action danger" onClick={() => handleDeleteCache(selectedCache)} type="button">
-                    Delete
-                  </button>
                 </div>
-              ) : null}
+              ) : (
+                <div className="nested-empty">Select materialized chunks first.</div>
+              )}
             </div>
           </div>
 
