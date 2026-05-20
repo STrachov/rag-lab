@@ -1184,6 +1184,34 @@ def test_delete_experiment_data_asset_is_blocked(client: TestClient, monkeypatch
     assert "saved experiments" in delete_response.json()["detail"]
 
 
+def test_delete_data_asset_with_derived_cache_is_blocked(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.\n",
+    )
+    materialize_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "chunking": {"params": {"chunk_overlap": 0, "chunk_size": 20}, "strategy": "recursive"},
+            "data_asset_id": data_asset_id,
+        },
+    )
+    assert materialize_response.status_code == 201
+
+    delete_response = client.delete(f"/v1/projects/{project_id}/data-assets/{data_asset_id}")
+
+    assert delete_response.status_code == 409
+    assert "derived cache" in delete_response.json()["detail"]
+
+
 def test_delete_experiment_parameter_set_is_blocked(
     client: TestClient,
     monkeypatch,

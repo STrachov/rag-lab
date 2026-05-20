@@ -380,6 +380,12 @@ The Preparation page owns registered preparation methods, parameter editing, pre
 ParameterSet creation, and materializing prepared data assets. Preparation should not be hidden in a
 modal inside Data.
 
+Pipeline pages should share a consistent workbench shape. The left column contains input selection,
+registered strategy controls, reusable ParameterSets, materialized outputs, and safe delete actions.
+The right column contains preview/details panels and the current JSON snapshot. Preparation follows
+this pattern with source selection, saved preparation ParameterSets, prepared output selection, source
+manifest details, applied preparation snapshot, and generated file details.
+
 The Chunking page previews registered chunking strategies and can materialize chunk caches. The
 Retrieval page builds and reuses Qdrant index caches, previews retrieval, and reranks saved candidate
 sets. The Ground Truth page owns upload and validation. Saved Experiments owns full snapshots,

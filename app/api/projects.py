@@ -262,6 +262,12 @@ def remove_data_asset_file(
     _add_manifest_snapshot(db, asset.id, stored["manifest_hash"], stored["manifest_json"])
 
     if asset.asset_type == "prepared" and not stored["manifest_json"].get("files"):
+        _ensure_data_assets_not_referenced(
+            db,
+            [asset],
+            include_saved_experiments=True,
+            include_derived_cache=True,
+        )
         deleted_asset_id = asset.id
         _delete_asset_storage(asset.storage_path)
         db.delete(asset)
@@ -827,20 +833,51 @@ def _collect_deletable_data_assets(
         .where(models.DataAsset.parent_id == asset.id)
     ).all()
     assets = [asset, *children]
+    _ensure_data_assets_not_referenced(
+        db,
+        assets,
+        include_saved_experiments=True,
+        include_derived_cache=True,
+    )
+    return list(reversed(assets))
+
+
+def _ensure_data_assets_not_referenced(
+    db: Session,
+    assets: list[models.DataAsset],
+    *,
+    include_saved_experiments: bool,
+    include_derived_cache: bool,
+) -> None:
+    asset_ids = [item.id for item in assets]
+    if not asset_ids:
+        return
     used_asset_ids = {
         row[0]
         for row in db.execute(
             select(models.SavedExperiment.data_asset_id).where(
-                models.SavedExperiment.data_asset_id.in_([item.id for item in assets])
+                models.SavedExperiment.data_asset_id.in_(asset_ids)
             )
         ).all()
-    }
+    } if include_saved_experiments else set()
     if used_asset_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete data asset used by saved experiments",
         )
-    return list(reversed(assets))
+    cached_asset_ids = {
+        row[0]
+        for row in db.execute(
+            select(models.DerivedCache.data_asset_id).where(
+                models.DerivedCache.data_asset_id.in_(asset_ids)
+            )
+        ).all()
+    } if include_derived_cache else set()
+    if cached_asset_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete data asset while derived cache entries reference it. Delete or rebuild dependent caches first.",
+        )
 
 
 def _claim_preparation_job(job_key: tuple[str, str, str]) -> None:

@@ -332,6 +332,14 @@ h1 {
   border-top: 1px solid #edf1f3;
 }
 
+.compact-file-list {
+  border-radius: 6px;
+}
+
+.compact-file-row {
+  grid-template-columns: minmax(180px, 1.4fr) minmax(140px, 0.9fr) minmax(80px, 0.4fr);
+}
+
 .file-row span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -609,6 +617,24 @@ h1 {
   grid-template-columns: minmax(340px, 0.95fr) minmax(360px, 1.05fr);
 }
 
+.stage-workbench {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(340px, 0.95fr) minmax(420px, 1.05fr);
+}
+
+.stage-left,
+.stage-right {
+  display: grid;
+  gap: 18px;
+}
+
+.stage-details {
+  display: grid;
+  gap: 12px;
+}
+
 .preparation-results {
   grid-column: 1 / -1;
 }
@@ -652,6 +678,12 @@ h1 {
 
 .parameter-section h2 {
   font-size: 16px;
+  margin: 0;
+}
+
+.parameter-section h3 {
+  color: #425864;
+  font-size: 13px;
   margin: 0;
 }
 
@@ -1003,6 +1035,7 @@ h1 {
 
   .parameter-workbench,
   .preparation-workbench,
+  .stage-workbench,
   .parameter-grid,
   .metric-strip {
     grid-template-columns: 1fr;
