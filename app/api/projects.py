@@ -286,19 +286,39 @@ def remove_data_asset_file(
 def delete_data_asset(
     project_id: str,
     data_asset_id: str,
+    cascade_derived_cache: bool = Query(False),
     db: Session = Depends(get_db),
 ) -> DataAssetDeleteResponse:
     _get_project_or_404(db, project_id)
     asset = _get_data_asset_or_404(db, project_id, data_asset_id)
-    assets_to_delete = _collect_deletable_data_assets(db, project_id, asset)
+    assets_to_delete = _collect_deletable_data_assets(
+        db,
+        project_id,
+        asset,
+        cascade_derived_cache=cascade_derived_cache,
+    )
     deleted_ids = [item.id for item in assets_to_delete]
+    derived_caches_to_delete = (
+        _collect_derived_caches_for_data_assets(db, project_id, deleted_ids)
+        if cascade_derived_cache
+        else []
+    )
+    ordered_derived_caches = _order_derived_caches_for_delete(derived_caches_to_delete)
+    deleted_cache_ids = [cache.id for cache in ordered_derived_caches]
+
+    for cache in ordered_derived_caches:
+        _delete_derived_cache_storage(cache)
+        db.delete(cache)
 
     for item in assets_to_delete:
         _delete_asset_storage(item.storage_path)
         db.delete(item)
 
     db.commit()
-    return DataAssetDeleteResponse(deleted_data_asset_ids=deleted_ids)
+    return DataAssetDeleteResponse(
+        deleted_data_asset_ids=deleted_ids,
+        deleted_derived_cache_ids=deleted_cache_ids,
+    )
 
 
 @router.get("/projects/{project_id}/data-assets/{data_asset_id}/files/download")
@@ -826,6 +846,8 @@ def _collect_deletable_data_assets(
     db: Session,
     project_id: str,
     asset: models.DataAsset,
+    *,
+    cascade_derived_cache: bool = False,
 ) -> list[models.DataAsset]:
     children = db.scalars(
         select(models.DataAsset)
@@ -837,9 +859,36 @@ def _collect_deletable_data_assets(
         db,
         assets,
         include_saved_experiments=True,
-        include_derived_cache=True,
+        include_derived_cache=not cascade_derived_cache,
     )
     return list(reversed(assets))
+
+
+def _collect_derived_caches_for_data_assets(
+    db: Session,
+    project_id: str,
+    data_asset_ids: list[str],
+) -> list[models.DerivedCache]:
+    if not data_asset_ids:
+        return []
+    return db.scalars(
+        select(models.DerivedCache)
+        .where(models.DerivedCache.project_id == project_id)
+        .where(models.DerivedCache.data_asset_id.in_(data_asset_ids))
+    ).all()
+
+
+def _order_derived_caches_for_delete(
+    caches: list[models.DerivedCache],
+) -> list[models.DerivedCache]:
+    priority = {
+        "answer_temp": 0,
+        "retrieval_temp": 1,
+        "qdrant_index": 2,
+        "embeddings": 3,
+        "chunks": 4,
+    }
+    return sorted(caches, key=lambda cache: priority.get(cache.cache_type, 10))
 
 
 def _ensure_data_assets_not_referenced(
@@ -1191,6 +1240,38 @@ def _delete_asset_storage(storage_path: str | None) -> None:
     path = Path(storage_path)
     if path.exists():
         shutil.rmtree(path)
+
+
+def _delete_derived_cache_storage(cache: models.DerivedCache) -> None:
+    for path in _derived_cache_storage_paths(cache):
+        _delete_cache_path(path)
+
+
+def _derived_cache_storage_paths(cache: models.DerivedCache) -> list[Path]:
+    metadata = cache.metadata_json or {}
+    paths: list[Path] = []
+    for key in ("chunks_path", "manifest_path", "sparse_stats_path"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            path = Path(value)
+            paths.append(path.parent if path.name else path)
+    return list(dict.fromkeys(paths))
+
+
+def _delete_cache_path(path: Path) -> None:
+    cache_root = (get_settings().data_dir / "cache").resolve()
+    try:
+        resolved_path = path.resolve()
+    except OSError:
+        return
+    if resolved_path != cache_root and cache_root not in resolved_path.parents:
+        return
+    if not resolved_path.exists():
+        return
+    if resolved_path.is_dir():
+        shutil.rmtree(resolved_path)
+    else:
+        resolved_path.unlink()
 
 
 def _delete_ground_truth_storage(project_id: str, storage_path: str | None) -> None:

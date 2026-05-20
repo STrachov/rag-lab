@@ -123,14 +123,24 @@ export function DataPage({ currentProject }: DataPageProps) {
 
     const message =
       asset.asset_type === "raw"
-        ? `Delete source asset "${asset.name}" and all linked prepared versions?`
-        : `Delete prepared version "${asset.name}"?`;
+        ? [
+            `Delete source asset "${asset.name}" and all linked prepared versions?`,
+            "This will also remove derived runtime caches for those data assets, including chunks, indexes, and retrieval previews.",
+            "Saved experiments will still block deletion.",
+          ].join("\n\n")
+        : [
+            `Delete prepared version "${asset.name}"?`,
+            "This will also remove derived runtime caches for this prepared data, including chunks, indexes, and retrieval previews.",
+            "Saved experiments will still block deletion.",
+          ].join("\n\n");
     if (!window.confirm(message)) {
       return;
     }
 
     try {
-      const result = await deleteDataAsset(currentProject.id, asset.id);
+      const result = await deleteDataAsset(currentProject.id, asset.id, {
+        cascadeDerivedCache: true,
+      });
       result.deleted_data_asset_ids.forEach(removeAsset);
       setError(null);
     } catch (err) {

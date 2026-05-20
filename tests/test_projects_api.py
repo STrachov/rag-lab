@@ -1162,6 +1162,42 @@ def test_delete_source_asset_removes_linked_prepared_assets(client: TestClient, 
     assert prepared_asset_id not in remaining_ids
 
 
+def test_delete_source_asset_with_cascade_removes_linked_prepared_cache(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    _patch_data_dirs(monkeypatch, tmp_path)
+    raw_asset_id = _create_data_asset(client, project_id)
+    prepared_asset_id = _upload_prepared_data_asset_with_parent(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        raw_asset_id,
+    )
+    materialize_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "chunking": {"params": {"chunk_overlap": 0, "chunk_size": 20}, "strategy": "recursive"},
+            "data_asset_id": prepared_asset_id,
+        },
+    )
+    assert materialize_response.status_code == 201
+    cache = materialize_response.json()
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/data-assets/{raw_asset_id}",
+        params={"cascade_derived_cache": True},
+    )
+
+    assert delete_response.status_code == 200
+    body = delete_response.json()
+    assert body["deleted_data_asset_ids"] == [prepared_asset_id, raw_asset_id]
+    assert body["deleted_derived_cache_ids"] == [cache["id"]]
+
+
 def test_delete_experiment_data_asset_is_blocked(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
@@ -1190,6 +1226,7 @@ def test_delete_data_asset_with_derived_cache_is_blocked(
     tmp_path,
 ) -> None:
     project_id = _create_project(client)
+    _patch_data_dirs(monkeypatch, tmp_path)
     data_asset_id = _upload_prepared_data_asset_with_content(
         client,
         monkeypatch,
@@ -1210,6 +1247,48 @@ def test_delete_data_asset_with_derived_cache_is_blocked(
 
     assert delete_response.status_code == 409
     assert "derived cache" in delete_response.json()["detail"]
+
+
+def test_delete_data_asset_with_cascade_removes_derived_cache(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    _patch_data_dirs(monkeypatch, tmp_path)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.\n",
+    )
+    materialize_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "chunking": {"params": {"chunk_overlap": 0, "chunk_size": 20}, "strategy": "recursive"},
+            "data_asset_id": data_asset_id,
+        },
+    )
+    assert materialize_response.status_code == 201
+    cache = materialize_response.json()
+    chunks_dir = Path(cache["metadata_json"]["chunks_path"]).parent
+    assert chunks_dir.exists()
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/data-assets/{data_asset_id}",
+        params={"cascade_derived_cache": True},
+    )
+
+    assert delete_response.status_code == 200
+    body = delete_response.json()
+    assert body["deleted_data_asset_ids"] == [data_asset_id]
+    assert body["deleted_derived_cache_ids"] == [cache["id"]]
+    assert not chunks_dir.exists()
+
+    cache_response = client.get(f"/v1/projects/{project_id}/derived-cache")
+    assert cache_response.status_code == 200
+    assert cache_response.json()["derived_caches"] == []
 
 
 def test_delete_experiment_parameter_set_is_blocked(

@@ -121,6 +121,7 @@ export type DataAssetFileDeleteResponse = {
 
 export type DataAssetDeleteResponse = {
   deleted_data_asset_ids: string[];
+  deleted_derived_cache_ids: string[];
 };
 
 export type DataAssetPrepareRequest = {
@@ -531,8 +532,12 @@ export async function deleteDataAssetFile(
 export async function deleteDataAsset(
   projectId: string,
   dataAssetId: string,
+  options: { cascadeDerivedCache?: boolean } = {},
 ): Promise<DataAssetDeleteResponse> {
-  return request(`/projects/${projectId}/data-assets/${dataAssetId}`, {
+  const params = options.cascadeDerivedCache
+    ? `?${new URLSearchParams({ cascade_derived_cache: "true" }).toString()}`
+    : "";
+  return request(`/projects/${projectId}/data-assets/${dataAssetId}${params}`, {
     method: "DELETE",
   });
 }

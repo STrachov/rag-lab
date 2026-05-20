@@ -64,6 +64,7 @@ class DataAssetFileDeleteResponse(BaseModel):
 
 class DataAssetDeleteResponse(BaseModel):
     deleted_data_asset_ids: list[str]
+    deleted_derived_cache_ids: list[str] = Field(default_factory=list)
 
 
 class PreparationMethodField(BaseModel):

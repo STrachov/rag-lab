@@ -214,11 +214,18 @@ export function PreparationPage({ currentProject }: PreparationPageProps) {
   }
 
   async function handleDeletePreparedAsset(asset: DataAsset) {
-    if (!currentProject || !window.confirm(`Delete prepared asset "${asset.name}"?`)) {
+    const message = [
+      `Delete prepared asset "${asset.name}"?`,
+      "This will also remove derived runtime caches for this prepared data, including chunks, indexes, and retrieval previews.",
+      "Saved experiments will still block deletion.",
+    ].join("\n\n");
+    if (!currentProject || !window.confirm(message)) {
       return;
     }
     try {
-      const result = await deleteDataAsset(currentProject.id, asset.id);
+      const result = await deleteDataAsset(currentProject.id, asset.id, {
+        cascadeDerivedCache: true,
+      });
       setDataAssets((current) =>
         current.filter((item) => !result.deleted_data_asset_ids.includes(item.id)),
       );
