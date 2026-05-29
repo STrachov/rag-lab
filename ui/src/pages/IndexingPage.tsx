@@ -2,9 +2,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import {
-  ChunkingParams,
+  createParameterSet,
   createQdrantIndex,
   DataAsset,
+  deleteDerivedCache,
+  deleteParameterSet,
   DerivedCache,
   EmbeddingModel,
   EmbeddingParamValue,
@@ -19,7 +21,6 @@ import {
   listParameterSets,
   listRerankerModels,
   listSparseModels,
-  materializeChunks,
   ParameterSet,
   previewRerank,
   previewRetrieval,
@@ -34,18 +35,6 @@ type IndexingPageProps = {
   currentProject: Project | null;
 };
 
-const DEFAULT_CHUNKING: ChunkingParams = {
-  params: {
-    chunk_overlap: 120,
-    chunk_size: 900,
-    page_boundary_mode: "soft",
-    preserve_headings: true,
-    preserve_tables: true,
-    tokenizer: "cl100k_base",
-  },
-  strategy: "heading_recursive",
-};
-
 export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [dataAssets, setDataAssets] = useState<DataAsset[]>([]);
@@ -55,11 +44,13 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [rerankerModels, setRerankerModels] = useState<RerankerModel[]>([]);
   const [groundTruthSets, setGroundTruthSets] = useState<GroundTruthSet[]>([]);
   const [groundTruthQuestions, setGroundTruthQuestions] = useState<GroundTruthQuestion[]>([]);
-  const [selectedAssetId, setSelectedAssetId] = useState("");
-  const [selectedParameterSetId, setSelectedParameterSetId] = useState("");
   const [chunksCacheId, setChunksCacheId] = useState(searchParams.get("chunks_cache_id") ?? "");
+  const [chunkCaches, setChunkCaches] = useState<DerivedCache[]>([]);
   const [indexCaches, setIndexCaches] = useState<DerivedCache[]>([]);
   const [selectedIndexCacheId, setSelectedIndexCacheId] = useState("");
+  const [selectedRetrievalParameterSetId, setSelectedRetrievalParameterSetId] = useState("");
+  const [retrievalPresetName, setRetrievalPresetName] = useState("Retrieval baseline");
+  const [retrievalPresetDescription, setRetrievalPresetDescription] = useState("");
   const [embeddingModelId, setEmbeddingModelId] = useState("intfloat_multilingual_e5_small");
   const [embeddingParams, setEmbeddingParams] = useState<Record<string, EmbeddingParamValue>>({});
   const [sparseModelId, setSparseModelId] = useState("bm25_local");
@@ -81,7 +72,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [rerankResult, setRerankResult] = useState<RetrievalPreviewResponse | null>(null);
   const [retrievalMetrics, setRetrievalMetrics] = useState<GroundTruthRankingScore | null>(null);
   const [rerankMetrics, setRerankMetrics] = useState<GroundTruthRankingScore | null>(null);
-  const [isMaterializing, setIsMaterializing] = useState(false);
+  const [isSavingRetrievalPreset, setIsSavingRetrievalPreset] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isRetrieving, setIsRetrieving] = useState(false);
   const [isReranking, setIsReranking] = useState(false);
@@ -91,15 +82,33 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     () => dataAssets.filter((asset) => asset.asset_type === "prepared"),
     [dataAssets],
   );
-  const chunkingParameterSets = useMemo(
-    () => parameterSets.filter((set) => set.category === "chunking"),
+  const retrievalParameterSets = useMemo(
+    () => parameterSets.filter((set) => set.category === "retrieval"),
     [parameterSets],
   );
   const selectedModel = embeddingModels.find((model) => model.id === embeddingModelId);
   const selectedSparseModel = sparseModels.find((model) => model.id === sparseModelId);
   const selectedRerankerModel = rerankerModels.find((model) => model.id === rerankerModelId);
-  const selectedParameterSet = chunkingParameterSets.find((set) => set.id === selectedParameterSetId);
-  const selectedIndexCache = indexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? null;
+  const selectedChunksCache = chunkCaches.find((cache) => cache.id === chunksCacheId) ?? null;
+  const linkedIndexCaches = selectedChunksCache
+    ? indexCaches.filter((cache) => cacheBelongsToChunks(cache, selectedChunksCache))
+    : indexCaches;
+  const selectedIndexCache = linkedIndexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? linkedIndexCaches[0] ?? null;
+  const retrievalSnapshot = {
+    retrieval: {
+      candidate_k: candidateK,
+      mode: retrievalMode,
+      parent_score: parentScore,
+      strategy: retrievalStrategy,
+      top_k: topK,
+    },
+    reranking: selectedRerankerModel
+      ? {
+          model_id: rerankerModelId,
+          params: rerankerParams,
+        }
+      : null,
+  };
 
   useEffect(() => {
     if (!currentProject) {
@@ -110,11 +119,14 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       setRerankerModels([]);
       setGroundTruthSets([]);
       setGroundTruthQuestions([]);
+      setChunkCaches([]);
+      setIndexCaches([]);
       return;
     }
 
     Promise.all([
       listDataAssets(currentProject.id),
+      listDerivedCaches(currentProject.id, "chunks"),
       listDerivedCaches(currentProject.id, "qdrant_index"),
       listParameterSets(currentProject.id),
       listEmbeddingModels(currentProject.id),
@@ -122,18 +134,21 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       listRerankerModels(currentProject.id),
       listGroundTruthSets(currentProject.id),
     ])
-      .then(([assetResult, cacheResult, parameterResult, modelResult, sparseResult, rerankerResult, groundTruthResult]) => {
+      .then(([assetResult, chunksResult, indexResult, parameterResult, modelResult, sparseResult, rerankerResult, groundTruthResult]) => {
         setDataAssets(assetResult.data_assets);
-        setIndexCaches(cacheResult.derived_caches);
+        setChunkCaches(chunksResult.derived_caches);
+        setIndexCaches(indexResult.derived_caches);
         setParameterSets(parameterResult.parameter_sets);
         setEmbeddingModels(modelResult.models);
         setSparseModels(sparseResult.models);
         setRerankerModels(rerankerResult.models);
         setGroundTruthSets(groundTruthResult.ground_truth_sets);
         setSelectedGroundTruthSetId((current) => current || groundTruthResult.ground_truth_sets[0]?.id || "");
-        setSelectedAssetId((current) => current || firstPreparedId(assetResult.data_assets));
-        const firstChunkingSet = parameterResult.parameter_sets.find((set) => set.category === "chunking");
-        setSelectedParameterSetId((current) => current || firstChunkingSet?.id || "");
+        const urlChunksCacheId = searchParams.get("chunks_cache_id") ?? "";
+        const firstChunksCache = chunksResult.derived_caches[0]?.id ?? "";
+        setChunksCacheId((current) => current || urlChunksCacheId || firstChunksCache);
+        const firstRetrievalSet = parameterResult.parameter_sets.find((set) => set.category === "retrieval");
+        setSelectedRetrievalParameterSetId((current) => current || firstRetrievalSet?.id || "");
         const firstModel = modelResult.models[0];
         if (firstModel) {
           setEmbeddingModelId((current) => current || firstModel.id);
@@ -155,12 +170,12 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
             Object.keys(current).length > 0 ? current : firstRerankerModel.default_params,
           );
         }
-        const firstReadyIndex = cacheResult.derived_caches.find((cache) => cache.status === "ready");
-        setSelectedIndexCacheId((current) => current || firstReadyIndex?.id || cacheResult.derived_caches[0]?.id || "");
+        const firstReadyIndex = indexResult.derived_caches.find((cache) => cache.status === "ready");
+        setSelectedIndexCacheId((current) => current || firstReadyIndex?.id || indexResult.derived_caches[0]?.id || "");
         setError(null);
       })
       .catch((err: Error) => setError(err.message));
-  }, [currentProject]);
+  }, [currentProject, searchParams]);
 
   useEffect(() => {
     if (!currentProject || !selectedGroundTruthSetId) {
@@ -175,6 +190,12 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       })
       .catch((err: Error) => setError(err.message));
   }, [currentProject, selectedGroundTruthSetId]);
+
+  useEffect(() => {
+    if (!linkedIndexCaches.some((cache) => cache.id === selectedIndexCacheId)) {
+      setSelectedIndexCacheId(linkedIndexCaches[0]?.id ?? "");
+    }
+  }, [linkedIndexCaches, selectedIndexCacheId]);
 
   useEffect(() => {
     if (questionSource !== "ground_truth") {
@@ -211,25 +232,15 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     }
   }, [rerankerModelId, rerankerModels]);
 
-  async function handleMaterialize() {
-    if (!currentProject || !selectedAssetId) {
-      return;
-    }
-    const chunking = chunkingFromParameterSet(selectedParameterSet);
-    setIsMaterializing(true);
-    try {
-      const cache = await materializeChunks(currentProject.id, {
-        chunking,
-        data_asset_id: selectedAssetId,
-      });
-      setChunksCacheId(cache.id);
-      setSearchParams({ chunks_cache_id: cache.id });
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to materialize chunks");
-    } finally {
-      setIsMaterializing(false);
-    }
+  function handleChunksCacheChange(cacheId: string) {
+    setChunksCacheId(cacheId);
+    setSearchParams(cacheId ? { chunks_cache_id: cacheId } : {});
+    setSelectedIndexCacheId("");
+    setRetrievalResult(null);
+    setRerankResult(null);
+    setRetrievalMetrics(null);
+    setRerankMetrics(null);
+    setRetrievalCacheId("");
   }
 
   async function handleIndex(event: FormEvent<HTMLFormElement>) {
@@ -268,6 +279,107 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       refreshIndexCaches(currentProject.id);
     } finally {
       setIsIndexing(false);
+    }
+  }
+
+  async function handleSaveRetrievalPreset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentProject || !retrievalPresetName.trim()) {
+      return;
+    }
+    setIsSavingRetrievalPreset(true);
+    try {
+      const paramsHash = `sha256:${await sha256Hex(stableStringify(retrievalSnapshot))}`;
+      const parameterSet = await createParameterSet(currentProject.id, {
+        category: "retrieval",
+        description: retrievalPresetDescription.trim() || undefined,
+        name: retrievalPresetName.trim(),
+        params_hash: paramsHash,
+        params_json: retrievalSnapshot,
+      });
+      setParameterSets((current) => [...current, parameterSet]);
+      setSelectedRetrievalParameterSetId(parameterSet.id);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save retrieval ParameterSet");
+    } finally {
+      setIsSavingRetrievalPreset(false);
+    }
+  }
+
+  function handleApplyRetrievalPreset(parameterSet: ParameterSet) {
+    const retrieval = parameterSet.params_json.retrieval;
+    if (!isRetrievalParams(retrieval)) {
+      setError("Selected ParameterSet does not contain a valid retrieval snapshot");
+      return;
+    }
+    setRetrievalMode(retrieval.mode);
+    setRetrievalStrategy(retrieval.strategy);
+    setParentScore(retrieval.parent_score);
+    setTopK(retrieval.top_k);
+    setCandidateK(retrieval.candidate_k);
+    const reranking = parameterSet.params_json.reranking;
+    if (isRerankingParams(reranking)) {
+      setRerankerModelId(reranking.model_id);
+      setRerankerParams(reranking.params);
+    }
+    setRetrievalPresetName(parameterSet.name);
+    setRetrievalPresetDescription(parameterSet.description ?? "");
+    setSelectedRetrievalParameterSetId(parameterSet.id);
+    setRetrievalResult(null);
+    setRerankResult(null);
+    setRetrievalMetrics(null);
+    setRerankMetrics(null);
+    setError(null);
+  }
+
+  async function handleDeleteSelectedRetrievalPreset() {
+    const selected = retrievalParameterSets.find((item) => item.id === selectedRetrievalParameterSetId);
+    if (!currentProject || !selected) {
+      return;
+    }
+    if (!window.confirm(`Delete retrieval ParameterSet "${selected.name}"?`)) {
+      return;
+    }
+    try {
+      await deleteParameterSet(currentProject.id, selected.id);
+      setParameterSets((current) => current.filter((item) => item.id !== selected.id));
+      setSelectedRetrievalParameterSetId("");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete retrieval ParameterSet");
+    }
+  }
+
+  async function handleDeleteSelectedIndexCache() {
+    if (!currentProject || !selectedIndexCache) {
+      return;
+    }
+    const label = String(selectedIndexCache.metadata_json.collection_name ?? selectedIndexCache.cache_key);
+    const message = [
+      `Delete selected index "${label}"?`,
+      "This will also remove dependent retrieval preview caches created from this index.",
+      "Chunks and prepared data will stay unchanged.",
+    ].join("\n\n");
+    if (!window.confirm(message)) {
+      return;
+    }
+    try {
+      const result = await deleteDerivedCache(currentProject.id, selectedIndexCache.id, {
+        cascadeDependents: true,
+      });
+      setIndexCaches((current) =>
+        current.filter((item) => !result.deleted_derived_cache_ids.includes(item.id)),
+      );
+      setSelectedIndexCacheId("");
+      setRetrievalResult(null);
+      setRerankResult(null);
+      setRetrievalMetrics(null);
+      setRerankMetrics(null);
+      setRetrievalCacheId("");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete selected index");
     }
   }
 
@@ -378,45 +490,25 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
 
       {error ? <div className="notice">Retrieval unavailable: {error}</div> : null}
 
-      <div className="parameter-workbench">
-        <div className="chunking-form">
+      <div className="stage-workbench">
+        <div className="stage-left">
           <div className="parameter-section">
-            <h2>Chunks</h2>
-            <div className="parameter-grid">
+            <h2>Chunks Source</h2>
+            {chunkCaches.length === 0 ? (
+              <div className="nested-empty">Materialize chunks on the Chunking page first.</div>
+            ) : (
               <label>
-                Prepared data asset
-                <select value={selectedAssetId} onChange={(event) => setSelectedAssetId(event.target.value)}>
-                  {preparedAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.name}
+                Materialized chunks
+                <select value={chunksCacheId} onChange={(event) => handleChunksCacheChange(event.target.value)}>
+                  {chunkCaches.map((cache) => (
+                    <option key={cache.id} value={cache.id}>
+                      {cacheLabel(cache, preparedAssets)}
                     </option>
                   ))}
                 </select>
               </label>
-              <label>
-                Chunking ParameterSet
-                <select
-                  value={selectedParameterSetId}
-                  onChange={(event) => setSelectedParameterSetId(event.target.value)}
-                >
-                  <option value="">Default heading recursive</option>
-                  {chunkingParameterSets.map((set) => (
-                    <option key={set.id} value={set.id}>
-                      {set.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <button
-              className="secondary-action"
-              disabled={isMaterializing || !selectedAssetId}
-              onClick={handleMaterialize}
-              type="button"
-            >
-              {isMaterializing ? "Materializing..." : "Materialize chunks"}
-            </button>
-            {chunksCacheId ? <div className="nested-empty">Chunks cache: {chunksCacheId}</div> : null}
+            )}
+            {selectedChunksCache ? <ChunksCacheSummary cache={selectedChunksCache} assets={preparedAssets} /> : null}
           </div>
 
           <form className="parameter-section" onSubmit={handleIndex}>
@@ -495,11 +587,11 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
 
           <div className="parameter-section">
             <h2>Existing Indexes</h2>
-            {indexCaches.length === 0 ? (
-              <div className="nested-empty">No Qdrant index caches for this project yet.</div>
+            {linkedIndexCaches.length === 0 ? (
+              <div className="nested-empty">No Qdrant index caches for the selected chunks yet.</div>
             ) : (
               <div className="index-cache-list">
-                {indexCaches.map((cache) => (
+                {linkedIndexCaches.map((cache) => (
                   <button
                     className={cache.id === selectedIndexCacheId ? "cache-item selected" : "cache-item"}
                     key={cache.id}
@@ -524,10 +616,57 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 ))}
               </div>
             )}
+            {selectedIndexCache ? (
+              <button className="text-action danger" onClick={handleDeleteSelectedIndexCache} type="button">
+                Delete selected index
+              </button>
+            ) : null}
+          </div>
+
+          <form className="parameter-section" onSubmit={handleSaveRetrievalPreset}>
+            <h2>Save Retrieval ParameterSet</h2>
+            <label>
+              Name
+              <input value={retrievalPresetName} onChange={(event) => setRetrievalPresetName(event.target.value)} required />
+            </label>
+            <label>
+              Description
+              <input value={retrievalPresetDescription} onChange={(event) => setRetrievalPresetDescription(event.target.value)} />
+            </label>
+            <button className="secondary-action" disabled={isSavingRetrievalPreset} type="submit">
+              {isSavingRetrievalPreset ? "Saving..." : "Save Retrieval ParameterSet"}
+            </button>
+          </form>
+
+          <div className="parameter-section">
+            <h2>Saved Retrieval ParameterSets</h2>
+            {retrievalParameterSets.length === 0 ? (
+              <div className="nested-empty">No retrieval ParameterSets saved yet.</div>
+            ) : (
+              <div className="index-cache-list">
+                {retrievalParameterSets.map((parameterSet) => (
+                  <button
+                    className={parameterSet.id === selectedRetrievalParameterSetId ? "cache-item selected" : "cache-item"}
+                    key={parameterSet.id}
+                    onClick={() => handleApplyRetrievalPreset(parameterSet)}
+                    type="button"
+                  >
+                    <strong>{parameterSet.name}</strong>
+                    <span>{retrievalParameterSetLabel(parameterSet)}</span>
+                    <small>{parameterSet.params_hash.slice(0, 18)}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+            {selectedRetrievalParameterSetId ? (
+              <button className="text-action danger" onClick={handleDeleteSelectedRetrievalPreset} type="button">
+                Delete selected ParameterSet
+              </button>
+            ) : null}
           </div>
         </div>
 
-        <div className="chunk-preview-panel">
+        <div className="stage-right">
           <div className="parameter-section">
             <h2>Retrieval Preview</h2>
             {selectedIndexCache ? (
@@ -614,6 +753,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       value={retrievalStrategy}
                       onChange={(event) => {
                         setRetrievalStrategy(event.target.value as typeof retrievalStrategy);
+                        setSelectedRetrievalParameterSetId("");
                         setRetrievalMetrics(null);
                         setRerankMetrics(null);
                       }}
@@ -629,6 +769,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       value={retrievalMode}
                       onChange={(event) => {
                         setRetrievalMode(event.target.value as typeof retrievalMode);
+                        setSelectedRetrievalParameterSetId("");
                         setRetrievalMetrics(null);
                         setRerankMetrics(null);
                       }}
@@ -645,6 +786,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       value={parentScore}
                       onChange={(event) => {
                         setParentScore(event.target.value as typeof parentScore);
+                        setSelectedRetrievalParameterSetId("");
                         setRetrievalMetrics(null);
                         setRerankMetrics(null);
                       }}
@@ -675,6 +817,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       value={topK}
                       onChange={(event) => {
                         setTopK(Number(event.target.value));
+                        setSelectedRetrievalParameterSetId("");
                         setRetrievalMetrics(null);
                         setRerankMetrics(null);
                       }}
@@ -689,6 +832,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       value={candidateK}
                       onChange={(event) => {
                         setCandidateK(Number(event.target.value));
+                        setSelectedRetrievalParameterSetId("");
                         setRetrievalMetrics(null);
                         setRerankMetrics(null);
                       }}
@@ -721,7 +865,10 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                     Reranker
                     <select
                       value={rerankerModelId}
-                      onChange={(event) => setRerankerModelId(event.target.value)}
+                      onChange={(event) => {
+                        setRerankerModelId(event.target.value);
+                        setSelectedRetrievalParameterSetId("");
+                      }}
                     >
                       {rerankerModels.map((model) => (
                         <option key={model.id} value={model.id}>
@@ -743,7 +890,10 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       key={field.name}
                       value={rerankerParams[field.name] ?? field.default}
                       onChange={(value) =>
-                        setRerankerParams((current) => ({ ...current, [field.name]: value }))
+                        setRerankerParams((current) => {
+                          setSelectedRetrievalParameterSetId("");
+                          return { ...current, [field.name]: value };
+                        })
                       }
                     />
                   ))}
@@ -773,6 +923,20 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
             <pre className="json-preview">
               {JSON.stringify(selectedIndexCache?.metadata_json ?? { chunks_cache_id: chunksCacheId || null }, null, 2)}
             </pre>
+          </div>
+
+          <div className="parameter-section">
+            <h2>Retrieval Snapshot</h2>
+            <pre className="json-preview">{JSON.stringify(retrievalSnapshot, null, 2)}</pre>
+          </div>
+
+          <div className="parameter-section">
+            <h2>Selected Chunks Cache</h2>
+            {selectedChunksCache ? (
+              <pre className="json-preview">{JSON.stringify(selectedChunksCache.metadata_json, null, 2)}</pre>
+            ) : (
+              <div className="nested-empty">Select materialized chunks first.</div>
+            )}
           </div>
         </div>
       </div>
@@ -905,30 +1069,115 @@ function RankingMetrics({ score, title }: { score: GroundTruthRankingScore; titl
   );
 }
 
-function firstPreparedId(dataAssets: DataAsset[]): string {
-  return dataAssets.find((asset) => asset.asset_type === "prepared")?.id ?? "";
-}
-
-function chunkingFromParameterSet(parameterSet?: ParameterSet): ChunkingParams {
-  const maybeChunking = parameterSet?.params_json?.chunking;
-  if (isChunkingParams(maybeChunking)) {
-    return maybeChunking;
-  }
-  return DEFAULT_CHUNKING;
-}
-
-function isChunkingParams(value: unknown): value is ChunkingParams {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      typeof (value as ChunkingParams).strategy === "string" &&
-      typeof (value as ChunkingParams).params === "object",
-  );
-}
-
 function upsertCache(caches: DerivedCache[], cache: DerivedCache): DerivedCache[] {
   const next = caches.filter((item) => item.id !== cache.id);
   return [cache, ...next];
+}
+
+function ChunksCacheSummary({ assets, cache }: { assets: DataAsset[]; cache: DerivedCache }) {
+  return (
+    <div className="asset-mini-summary">
+      <span>{cacheLabel(cache, assets)}</span>
+      <span>{cache.status}</span>
+      <span>{cacheChunkCount(cache)} chunks</span>
+      <span>{cacheChunkingStrategy(cache)}</span>
+      <span>{cache.params_hash.slice(0, 18)}</span>
+    </div>
+  );
+}
+
+function cacheLabel(cache: DerivedCache, assets: DataAsset[]): string {
+  const asset = assets.find((item) => item.id === cache.data_asset_id);
+  const strategy = cacheChunkingStrategy(cache);
+  return asset ? `${asset.name} / ${strategy}` : `${cache.cache_key} / ${strategy}`;
+}
+
+function cacheChunkingStrategy(cache: DerivedCache): string {
+  const chunking = cache.metadata_json.chunking;
+  if (chunking && typeof chunking === "object" && typeof (chunking as { strategy?: unknown }).strategy === "string") {
+    return (chunking as { strategy: string }).strategy;
+  }
+  return "chunks";
+}
+
+function cacheChunkCount(cache: DerivedCache): number {
+  const summary = cache.metadata_json.summary;
+  if (summary && typeof summary === "object" && typeof (summary as { chunk_count?: unknown }).chunk_count === "number") {
+    return (summary as { chunk_count: number }).chunk_count;
+  }
+  return typeof cache.metadata_json.chunk_count === "number" ? cache.metadata_json.chunk_count : 0;
+}
+
+function cacheBelongsToChunks(indexCache: DerivedCache, chunksCache: DerivedCache): boolean {
+  return (
+    String(indexCache.metadata_json.chunks_cache_id ?? "") === chunksCache.id ||
+    String(indexCache.metadata_json.chunks_cache_key ?? "") === chunksCache.cache_key
+  );
+}
+
+function retrievalParameterSetLabel(parameterSet: ParameterSet): string {
+  const retrieval = parameterSet.params_json.retrieval;
+  if (isRetrievalParams(retrieval)) {
+    return `${retrieval.strategy} / ${retrieval.mode}`;
+  }
+  return "retrieval";
+}
+
+function isRetrievalParams(value: unknown): value is {
+  candidate_k: number;
+  mode: "dense" | "sparse" | "hybrid";
+  parent_score: "max" | "mean" | "sum";
+  strategy: "chunk_retrieval" | "parent_page_retrieval" | "parent_chapter_retrieval";
+  top_k: number;
+} {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.candidate_k === "number" &&
+    typeof candidate.mode === "string" &&
+    typeof candidate.parent_score === "string" &&
+    typeof candidate.strategy === "string" &&
+    typeof candidate.top_k === "number"
+  );
+}
+
+function isRerankingParams(value: unknown): value is {
+  model_id: string;
+  params: Record<string, EmbeddingParamValue>;
+} {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as { model_id?: unknown; params?: unknown };
+  return typeof candidate.model_id === "string" && Boolean(candidate.params) && typeof candidate.params === "object";
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const encoded = new TextEncoder().encode(input);
+  const digest = await window.crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJson);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortJson(item)]),
+    );
+  }
+  return value;
 }
 
 function embeddingModelName(cache: DerivedCache): string {
