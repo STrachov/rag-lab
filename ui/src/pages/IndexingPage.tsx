@@ -683,66 +683,81 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                   </div>
                 ) : null}
                 <div className="gt-question-panel">
-                  <h3>Ground Truth Metrics</h3>
+                  <h3>Query Source</h3>
                   <div className="parameter-grid">
-                  <label>
-                    Question source
-                    <select
-                      value={questionSource}
-                      onChange={(event) => {
-                        setQuestionSource(event.target.value as typeof questionSource);
-                        setRetrievalMetrics(null);
-                        setRerankMetrics(null);
-                      }}
-                    >
-                      <option value="manual">Manual</option>
-                      <option value="ground_truth">Ground Truth</option>
-                    </select>
-                  </label>
+                    <label>
+                      Question source
+                      <select
+                        value={questionSource}
+                        onChange={(event) => {
+                          setQuestionSource(event.target.value as typeof questionSource);
+                          setRetrievalMetrics(null);
+                          setRerankMetrics(null);
+                        }}
+                      >
+                        <option value="manual">Manual</option>
+                        <option value="ground_truth">Ground Truth</option>
+                      </select>
+                    </label>
                     {questionSource === "ground_truth" ? (
                       <>
-                      <label>
-                        Ground truth set
-                        <select
-                          value={selectedGroundTruthSetId}
-                          onChange={(event) => {
-                            setSelectedGroundTruthSetId(event.target.value);
-                            setSelectedGroundTruthQuestionId("");
-                            setRetrievalMetrics(null);
-                            setRerankMetrics(null);
-                          }}
-                        >
-                          {groundTruthSets.length === 0 ? <option value="">No GT sets</option> : null}
-                          {groundTruthSets.map((groundTruthSet) => (
-                            <option key={groundTruthSet.id} value={groundTruthSet.id}>
-                              {groundTruthSet.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Question
-                        <select
-                          value={selectedGroundTruthQuestionId}
-                          onChange={(event) => {
-                            setSelectedGroundTruthQuestionId(event.target.value);
-                            setRetrievalResult(null);
-                            setRerankResult(null);
-                            setRetrievalMetrics(null);
-                            setRerankMetrics(null);
-                          }}
-                        >
-                          {groundTruthQuestions.length === 0 ? <option value="">No questions</option> : null}
-                          {groundTruthQuestions.map((question) => (
-                            <option key={question.question_id} value={question.question_id}>
-                              {question.question_id}: {question.question}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                        <label>
+                          Ground truth set
+                          <select
+                            value={selectedGroundTruthSetId}
+                            onChange={(event) => {
+                              setSelectedGroundTruthSetId(event.target.value);
+                              setSelectedGroundTruthQuestionId("");
+                              setRetrievalMetrics(null);
+                              setRerankMetrics(null);
+                            }}
+                          >
+                            {groundTruthSets.length === 0 ? <option value="">No GT sets</option> : null}
+                            {groundTruthSets.map((groundTruthSet) => (
+                              <option key={groundTruthSet.id} value={groundTruthSet.id}>
+                                {groundTruthSet.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Question
+                          <select
+                            value={selectedGroundTruthQuestionId}
+                            onChange={(event) => {
+                              setSelectedGroundTruthQuestionId(event.target.value);
+                              setRetrievalResult(null);
+                              setRerankResult(null);
+                              setRetrievalMetrics(null);
+                              setRerankMetrics(null);
+                            }}
+                          >
+                            {groundTruthQuestions.length === 0 ? <option value="">No questions</option> : null}
+                            {groundTruthQuestions.map((question) => (
+                              <option key={question.question_id} value={question.question_id}>
+                                {question.question_id}: {question.question}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="wide-field">
+                          Selected question text
+                          <textarea readOnly rows={3} value={query} />
+                        </label>
                       </>
                     ) : (
-                      <div className="form-note">Manual queries run without GT metrics.</div>
+                      <label className="wide-field">
+                        Manual question
+                        <textarea
+                          rows={3}
+                          value={query}
+                          onChange={(event) => {
+                            setQuery(event.target.value);
+                            setRetrievalMetrics(null);
+                            setRerankMetrics(null);
+                          }}
+                        />
+                      </label>
                     )}
                   </div>
                 </div>
@@ -795,18 +810,6 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                       <option value="mean">mean</option>
                       <option value="sum">sum</option>
                     </select>
-                  </label>
-                  <label>
-                    Query
-                    <input
-                      readOnly={questionSource === "ground_truth"}
-                      value={query}
-                      onChange={(event) => {
-                        setQuery(event.target.value);
-                        setRetrievalMetrics(null);
-                        setRerankMetrics(null);
-                      }}
-                    />
                   </label>
                   <label>
                     Top K
