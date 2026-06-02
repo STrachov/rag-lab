@@ -1246,8 +1246,7 @@ function formatRelevantPages(question: GroundTruthQuestion): string[] {
       if (typeof pageIndex !== "number") {
         return "";
       }
-      const pdfSha1 = typeof reference.pdf_sha1 === "string" ? reference.pdf_sha1 : "";
-      return pdfSha1 ? `${pdfSha1.slice(0, 8)} / page_index ${pageIndex}` : `page_index ${pageIndex}`;
+      return `page_index ${pageIndex}`;
     })
     .filter(Boolean);
 }
