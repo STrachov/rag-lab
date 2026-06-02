@@ -1729,6 +1729,16 @@ def test_page_level_ground_truth_questions_and_ranking_metrics(
             "question_type": "number",
             "relevant_chunk_count": 0,
             "relevant_page_count": 2,
+            "relevant_pages": [
+                {
+                    "page_index": 20,
+                    "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+                },
+                {
+                    "page_index": 39,
+                    "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+                },
+            ],
         }
     ]
     assert score_response.status_code == 200
@@ -1810,6 +1820,7 @@ def test_ground_truth_questions_and_ranking_metrics(
             "question_type": "factual",
             "relevant_chunk_count": 1,
             "relevant_page_count": 0,
+            "relevant_pages": [],
         }
     ]
     assert score_response.status_code == 200

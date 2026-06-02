@@ -39,6 +39,7 @@ def list_ground_truth_questions(ground_truth_set: models.GroundTruthSet) -> list
                 "question_type": question["question_type"],
                 "relevant_chunk_count": len(question["relevant_chunks"]),
                 "relevant_page_count": len(question.get("relevant_pages") or []),
+                "relevant_pages": question.get("relevant_pages") or [],
             }
         )
     return questions

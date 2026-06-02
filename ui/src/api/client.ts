@@ -405,6 +405,7 @@ export type GroundTruthQuestion = {
   question_type: string;
   relevant_chunk_count: number;
   relevant_page_count: number;
+  relevant_pages: Array<Record<string, unknown>>;
 };
 
 export type GroundTruthRankingScore = {

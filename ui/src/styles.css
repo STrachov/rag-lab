@@ -712,6 +712,13 @@ h1 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.parameter-grid label,
+.parameter-grid input,
+.parameter-grid select,
+.parameter-grid textarea {
+  min-width: 0;
+}
+
 .asset-mini-summary,
 .file-chunk-list,
 .warning-list {

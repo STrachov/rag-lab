@@ -94,6 +94,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     ? indexCaches.filter((cache) => cacheBelongsToChunks(cache, selectedChunksCache))
     : indexCaches;
   const selectedIndexCache = linkedIndexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? linkedIndexCaches[0] ?? null;
+  const selectedGroundTruthQuestion =
+    groundTruthQuestions.find((question) => question.question_id === selectedGroundTruthQuestionId) ?? null;
   const retrievalSnapshot = {
     retrieval: {
       candidate_k: candidateK,
@@ -735,7 +737,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                             {groundTruthQuestions.length === 0 ? <option value="">No questions</option> : null}
                             {groundTruthQuestions.map((question) => (
                               <option key={question.question_id} value={question.question_id}>
-                                {question.question_id}: {question.question}
+                                {formatQuestionOption(question.question)}
                               </option>
                             ))}
                           </select>
@@ -851,6 +853,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                   {isRetrieving ? "Retrieving..." : "Retrieve"}
                 </button>
                 {retrievalCacheId ? <div className="nested-empty">Retrieval cache: {retrievalCacheId}</div> : null}
+                {questionSource === "ground_truth" && selectedGroundTruthQuestion ? (
+                  <GroundTruthPagesSummary question={selectedGroundTruthQuestion} />
+                ) : null}
                 {retrievalMetrics ? <RankingMetrics score={retrievalMetrics} title="Retrieval Metrics" /> : null}
                 {retrievalResult ? <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" /> : null}
               </>
@@ -1049,6 +1054,23 @@ function RetrievalResult({ retrieval, title }: { retrieval: RetrievalPreviewResp
   );
 }
 
+function GroundTruthPagesSummary({ question }: { question: GroundTruthQuestion }) {
+  const pages = formatRelevantPages(question);
+  if (pages.length === 0) {
+    return null;
+  }
+  return (
+    <div className="chunk-preview">
+      <h3>Ground Truth Page Indexes</h3>
+      <div className="asset-mini-summary">
+        {pages.map((page, index) => (
+          <span key={`${page}-${index}`}>{page}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RankingMetrics({ score, title }: { score: GroundTruthRankingScore; title: string }) {
   return (
     <div className="chunk-preview">
@@ -1210,4 +1232,22 @@ function formatMetricValue(value: number): string {
     return String(value);
   }
   return value.toFixed(3);
+}
+
+function formatQuestionOption(question: string): string {
+  const normalized = question.replace(/\s+/g, " ").trim();
+  return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
+}
+
+function formatRelevantPages(question: GroundTruthQuestion): string[] {
+  return (question.relevant_pages ?? [])
+    .map((reference) => {
+      const pageIndex = reference.page_index;
+      if (typeof pageIndex !== "number") {
+        return "";
+      }
+      const pdfSha1 = typeof reference.pdf_sha1 === "string" ? reference.pdf_sha1 : "";
+      return pdfSha1 ? `${pdfSha1.slice(0, 8)} / page_index ${pageIndex}` : `page_index ${pageIndex}`;
+    })
+    .filter(Boolean);
 }
