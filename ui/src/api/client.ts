@@ -404,6 +404,7 @@ export type GroundTruthQuestion = {
   question_id: string;
   question_type: string;
   relevant_chunk_count: number;
+  relevant_page_count: number;
 };
 
 export type GroundTruthRankingScore = {

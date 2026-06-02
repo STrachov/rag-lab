@@ -419,6 +419,7 @@ class GroundTruthQuestionResponse(BaseModel):
     question_type: str
     expected_answer_type: str
     relevant_chunk_count: int
+    relevant_page_count: int = 0
 
 
 class GroundTruthQuestionListResponse(BaseModel):

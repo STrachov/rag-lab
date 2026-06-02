@@ -971,7 +971,7 @@ h1 {
 }
 
 .ground-truth-table {
-  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 0.6fr) minmax(240px, 1.4fr) minmax(160px, 0.8fr) minmax(80px, 0.4fr);
+  grid-template-columns: minmax(180px, 1.1fr) minmax(110px, 0.55fr) minmax(150px, 0.75fr) minmax(240px, 1.35fr) minmax(160px, 0.8fr) minmax(80px, 0.4fr);
 }
 
 .parameter-table {

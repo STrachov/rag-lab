@@ -1529,7 +1529,7 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     assert body["storage_path"].endswith("ground_truth.json")
     assert body["manifest_hash"].startswith("sha256:")
     metadata = body["metadata_json"]
-    assert metadata["canonical_format"] == "raglab.chunk_qrels.v1"
+    assert metadata["canonical_format"] == "raglab.ground_truth.v1"
     assert metadata["question_count"] == 2
     assert metadata["found_count"] == 1
     assert metadata["not_found_count"] == 1
@@ -1546,7 +1546,7 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     assert (storage_path.parent / "manifest.json").exists()
     assert (storage_path.parent / "validation.json").exists()
     canonical = json.loads(storage_path.read_text(encoding="utf-8"))
-    assert canonical["schema_version"] == "raglab.chunk_qrels.v1"
+    assert canonical["schema_version"] == "raglab.ground_truth.v1"
     assert canonical["questions"][0]["relevant_chunks"][0]["chunk_id"] == "chunk_000001"
 
 
@@ -1587,6 +1587,158 @@ def test_upload_ground_truth_set_accepts_chunk_ids_without_cache_binding(
     assert validation["referenced_chunk_count"] == 1
 
 
+def test_upload_page_level_ground_truth_from_rag_challenge_schema(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Annual report\n\nCash flow from operations was 30,758 thousand.",
+    )
+    gt_payload = {
+        "questions": [
+            {
+                "kind": "number",
+                "question_text": "What is cash flow from operations?",
+                "reasoning_process": "The answer appears on pages 21 and 40.",
+                "references": [
+                    {
+                        "page_index": 20,
+                        "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+                    },
+                    {
+                        "page_index": 39,
+                        "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+                    },
+                ],
+                "value": 30758000,
+            },
+            {
+                "kind": "number",
+                "question_text": "What is cloud storage capacity?",
+                "references": [],
+                "value": "N/A",
+            },
+        ],
+    }
+
+    response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={"data_asset_id": data_asset_id, "name": "Wheeler page qrels"},
+        files={"file": ("answers.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    metadata = body["metadata_json"]
+    assert metadata["ground_truth_type"] == "page_level_qrels"
+    assert metadata["canonical_format"] == "raglab.ground_truth.v1"
+    assert metadata["question_count"] == 2
+    assert metadata["found_count"] == 1
+    assert metadata["not_found_count"] == 1
+    assert metadata["page_judgment_count"] == 2
+    assert metadata["referenced_page_count"] == 2
+    assert metadata["referenced_pdf_count"] == 1
+
+    canonical = json.loads(Path(body["storage_path"]).read_text(encoding="utf-8"))
+    assert canonical["metadata"]["ground_truth_type"] == "page_level_qrels"
+    assert canonical["metadata"]["source_format"] == "rag_challenge_answers"
+    assert canonical["questions"][0]["question_id"] == "q000001"
+    assert canonical["questions"][0]["question"] == "What is cash flow from operations?"
+    assert canonical["questions"][0]["expected_answer"] == 30758000
+    assert canonical["questions"][0]["relevant_pages"] == [
+        {
+            "page_index": 20,
+            "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+        },
+        {
+            "page_index": 39,
+            "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+        },
+    ]
+    assert canonical["questions"][1]["expected_answer_type"] == "not_found"
+
+
+def test_page_level_ground_truth_questions_and_ranking_metrics(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Annual report\n\nCash flow from operations was 30,758 thousand.",
+    )
+    gt_payload = {
+        "questions": [
+            {
+                "kind": "number",
+                "question_text": "What is cash flow from operations?",
+                "references": [
+                    {
+                        "page_index": 20,
+                        "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+                    },
+                    {
+                        "page_index": 39,
+                        "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e",
+                    },
+                ],
+                "value": 30758000,
+            }
+        ],
+    }
+    upload_response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={"data_asset_id": data_asset_id, "name": "Wheeler page qrels"},
+        files={"file": ("answers.json", json.dumps(gt_payload).encode("utf-8"), "application/json")},
+    )
+    assert upload_response.status_code == 201
+    ground_truth_set = upload_response.json()
+
+    questions_response = client.get(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/questions",
+    )
+    score_response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}/score-ranking",
+        json={
+            "k": 3,
+            "question_id": "q000001",
+            "retrieved_chunks": [
+                {"chunk_id": "policy_page_0005", "page": 5, "score": 0.9},
+                {"chunk_id": "policy_page_0021", "page": 21, "score": 0.8},
+                {"chunk_id": "policy_page_0040", "page_start": 40, "page_end": 40, "score": 0.7},
+            ],
+        },
+    )
+
+    assert questions_response.status_code == 200
+    assert questions_response.json()["questions"] == [
+        {
+            "expected_answer_type": "found",
+            "question": "What is cash flow from operations?",
+            "question_id": "q000001",
+            "question_type": "number",
+            "relevant_chunk_count": 0,
+            "relevant_page_count": 2,
+        }
+    ]
+    assert score_response.status_code == 200
+    metrics = score_response.json()["metrics"]
+    assert metrics["page_hit_at_k"] == 1.0
+    assert metrics["page_mrr_at_k"] == 0.5
+    assert metrics["page_precision_at_k"] == 2 / 3
+    assert metrics["page_recall_at_k"] == 1.0
+
+
 def test_download_ground_truth_original_and_canonical_files(
     client: TestClient,
     monkeypatch,
@@ -1610,7 +1762,7 @@ def test_download_ground_truth_original_and_canonical_files(
     )
 
     assert canonical_response.status_code == 200
-    assert canonical_response.json()["schema_version"] == "raglab.chunk_qrels.v1"
+    assert canonical_response.json()["schema_version"] == "raglab.ground_truth.v1"
     assert "ground_truth.canonical.json" in canonical_response.headers["content-disposition"]
     assert original_response.status_code == 200
     assert original_response.json()["metadata"]["ground_truth_type"] == "chunk_level_qrels"
@@ -1657,6 +1809,7 @@ def test_ground_truth_questions_and_ranking_metrics(
             "question_id": "q001",
             "question_type": "factual",
             "relevant_chunk_count": 1,
+            "relevant_page_count": 0,
         }
     ]
     assert score_response.status_code == 200

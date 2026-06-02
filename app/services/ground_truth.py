@@ -16,8 +16,11 @@ from app.db import models
 from app.services.hashing import stable_json_dumps, stable_sha256
 
 
-GT_SCHEMA_VERSION = "raglab.chunk_qrels.v1"
+GT_SCHEMA_VERSION = "raglab.ground_truth.v1"
+LEGACY_GT_SCHEMA_VERSION = "raglab.chunk_qrels.v1"
 GT_SET_SCHEMA_VERSION = "raglab.ground_truth_set.v1"
+GT_TYPE_CHUNK_QRELS = "chunk_level_qrels"
+GT_TYPE_PAGE_QRELS = "page_level_qrels"
 
 
 def new_ground_truth_set_id() -> str:
@@ -35,6 +38,7 @@ def list_ground_truth_questions(ground_truth_set: models.GroundTruthSet) -> list
                 "question_id": question["question_id"],
                 "question_type": question["question_type"],
                 "relevant_chunk_count": len(question["relevant_chunks"]),
+                "relevant_page_count": len(question.get("relevant_pages") or []),
             }
         )
     return questions
@@ -56,6 +60,7 @@ def score_ground_truth_ranking(
     if question is None:
         raise ValueError("Ground truth question not found")
 
+    ground_truth_type = _ground_truth_type(canonical)
     warnings = _ranking_warnings(canonical, index_cache)
     top_chunks = retrieved_chunks[:k]
     if question["expected_answer_type"] == "not_found":
@@ -71,6 +76,14 @@ def score_ground_truth_ranking(
             "question_id": question_id,
             "warnings": warnings,
         }
+
+    if ground_truth_type == GT_TYPE_PAGE_QRELS:
+        return _score_page_ground_truth_question(
+            k=k,
+            question=question,
+            retrieved_chunks=top_chunks,
+            warnings=warnings,
+        )
 
     relevance_by_chunk_id = {
         str(chunk["chunk_id"]): int(chunk["relevance"])
@@ -114,7 +127,10 @@ def read_canonical_ground_truth(ground_truth_set: models.GroundTruthSet) -> dict
         canonical = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError("Ground truth canonical file is invalid") from exc
-    if canonical.get("schema_version") != GT_SCHEMA_VERSION or not isinstance(canonical.get("questions"), list):
+    if canonical.get("schema_version") not in {
+        GT_SCHEMA_VERSION,
+        LEGACY_GT_SCHEMA_VERSION,
+    } or not isinstance(canonical.get("questions"), list):
         raise ValueError("Ground truth canonical file has an unsupported format")
     return canonical
 
@@ -207,11 +223,32 @@ def _parse_json_or_jsonl(content: bytes) -> Any:
 
 
 def _canonicalize_ground_truth(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict) and isinstance(value.get("questions"), list):
+    if isinstance(value, dict) and _looks_like_page_ground_truth_records(value.get("questions")):
+        metadata = {
+            **dict(value.get("metadata") or {}),
+            "ground_truth_type": GT_TYPE_PAGE_QRELS,
+            "source_format": str(value.get("source_format") or "rag_challenge_answers"),
+        }
+        questions = [
+            _canonical_question_from_page_answer(item, fallback_index=index)
+            for index, item in enumerate(value["questions"], start=1)
+        ]
+    elif isinstance(value, dict) and _looks_like_page_ground_truth_records(value.get("answers")):
+        metadata = {
+            **dict(value.get("metadata") or {}),
+            "ground_truth_type": GT_TYPE_PAGE_QRELS,
+            "source_format": str(value.get("source_format") or "rag_challenge_answers"),
+        }
+        questions = [
+            _canonical_question_from_page_answer(item, fallback_index=index)
+            for index, item in enumerate(value["answers"], start=1)
+        ]
+    elif isinstance(value, dict) and isinstance(value.get("questions"), list):
         metadata = dict(value.get("metadata") or {})
+        metadata["ground_truth_type"] = str(metadata.get("ground_truth_type") or GT_TYPE_CHUNK_QRELS)
         questions = [_canonical_question_from_qrels(item) for item in value["questions"]]
     elif isinstance(value, list):
-        metadata = {"ground_truth_type": "chunk_level_qrels"}
+        metadata = {"ground_truth_type": GT_TYPE_CHUNK_QRELS}
         questions = [_canonical_question_from_authoring_record(item) for item in value]
     else:
         raise ValueError("Ground truth must be a JSON object with questions[] or JSONL records")
@@ -250,6 +287,7 @@ def _canonical_question_from_qrels(value: Any) -> dict[str, Any]:
         "question": question_text,
         "question_id": question_id,
         "question_type": str(value.get("question_type") or "factual"),
+        "relevant_pages": [],
         "relevant_chunks": relevant_chunks,
     }
 
@@ -278,8 +316,45 @@ def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str
         "question": _required_str(value, "question"),
         "question_id": question_id,
         "question_type": str(value.get("answer_type") or "factual"),
+        "relevant_pages": [],
         "relevant_chunks": relevant_chunks,
     }
+
+
+def _canonical_question_from_page_answer(value: Any, *, fallback_index: int) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("Each page-level ground truth question must be an object")
+    question_id = str(value.get("question_id") or f"q{fallback_index:06d}").strip()
+    if not question_id:
+        raise ValueError("Page-level ground truth question_id cannot be empty")
+    references = value.get("references") or []
+    if not isinstance(references, list):
+        raise ValueError(f"{question_id}: references must be a list")
+    relevant_pages = [
+        _canonical_relevant_page(item)
+        for item in references
+        if isinstance(item, dict)
+    ]
+    expected_answer_type = "found" if relevant_pages else "not_found"
+    return {
+        "expected_answer": value.get("value"),
+        "expected_answer_brief": None if value.get("value") is None else str(value.get("value")),
+        "expected_answer_type": expected_answer_type,
+        "question": _required_str(value, "question_text"),
+        "question_id": question_id,
+        "question_type": str(value.get("kind") or "factual"),
+        "reasoning_process": value.get("reasoning_process"),
+        "relevant_chunks": [],
+        "relevant_pages": relevant_pages,
+    }
+
+
+def _canonical_relevant_page(value: dict[str, Any]) -> dict[str, Any]:
+    pdf_sha1 = _required_str(value, "pdf_sha1")
+    page_index = value.get("page_index")
+    if not isinstance(page_index, int) or page_index < 0:
+        raise ValueError("Page-level ground truth references require non-negative integer page_index")
+    return {"page_index": page_index, "pdf_sha1": pdf_sha1}
 
 
 def _canonical_relevant_chunk(value: Any, *, fallback_rank: int) -> dict[str, Any]:
@@ -305,11 +380,18 @@ def _validate_ground_truth(
         for chunk in question["relevant_chunks"]
     }
     chunks_file_sha256 = canonical.get("metadata", {}).get("chunks_file_sha256")
+    relevant_page_keys = {
+        (str(page["pdf_sha1"]), int(page["page_index"]))
+        for question in canonical["questions"]
+        for page in question.get("relevant_pages", [])
+    }
 
     return {
         "declared_chunks_file_sha256": chunks_file_sha256,
         "compatibility_status": "not_checked",
         "referenced_chunk_count": len(relevant_chunk_ids),
+        "referenced_page_count": len(relevant_page_keys),
+        "referenced_pdf_count": len({pdf_sha1 for pdf_sha1, _ in relevant_page_keys}),
         "status": "format_valid",
         "warnings": [],
     }
@@ -349,6 +431,77 @@ def _top_score(chunks: list[dict[str, Any]]) -> float | None:
     return max(scores) if scores else None
 
 
+def _score_page_ground_truth_question(
+    *,
+    k: int,
+    question: dict[str, Any],
+    retrieved_chunks: list[dict[str, Any]],
+    warnings: list[str],
+) -> dict[str, Any]:
+    relevant_page_indexes = {
+        int(page["page_index"])
+        for page in question.get("relevant_pages", [])
+    }
+    retrieved_page_sets = [_retrieved_page_indexes(item) for item in retrieved_chunks]
+    if retrieved_chunks and not any(retrieved_page_sets):
+        warnings = [
+            *warnings,
+            "Retrieved items do not include page metadata; page-level GT scoring may be incomplete.",
+        ]
+    found_items = [
+        index
+        for index, page_indexes in enumerate(retrieved_page_sets, start=1)
+        if relevant_page_indexes.intersection(page_indexes)
+    ]
+    found_relevant_pages = set().union(
+        *[
+            relevant_page_indexes.intersection(page_indexes)
+            for page_indexes in retrieved_page_sets
+        ]
+    ) if retrieved_page_sets else set()
+    first_relevant_rank = found_items[0] if found_items else None
+    return {
+        "expected_answer_type": "found",
+        "k": k,
+        "metrics": {
+            "page_hit_at_k": 1.0 if found_items else 0.0,
+            "page_mrr_at_k": (1.0 / first_relevant_rank) if first_relevant_rank else 0.0,
+            "page_precision_at_k": len(found_items) / k if k else 0.0,
+            "page_recall_at_k": (
+                len(found_relevant_pages) / len(relevant_page_indexes)
+                if relevant_page_indexes
+                else 0.0
+            ),
+        },
+        "question_id": question["question_id"],
+        "warnings": warnings,
+    }
+
+
+def _retrieved_page_indexes(item: dict[str, Any]) -> set[int]:
+    start = _runtime_page_to_index(item.get("page_start") or item.get("page"))
+    end = _runtime_page_to_index(item.get("page_end") or item.get("page"))
+    if start is None and end is None:
+        return set()
+    if start is None:
+        start = end
+    if end is None:
+        end = start
+    if start is None or end is None:
+        return set()
+    low = min(start, end)
+    high = max(start, end)
+    return set(range(low, high + 1))
+
+
+def _runtime_page_to_index(value: Any) -> int | None:
+    if not isinstance(value, int):
+        return None
+    if value < 1:
+        return None
+    return value - 1
+
+
 def _build_manifest(
     *,
     canonical: dict[str, Any],
@@ -364,14 +517,15 @@ def _build_manifest(
     questions = canonical["questions"]
     found_questions = [item for item in questions if item["expected_answer_type"] != "not_found"]
     not_found_questions = [item for item in questions if item["expected_answer_type"] == "not_found"]
-    judgment_count = sum(len(question["relevant_chunks"]) for question in questions)
+    chunk_judgment_count = sum(len(question["relevant_chunks"]) for question in questions)
+    page_judgment_count = sum(len(question.get("relevant_pages") or []) for question in questions)
     return {
         "canonical_format": GT_SCHEMA_VERSION,
         "created_at": datetime.now(UTC).isoformat(),
         "data_asset_id": data_asset.id if data_asset else None,
         "found_count": len(found_questions),
         "ground_truth_set_id": ground_truth_set_id,
-        "ground_truth_type": str(canonical["metadata"].get("ground_truth_type") or "chunk_level_qrels"),
+        "ground_truth_type": _ground_truth_type(canonical),
         "not_found_count": len(not_found_questions),
         "original": {
             "content_type": content_type,
@@ -382,7 +536,8 @@ def _build_manifest(
         },
         "project_id": project_id,
         "question_count": len(questions),
-        "relevance_judgment_count": judgment_count,
+        "page_judgment_count": page_judgment_count,
+        "relevance_judgment_count": chunk_judgment_count,
         "schema_version": GT_SET_SCHEMA_VERSION,
         "source_metadata": canonical["metadata"],
         "storage": {
@@ -404,10 +559,29 @@ def _metadata_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "not_found_count": manifest["not_found_count"],
         "original_filename": manifest["original"]["original_name"],
         "question_count": manifest["question_count"],
+        "page_judgment_count": manifest["page_judgment_count"],
         "relevance_judgment_count": manifest["relevance_judgment_count"],
+        "referenced_page_count": manifest["validation"].get("referenced_page_count", 0),
+        "referenced_pdf_count": manifest["validation"].get("referenced_pdf_count", 0),
         "schema_version": manifest["schema_version"],
         "validation": manifest["validation"],
     }
+
+
+def _ground_truth_type(canonical: dict[str, Any]) -> str:
+    return str(canonical.get("metadata", {}).get("ground_truth_type") or GT_TYPE_CHUNK_QRELS)
+
+
+def _looks_like_page_ground_truth_records(value: Any) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    first = value[0]
+    return (
+        isinstance(first, dict)
+        and "question_text" in first
+        and "references" in first
+        and ("kind" in first or "value" in first)
+    )
 
 
 def _required_str(value: dict[str, Any], key: str) -> str:

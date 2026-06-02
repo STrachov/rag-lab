@@ -148,6 +148,7 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
           <div className="table-row ground-truth-table table-head">
             <span>Name</span>
             <span>Status</span>
+            <span>Type</span>
             <span>Questions</span>
             <span>Files</span>
             <span>Delete</span>
@@ -158,6 +159,7 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
               <span>
                 <ValidationBadge groundTruthSet={groundTruthSet} />
               </span>
+              <span>{formatMetadataValue(groundTruthSet.metadata_json.ground_truth_type)}</span>
               <span>{formatQuestionSummary(groundTruthSet)}</span>
               <span className="row-actions">
                 <a
@@ -217,6 +219,10 @@ function formatQuestionSummary(groundTruthSet: GroundTruthSet): string {
   const questionCount = formatMetadataValue(metadata.question_count);
   const foundCount = formatMetadataValue(metadata.found_count);
   const notFoundCount = formatMetadataValue(metadata.not_found_count);
+  if (metadata.ground_truth_type === "page_level_qrels") {
+    const pageJudgmentCount = formatMetadataValue(metadata.page_judgment_count);
+    return `${questionCount} total / ${foundCount} found / ${notFoundCount} not found / ${pageJudgmentCount} pages`;
+  }
   return `${questionCount} total / ${foundCount} found / ${notFoundCount} not found`;
 }
 
