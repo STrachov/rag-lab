@@ -146,6 +146,7 @@ class ChunkingStrategyField(BaseModel):
     help_text: str | None = None
     min: int | None = None
     max: int | None = None
+    step: int | None = None
     options: list[dict[str, str]] | None = None
 
 
@@ -245,6 +246,7 @@ class EmbeddingModelField(BaseModel):
     help_text: str | None = None
     min: int | None = None
     max: int | None = None
+    step: int | None = None
     options: list[dict[str, str]] | None = None
 
 

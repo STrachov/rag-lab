@@ -23,7 +23,7 @@ The runtime pipeline may create chunks, embeddings, Qdrant indexes, retrieval tr
 answers. These are derived cache/debug outputs, not product-facing results. Saved experiment results
 are metrics only.
 
-The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder models. It returns retrieved chunk metadata, text previews, retrieval scores, and rerank score breakdowns; it is debug output, not experiment results.
+The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Dense embeddings can be created by local SentenceTransformers adapters or explicit remote Voyage adapters. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder models. It returns retrieved chunk metadata, text previews, retrieval scores, and rerank score breakdowns; it is debug output, not experiment results.
 
 ## Recommended Structure
 
@@ -169,6 +169,11 @@ evaluation metrics/scorers
 
 Preparation methods create prepared data assets. Other stage registries usually create reusable
 parameter snapshots, previews, derived caches, or evaluation metrics.
+
+Remote embedding catalog entries must make the provider explicit. Voyage entries require
+`RAG_LAB_VOYAGE_API_KEY`, send chunk text as `input_type=document`, send retrieval queries as
+`input_type=query`, and store the selected `output_dimension` in the embedding snapshot used to
+create the Qdrant collection.
 
 Docling is integrated as an external Docling Serve endpoint. Local CPU Docker, local GPU Docker, and remote GPU machines should use the same adapter boundary and differ by `RAG_LAB_DOCLING_BASE_URL`.
 

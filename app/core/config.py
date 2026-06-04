@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     docling_poll_interval_seconds: float = 3.0
     docling_timeout_seconds: float = 120.0
     qdrant_url: str = "http://localhost:6333"
+    voyage_api_key: str = ""
+    voyage_base_url: str = "https://api.voyageai.com"
     database_url: str = Field(
         default="postgresql+psycopg://raglab:raglab@localhost:5433/raglab",
         validation_alias="DATABASE_URL",

@@ -49,6 +49,15 @@ python -m pytest
 The first local embedding and reranking models are SentenceTransformers models and may download
 weights on first use. Qdrant must be running before creating or previewing indexes.
 
+Voyage embedding models are remote catalog entries. To use them for indexing or retrieval preview,
+set:
+
+```bash
+RAG_LAB_VOYAGE_API_KEY=...
+```
+
+`RAG_LAB_VOYAGE_BASE_URL` can override the default `https://api.voyageai.com` endpoint for testing.
+
 ## Minimal Manual Workflow
 
 ```text

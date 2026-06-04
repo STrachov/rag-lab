@@ -166,9 +166,11 @@ Qdrant index request:
 }
 ```
 
-Current Qdrant collections use named vectors: `dense` and optional `sparse`. Failed index attempts
-should return an HTTP error and also create `DerivedCache(status="failed")` with
-`metadata_json.error_json`.
+Current Qdrant collections use named vectors: `dense` and optional `sparse`. Dense embedding models
+may be local or remote catalog entries. Remote Voyage entries include `voyage_4_lite` and
+`voyage_4_large`; their `output_dimension` parameter controls the Qdrant dense vector size and is
+stored in the embedding snapshot. Failed index attempts should return an HTTP error and also create
+`DerivedCache(status="failed")` with `metadata_json.error_json`.
 
 Retrieval preview request:
 

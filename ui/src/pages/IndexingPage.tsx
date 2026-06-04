@@ -538,7 +538,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 <div className="asset-mini-summary">
                   <span>{selectedModel.provider}</span>
                   <span>{selectedModel.model_name}</span>
-                  <span>{selectedModel.vector_size} dims</span>
+                  <span>{effectiveEmbeddingDims(selectedModel, embeddingParams)} dims</span>
                 </div>
                 <div className="parameter-grid">
                   {selectedModel.fields.map((field) => (
@@ -1177,6 +1177,23 @@ function isRerankingParams(value: unknown): value is {
   }
   const candidate = value as { model_id?: unknown; params?: unknown };
   return typeof candidate.model_id === "string" && Boolean(candidate.params) && typeof candidate.params === "object";
+}
+
+function effectiveEmbeddingDims(
+  model: EmbeddingModel,
+  params: Record<string, EmbeddingParamValue>,
+): number {
+  const outputDimension = params.output_dimension;
+  if (typeof outputDimension === "number" && Number.isFinite(outputDimension)) {
+    return outputDimension;
+  }
+  if (typeof outputDimension === "string") {
+    const parsed = Number(outputDimension);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return model.vector_size;
 }
 
 async function sha256Hex(input: string): Promise<string> {

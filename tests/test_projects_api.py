@@ -160,10 +160,92 @@ def test_list_embedding_models_for_indexing_ui(client: TestClient) -> None:
     model_ids = [model["id"] for model in models]
     assert "intfloat_multilingual_e5_small" in model_ids
     assert "baai_bge_small_en_v1_5" in model_ids
+    assert "voyage_4_lite" in model_ids
+    assert "voyage_4_large" in model_ids
     e5 = next(model for model in models if model["id"] == "intfloat_multilingual_e5_small")
     assert e5["provider"] == "sentence_transformers"
     assert e5["model_name"] == "intfloat/multilingual-e5-small"
     assert e5["default_params"]["device"] == "cpu"
+    voyage_lite = next(model for model in models if model["id"] == "voyage_4_lite")
+    assert voyage_lite["provider"] == "voyage"
+    assert voyage_lite["model_name"] == "voyage-4-lite"
+    assert voyage_lite["vector_size"] == 1024
+    assert voyage_lite["default_params"]["output_dimension"] == 1024
+    output_dimension = next(field for field in voyage_lite["fields"] if field["name"] == "output_dimension")
+    assert output_dimension["type"] == "select"
+    assert [option["value"] for option in output_dimension["options"]] == ["256", "512", "1024", "2048"]
+
+
+def test_voyage_embedding_snapshot_uses_output_dimension() -> None:
+    from app.services.runtime_cache import build_embedding_snapshot
+
+    snapshot = build_embedding_snapshot(
+        "voyage_4_large",
+        {
+            "batch_size": "16",
+            "output_dimension": "512",
+            "timeout_seconds": "60",
+            "truncation": "false",
+        },
+    )
+
+    embedding = snapshot["embedding"]
+    assert embedding["provider"] == "voyage"
+    assert embedding["model"] == "voyage-4-large"
+    assert embedding["vector_size"] == 512
+    assert embedding["params"] == {
+        "batch_size": 16,
+        "output_dimension": 512,
+        "timeout_seconds": 60,
+        "truncation": False,
+    }
+
+
+def test_voyage_embedder_sends_document_and_query_input_types(monkeypatch) -> None:
+    from app.services.embeddings import create_embedder
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "voyage_api_key": "test-key",
+            "voyage_base_url": "https://voyage.test",
+        },
+    )()
+    calls: list[dict] = []
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: float) -> httpx.Response:
+        calls.append({"headers": headers, "json": json, "timeout": timeout, "url": url})
+        return httpx.Response(
+            200,
+            json={"data": [{"embedding": [float(index), 0.25]} for index, _ in enumerate(json["input"])]},
+        )
+
+    monkeypatch.setattr("app.services.embeddings.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.embeddings.httpx.post", fake_post)
+
+    embedder = create_embedder(
+        "voyage_4_lite",
+        {
+            "batch_size": 2,
+            "output_dimension": "512",
+            "timeout_seconds": 45,
+            "truncation": True,
+        },
+    )
+
+    passage_vectors = embedder.embed_passages(["alpha", "beta"])
+    query_vector = embedder.embed_query("payment terms")
+
+    assert passage_vectors == [[0.0, 0.25], [1.0, 0.25]]
+    assert query_vector == [0.0, 0.25]
+    assert calls[0]["url"] == "https://voyage.test/v1/embeddings"
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-key"
+    assert calls[0]["json"]["input_type"] == "document"
+    assert calls[0]["json"]["model"] == "voyage-4-lite"
+    assert calls[0]["json"]["output_dimension"] == 512
+    assert calls[1]["json"]["input_type"] == "query"
+    assert calls[1]["timeout"] == 45.0
 
 
 def test_list_sparse_models_for_hybrid_indexing_ui(client: TestClient) -> None:

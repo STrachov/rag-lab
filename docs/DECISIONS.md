@@ -223,3 +223,43 @@ Cons:
 - local cross-encoder rerankers improve quality inspection but add latency and first-run model downloads;
 - reranking parameters can be swept without repeating Qdrant retrieval;
 - Qdrant collection compatibility is intentionally not preserved for old experimental collections.
+
+---
+
+## 2026-06-03 - Add explicit remote Voyage embedding adapters
+
+Status: accepted
+
+### Context
+
+Local CPU SentenceTransformers embeddings are useful baselines, but they are slow enough to make
+single experiment iteration painful. The lab needs faster production-relevant embedding candidates
+while preserving reproducibility and data-safety visibility.
+
+### Decision
+
+- Keep local SentenceTransformers models as embedding baselines.
+- Add `voyage_4_lite` and `voyage_4_large` as backend-driven embedding catalog entries.
+- Treat Voyage as a remote embedding provider, not an internal domain model.
+- Read credentials from `RAG_LAB_VOYAGE_API_KEY`.
+- Use `input_type=document` for chunk embeddings and `input_type=query` for retrieval queries.
+- Store selected Voyage params, including `output_dimension`, in the embedding snapshot.
+- Use the snapshot `vector_size` when creating Qdrant named dense vectors.
+
+### Alternatives considered
+
+- Replace local embeddings with Voyage by default.
+- Add a generic opaque external embedding chain.
+- Store remote embeddings as product-facing results.
+
+### Consequences
+
+Pros:
+- faster iteration for dense and hybrid indexes;
+- stronger production-quality retrieval candidates;
+- explicit provider and parameter snapshots remain inspectable.
+
+Cons:
+- chunk and query text leave the local machine when a Voyage model is selected;
+- indexing now depends on external API availability, credentials, rate limits, and cost;
+- Qdrant collections must be rebuilt when `output_dimension` changes.

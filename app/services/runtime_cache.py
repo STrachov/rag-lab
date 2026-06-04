@@ -10,6 +10,7 @@ from app.db import models
 from app.services.chunking import ChunkingParams, chunk_prepared_asset
 from app.services.embeddings import (
     create_embedder,
+    effective_vector_size,
     get_embedding_model,
     normalize_embedding_params,
 )
@@ -45,7 +46,7 @@ def build_embedding_snapshot(model_id: str, params: dict[str, Any] | None = None
             "model_id": spec.id,
             "params": normalized,
             "provider": spec.provider,
-            "vector_size": spec.vector_size,
+            "vector_size": effective_vector_size(spec, normalized),
         }
     }
 

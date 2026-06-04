@@ -1,9 +1,9 @@
 .venv/
+.venv_win/
+.venv_ubuntu/
 .env
 __pycache__/
 .pytest_cache/
-.pytest_tmp_all_ui/
-.pytest_tmp_gt_ui/
 .pytest_tmp/
 *.py[cod]
 *.egg-info/
