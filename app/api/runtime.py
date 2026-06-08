@@ -23,7 +23,6 @@ from app.models.api import (
     RetrievalPreviewResponse,
     SparseModelListResponse,
 )
-from app.services.hashing import short_hash, stable_sha256
 from app.services.embeddings import list_embedding_models
 from app.services.gt_authoring_pack import build_gt_authoring_pack
 from app.services.derived_cache_cleanup import (
@@ -36,6 +35,8 @@ from app.services.sparse import list_sparse_models
 from app.services.runtime_cache import (
     build_chunking_snapshot,
     build_embedding_snapshot,
+    build_qdrant_index_cache_key,
+    build_qdrant_index_params_hash,
     build_retrieval_temp_payload,
     build_reranking_snapshot,
     build_sparse_snapshot,
@@ -253,6 +254,27 @@ def create_project_qdrant_index(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    params_hash = build_qdrant_index_params_hash(
+        chunks_cache_key=chunks_cache.cache_key,
+        collection_name=payload.collection_name,
+        distance=payload.distance,
+        embedding=embedding_snapshot["embedding"],
+        index_mode=payload.index_mode,
+        sparse=sparse_snapshot["sparse"] if sparse_snapshot else None,
+    )
+    cache_key = build_qdrant_index_cache_key(params_hash)
+    existing_cache = _find_cache(
+        db,
+        project_id=project_id,
+        cache_type="qdrant_index",
+        cache_key=cache_key,
+    )
+    if existing_cache is not None and existing_cache.status == "ready":
+        existing_cache.last_used_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(existing_cache)
+        return existing_cache
 
     try:
         indexed = index_chunks_in_qdrant(
@@ -472,17 +494,15 @@ def _save_failed_qdrant_index_cache(
     sparse_snapshot: dict | None,
     error: Exception,
 ) -> models.DerivedCache:
-    identity = {
-        "chunks_cache_key": chunks_cache.cache_key,
-        "collection_name": collection_name,
-        "distance": distance,
-        "embedding": embedding_snapshot["embedding"],
-        "index_mode": index_mode,
-        "pipeline_version": "runtime-v1",
-        "sparse": sparse_snapshot["sparse"] if sparse_snapshot else None,
-    }
-    params_hash = stable_sha256(identity)
-    cache_key = f"qdrant_{short_hash(params_hash, 20)}"
+    params_hash = build_qdrant_index_params_hash(
+        chunks_cache_key=chunks_cache.cache_key,
+        collection_name=collection_name,
+        distance=distance,
+        embedding=embedding_snapshot["embedding"],
+        index_mode=index_mode,
+        sparse=sparse_snapshot["sparse"] if sparse_snapshot else None,
+    )
+    cache_key = build_qdrant_index_cache_key(params_hash)
     collection = collection_name or f"raglab_{cache_key}"
     metadata_json = {
         "cache_key": cache_key,

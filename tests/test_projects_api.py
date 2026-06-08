@@ -248,6 +248,102 @@ def test_voyage_embedder_sends_document_and_query_input_types(monkeypatch) -> No
     assert calls[1]["timeout"] == 45.0
 
 
+def test_voyage_batches_respect_approximate_tpm_budget() -> None:
+    from app.services.embeddings import _voyage_batches
+
+    texts = ["a" * 30, "b" * 30, "c" * 30]
+
+    assert _voyage_batches(texts, batch_size=10, tpm_limit=40) == [
+        ["a" * 30],
+        ["b" * 30],
+        ["c" * 30],
+    ]
+
+
+def test_voyage_embedder_retries_rate_limit_response(monkeypatch) -> None:
+    from app.services.embeddings import create_embedder
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "voyage_api_key": "test-key",
+            "voyage_base_url": "https://voyage.test",
+            "voyage_max_retries": 2,
+            "voyage_rpm_limit": 0,
+            "voyage_tpm_limit": 0,
+        },
+    )()
+    responses = [
+        httpx.Response(429, headers={"Retry-After": "0.5"}),
+        httpx.Response(200, json={"data": [{"embedding": [1.0, 0.25]}]}),
+    ]
+    sleeps: list[float] = []
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: float) -> httpx.Response:
+        return responses.pop(0)
+
+    monkeypatch.setattr("app.services.embeddings.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.embeddings.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.embeddings.time.sleep", lambda seconds: sleeps.append(seconds))
+
+    embedder = create_embedder(
+        "voyage_4_lite",
+        {
+            "batch_size": 2,
+            "output_dimension": "512",
+            "timeout_seconds": 45,
+            "truncation": True,
+        },
+    )
+
+    assert embedder.embed_query("payment terms") == [1.0, 0.25]
+    assert sleeps == [0.5]
+
+
+def test_voyage_embedder_retries_timeout(monkeypatch) -> None:
+    from app.services.embeddings import create_embedder
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "voyage_api_key": "test-key",
+            "voyage_base_url": "https://voyage.test",
+            "voyage_max_retries": 2,
+            "voyage_rpm_limit": 0,
+            "voyage_tpm_limit": 0,
+        },
+    )()
+    attempts = 0
+    sleeps: list[float] = []
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: float) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("read timed out")
+        return httpx.Response(200, json={"data": [{"embedding": [2.0, 0.5]}]})
+
+    monkeypatch.setattr("app.services.embeddings.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.embeddings.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.embeddings.time.sleep", lambda seconds: sleeps.append(seconds))
+
+    embedder = create_embedder(
+        "voyage_4_lite",
+        {
+            "batch_size": 2,
+            "output_dimension": "512",
+            "timeout_seconds": 45,
+            "truncation": True,
+        },
+    )
+
+    assert embedder.embed_query("payment terms") == [2.0, 0.5]
+    assert attempts == 2
+    assert sleeps == [1.0]
+
+
 def test_list_sparse_models_for_hybrid_indexing_ui(client: TestClient) -> None:
     project_id = _create_project(client)
 

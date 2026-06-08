@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+from threading import Lock
+import time
 from typing import Any
 
 import httpx
@@ -105,6 +108,14 @@ VOYAGE_DIMENSION_OPTIONS = [
     {"label": "2048", "value": "2048"},
 ]
 
+VOYAGE_RETRY_STATUS_CODES = {429, 502, 503, 504}
+VOYAGE_TOKEN_CHARS = 2
+VOYAGE_TOKEN_OVERHEAD_PER_TEXT = 8
+_VOYAGE_THROTTLE_LOCK = Lock()
+_VOYAGE_NEXT_REQUEST_AT = 0.0
+_VOYAGE_TOKEN_WINDOW_STARTED_AT = 0.0
+_VOYAGE_TOKENS_USED_IN_WINDOW = 0
+
 
 COMMON_VOYAGE_FIELDS = [
     EmbeddingParamField(
@@ -133,7 +144,7 @@ COMMON_VOYAGE_FIELDS = [
         name="timeout_seconds",
         label="Timeout seconds",
         field_type="number",
-        default=120,
+        default=300,
         min_value=1,
         max_value=600,
     ),
@@ -234,6 +245,13 @@ class VoyageEmbedder:
         }
         self.params = params
         self.spec = spec
+        self.max_retries = max(0, int(getattr(settings, "voyage_max_retries", 0) or 0))
+        self.rpm_limit = max(0, int(getattr(settings, "voyage_rpm_limit", 0) or 0))
+        self.tpm_limit = max(0, int(getattr(settings, "voyage_tpm_limit", 0) or 0))
+        self.tpm_utilization = min(
+            1.0,
+            max(0.1, float(getattr(settings, "voyage_tpm_utilization", 0.65) or 0.65)),
+        )
 
     def embed_passages(self, texts: list[str]) -> list[list[float]]:
         return self._embed(texts, input_type="document")
@@ -247,27 +265,78 @@ class VoyageEmbedder:
 
         embeddings: list[list[float]] = []
         batch_size = min(1000, max(1, int(self.params["batch_size"])))
-        for start in range(0, len(texts), batch_size):
-            batch = texts[start : start + batch_size]
-            response = httpx.post(
-                f"{self.base_url}/v1/embeddings",
-                headers=self.headers,
-                json={
-                    "input": batch,
-                    "input_type": input_type,
-                    "model": self.spec.model_name,
-                    "output_dimension": int(self.params["output_dimension"]),
-                    "truncation": bool(self.params["truncation"]),
-                },
-                timeout=float(self.params["timeout_seconds"]),
-            )
-            response.raise_for_status()
+        for batch in _voyage_batches(
+            texts,
+            batch_size=batch_size,
+            tpm_limit=self.tpm_limit,
+            tpm_utilization=self.tpm_utilization,
+        ):
+            response = self._post_embeddings(batch, input_type=input_type)
             payload = response.json()
             items = payload.get("data")
             if not isinstance(items, list):
                 raise ValueError("Voyage embeddings response did not include a data list")
             embeddings.extend([_coerce_embedding_vector(item) for item in items])
         return embeddings
+
+    def _post_embeddings(self, batch: list[str], *, input_type: str) -> httpx.Response:
+        payload = {
+            "input": batch,
+            "input_type": input_type,
+            "model": self.spec.model_name,
+            "output_dimension": int(self.params["output_dimension"]),
+            "truncation": bool(self.params["truncation"]),
+        }
+        timeout = float(self.params["timeout_seconds"])
+        estimated_tokens = _estimate_voyage_tokens(batch)
+        for attempt in range(self.max_retries + 1):
+            _wait_for_voyage_capacity(
+                estimated_tokens=estimated_tokens,
+                rpm_limit=self.rpm_limit,
+                tpm_limit=self.tpm_limit,
+            )
+            try:
+                response = httpx.post(
+                    f"{self.base_url}/v1/embeddings",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=timeout,
+                )
+            except httpx.TimeoutException as exc:
+                if attempt < self.max_retries:
+                    time.sleep(_voyage_transport_retry_delay(attempt))
+                    continue
+                raise ValueError(
+                    f"Voyage embeddings request timed out after {timeout:g} seconds. "
+                    "Try increasing timeout_seconds, reducing the Voyage batch_size, "
+                    "or checking whether the current VPN/proxy is slowing the connection."
+                ) from exc
+            except httpx.TransportError as exc:
+                if attempt < self.max_retries:
+                    time.sleep(_voyage_transport_retry_delay(attempt))
+                    continue
+                raise ValueError(
+                    "Voyage embeddings request failed due to a network transport error. "
+                    "Check the current VPN/proxy connection or try again later."
+                ) from exc
+            if response.status_code in VOYAGE_RETRY_STATUS_CODES and attempt < self.max_retries:
+                time.sleep(_voyage_retry_delay(response, attempt))
+                continue
+            if response.status_code == 429:
+                raise ValueError(
+                    "Voyage embeddings returned 429 Too Many Requests after retries. "
+                    "The free plan is very tight; wait for the Voyage quota window to reset, "
+                    "or lower RAG_LAB_VOYAGE_TPM_LIMIT / RAG_LAB_VOYAGE_TPM_UTILIZATION."
+                )
+            if response.status_code == 403:
+                raise ValueError(
+                    "Voyage embeddings returned 403 Forbidden. Check whether the current VPN, "
+                    "proxy, IP address, or API project is allowed by Voyage AI."
+                )
+            if response.is_error:
+                response.raise_for_status()
+            return response
+        raise RuntimeError("Voyage embeddings retry loop exited unexpectedly")
 
 
 def list_embedding_models() -> list[dict[str, Any]]:
@@ -349,6 +418,87 @@ def _coerce_bool(value: Any, name: str) -> bool:
     if isinstance(value, int):
         return bool(value)
     raise ValueError(f"{name} must be a boolean")
+
+
+def _voyage_batches(
+    texts: list[str],
+    *,
+    batch_size: int,
+    tpm_limit: int,
+    tpm_utilization: float = 0.65,
+) -> list[list[str]]:
+    utilization = min(1.0, max(0.1, tpm_utilization))
+    max_tokens = max(1, int(tpm_limit * utilization)) if tpm_limit > 0 else 0
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_tokens = 0
+    for text in texts:
+        text_tokens = _estimate_voyage_tokens([text])
+        would_exceed_count = len(current) >= batch_size
+        would_exceed_tokens = bool(max_tokens and current and current_tokens + text_tokens > max_tokens)
+        if would_exceed_count or would_exceed_tokens:
+            batches.append(current)
+            current = []
+            current_tokens = 0
+        current.append(text)
+        current_tokens += text_tokens
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _estimate_voyage_tokens(texts: list[str]) -> int:
+    return sum(
+        max(1, math.ceil(len(text) / VOYAGE_TOKEN_CHARS) + VOYAGE_TOKEN_OVERHEAD_PER_TEXT)
+        for text in texts
+    )
+
+
+def _wait_for_voyage_capacity(*, estimated_tokens: int, rpm_limit: int, tpm_limit: int) -> None:
+    global _VOYAGE_NEXT_REQUEST_AT
+    global _VOYAGE_TOKEN_WINDOW_STARTED_AT
+    global _VOYAGE_TOKENS_USED_IN_WINDOW
+
+    if rpm_limit <= 0 and tpm_limit <= 0:
+        return
+
+    while True:
+        with _VOYAGE_THROTTLE_LOCK:
+            now = time.monotonic()
+            wait_seconds = 0.0
+            if rpm_limit > 0 and now < _VOYAGE_NEXT_REQUEST_AT:
+                wait_seconds = max(wait_seconds, _VOYAGE_NEXT_REQUEST_AT - now)
+
+            if tpm_limit > 0:
+                if _VOYAGE_TOKEN_WINDOW_STARTED_AT == 0.0 or now - _VOYAGE_TOKEN_WINDOW_STARTED_AT >= 60.0:
+                    _VOYAGE_TOKEN_WINDOW_STARTED_AT = now
+                    _VOYAGE_TOKENS_USED_IN_WINDOW = 0
+                token_charge = min(max(1, estimated_tokens), tpm_limit)
+                if _VOYAGE_TOKENS_USED_IN_WINDOW + token_charge > tpm_limit:
+                    wait_seconds = max(wait_seconds, 60.0 - (now - _VOYAGE_TOKEN_WINDOW_STARTED_AT))
+
+            if wait_seconds <= 0.0:
+                if rpm_limit > 0:
+                    _VOYAGE_NEXT_REQUEST_AT = now + (60.0 / rpm_limit)
+                if tpm_limit > 0:
+                    _VOYAGE_TOKENS_USED_IN_WINDOW += min(max(1, estimated_tokens), tpm_limit)
+                return
+
+        time.sleep(wait_seconds)
+
+
+def _voyage_retry_delay(response: httpx.Response, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+    return min(60.0, float(2**attempt))
+
+
+def _voyage_transport_retry_delay(attempt: int) -> float:
+    return min(60.0, float(2**attempt))
 
 
 def _coerce_embedding_vector(item: Any) -> list[float]:

@@ -160,18 +160,15 @@ def index_chunks_in_qdrant(
 ) -> dict[str, Any]:
     chunks_metadata, chunks = read_chunks_cache(chunks_cache)
     embedding = embedding_snapshot["embedding"]
-    params_hash = stable_sha256(
-        {
-            "chunks_cache_key": chunks_cache.cache_key,
-            "collection_name": collection_name,
-            "distance": distance,
-            "embedding": embedding,
-            "index_mode": index_mode,
-            "pipeline_version": PIPELINE_VERSION,
-            "sparse": sparse_snapshot["sparse"] if sparse_snapshot else None,
-        }
+    params_hash = build_qdrant_index_params_hash(
+        chunks_cache_key=chunks_cache.cache_key,
+        collection_name=collection_name,
+        distance=distance,
+        embedding=embedding,
+        index_mode=index_mode,
+        sparse=sparse_snapshot["sparse"] if sparse_snapshot else None,
     )
-    cache_key = f"qdrant_{short_hash(params_hash, 20)}"
+    cache_key = build_qdrant_index_cache_key(params_hash)
     collection = collection_name or f"raglab_{cache_key}"
     embedder = create_embedder(embedding["model_id"], embedding["params"])
     texts = [str(chunk["text"]) for chunk in chunks]
@@ -225,6 +222,32 @@ def index_chunks_in_qdrant(
         "sparse_stats_path": str(sparse_stats_path) if sparse_stats_path else None,
     }
     return {"cache_key": cache_key, "metadata_json": metadata, "params_hash": params_hash}
+
+
+def build_qdrant_index_params_hash(
+    *,
+    chunks_cache_key: str,
+    collection_name: str | None,
+    distance: str,
+    embedding: dict[str, Any],
+    index_mode: str,
+    sparse: dict[str, Any] | None,
+) -> str:
+    return stable_sha256(
+        {
+            "chunks_cache_key": chunks_cache_key,
+            "collection_name": collection_name,
+            "distance": distance,
+            "embedding": embedding,
+            "index_mode": index_mode,
+            "pipeline_version": PIPELINE_VERSION,
+            "sparse": sparse,
+        }
+    )
+
+
+def build_qdrant_index_cache_key(params_hash: str) -> str:
+    return f"qdrant_{short_hash(params_hash, 20)}"
 
 
 def retrieve_from_qdrant(

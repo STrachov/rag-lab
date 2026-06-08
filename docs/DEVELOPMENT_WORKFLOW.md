@@ -57,6 +57,25 @@ RAG_LAB_VOYAGE_API_KEY=...
 ```
 
 `RAG_LAB_VOYAGE_BASE_URL` can override the default `https://api.voyageai.com` endpoint for testing.
+The default Voyage throttle matches the free-plan `voyage-4-lite` limits:
+
+```bash
+RAG_LAB_VOYAGE_RPM_LIMIT=3
+RAG_LAB_VOYAGE_TPM_LIMIT=10000
+RAG_LAB_VOYAGE_TPM_UTILIZATION=0.65
+RAG_LAB_VOYAGE_MAX_RETRIES=5
+```
+
+Increase these only when the Voyage project has higher limits. `RAG_LAB_VOYAGE_TPM_UTILIZATION`
+keeps batch planning below the advertised TPM limit because local token estimates are approximate,
+especially for multilingual text. `429 Too Many Requests` responses are
+retried with backoff and `Retry-After` support; `403 Forbidden` usually points to an IP, VPN, proxy,
+or Voyage project access restriction rather than a batching issue.
+On the free plan, indexing may take several minutes because requests are paced to one request about
+every 20 seconds at most and often slower when TPM is the binding limit. If Voyage still returns
+`429`, wait for the Voyage quota window to reset or lower `RAG_LAB_VOYAGE_TPM_UTILIZATION` to `0.5`.
+If Voyage returns a read timeout, use a higher embedding `timeout_seconds` value such as 300-600 and
+consider lowering `batch_size` for unstable VPN/proxy connections.
 
 ## Minimal Manual Workflow
 
