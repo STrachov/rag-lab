@@ -606,6 +606,7 @@ def download_ground_truth_set_file(
 @router.get(
     "/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}/questions",
     response_model=GroundTruthQuestionListResponse,
+    response_model_exclude_none=True,
 )
 def list_ground_truth_set_questions(
     project_id: str,

@@ -729,7 +729,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                             ))}
                           </select>
                         </label>
-                        <label>
+                        <label className="wide-field">
                           Question
                           <select
                             value={selectedGroundTruthQuestionId}
@@ -861,7 +861,10 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 </button>
                 {retrievalCacheId ? <div className="nested-empty">Retrieval cache: {retrievalCacheId}</div> : null}
                 {questionSource === "ground_truth" && selectedGroundTruthQuestion ? (
-                  <GroundTruthPagesSummary question={selectedGroundTruthQuestion} />
+                  <>
+                    <GroundTruthPagesSummary question={selectedGroundTruthQuestion} />
+                    <GroundTruthAnswerSummary question={selectedGroundTruthQuestion} />
+                  </>
                 ) : null}
                 {retrievalMetrics ? <RankingMetrics score={retrievalMetrics} title="Retrieval Metrics" /> : null}
                 {retrievalResult ? <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" /> : null}
@@ -1021,41 +1024,40 @@ function RetrievalResult({ retrieval, title }: { retrieval: RetrievalPreviewResp
     <div className="chunk-list">
       <h3>{title}</h3>
       {retrieval.retrieved_chunks.map((chunk, index) => (
-        <article className="chunk-card" key={`${chunk.chunk_id ?? "chunk"}-${index}`}>
-          <div className="chunk-meta">
-            <strong>{chunk.chunk_id}</strong>
-            {chunk.score !== undefined && chunk.score !== null ? <span>{chunk.score.toFixed(4)}</span> : null}
-            {chunk.dense_score !== undefined && chunk.dense_score !== null ? (
-              <span>dense {chunk.dense_score.toFixed(4)}</span>
+        <details className="chunk-card chunk-card-collapsible" key={`${chunk.chunk_id ?? "chunk"}-${index}`}>
+          <summary className="chunk-summary">
+            <span className="chunk-summary-main">{chunkResultLabel(chunk, index)}</span>
+            <span className="chunk-summary-score">{primaryScoreLabel(chunk)}</span>
+          </summary>
+          <div className="chunk-card-body">
+            <div className="chunk-meta">
+              {chunk.chunk_id ? <strong>{chunk.chunk_id}</strong> : null}
+              {chunk.source_name ? <span>{chunk.source_name}</span> : null}
+              {pageLabel(chunk) ? <span>{pageLabel(chunk)}</span> : null}
+              {chunk.token_count ? <span>{chunk.token_count} tokens</span> : null}
+              {chunk.score !== undefined && chunk.score !== null ? <span>score {chunk.score.toFixed(4)}</span> : null}
+              {chunk.dense_score !== undefined && chunk.dense_score !== null ? (
+                <span>dense {chunk.dense_score.toFixed(4)}</span>
+              ) : null}
+              {chunk.sparse_score !== undefined && chunk.sparse_score !== null ? (
+                <span>sparse {chunk.sparse_score.toFixed(4)}</span>
+              ) : null}
+              {chunk.rerank_score !== undefined && chunk.rerank_score !== null ? (
+                <span>rerank {chunk.rerank_score.toFixed(4)}</span>
+              ) : null}
+              {chunk.original_score !== undefined && chunk.original_score !== null ? (
+                <span>original {chunk.original_score.toFixed(4)}</span>
+              ) : null}
+              {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
+              {chunk.parent_type ? <span>{chunk.parent_type}</span> : null}
+              {chunk.parent_id ? <span>{chunk.parent_id}</span> : null}
+            </div>
+            {chunk.heading_path && chunk.heading_path.length > 0 ? (
+              <div className="chunk-heading-path">{chunk.heading_path.join(" / ")}</div>
             ) : null}
-            {chunk.sparse_score !== undefined && chunk.sparse_score !== null ? (
-              <span>sparse {chunk.sparse_score.toFixed(4)}</span>
-            ) : null}
-            {chunk.rerank_score !== undefined && chunk.rerank_score !== null ? (
-              <span>rerank {chunk.rerank_score.toFixed(4)}</span>
-            ) : null}
-            {chunk.original_score !== undefined && chunk.original_score !== null ? (
-              <span>original {chunk.original_score.toFixed(4)}</span>
-            ) : null}
-            {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
-            {chunk.source_name ? <span>{chunk.source_name}</span> : null}
-            {chunk.parent_type ? <span>{chunk.parent_type}</span> : null}
-            {chunk.parent_id ? <span>{chunk.parent_id}</span> : null}
-            {chunk.page_start || chunk.page_end ? (
-              <span>
-                pages {chunk.page_start ?? chunk.page}
-                {chunk.page_end && chunk.page_end !== chunk.page_start ? `-${chunk.page_end}` : ""}
-              </span>
-            ) : chunk.page ? (
-              <span>page {chunk.page}</span>
-            ) : null}
-            {chunk.token_count ? <span>{chunk.token_count} tokens</span> : null}
+            {chunk.text_preview ? <pre>{chunk.text_preview}</pre> : null}
           </div>
-          {chunk.heading_path && chunk.heading_path.length > 0 ? (
-            <div className="chunk-heading-path">{chunk.heading_path.join(" / ")}</div>
-          ) : null}
-          {chunk.text_preview ? <pre>{chunk.text_preview}</pre> : null}
-        </article>
+        </details>
       ))}
     </div>
   );
@@ -1076,6 +1078,72 @@ function GroundTruthPagesSummary({ question }: { question: GroundTruthQuestion }
       </div>
     </div>
   );
+}
+
+function GroundTruthAnswerSummary({ question }: { question: GroundTruthQuestion }) {
+  const answer = groundTruthAnswerText(question);
+  if (!answer) {
+    return null;
+  }
+  return (
+    <div className="chunk-preview">
+      <h3>Ground Truth Answer</h3>
+      <pre className="ground-truth-answer">{answer}</pre>
+    </div>
+  );
+}
+
+function chunkResultLabel(chunk: RetrievalPreviewResponse["retrieved_chunks"][number], index: number): string {
+  return [
+    chunk.source_name || `result ${index + 1}`,
+    pageLabel(chunk),
+    chunk.token_count ? `${chunk.token_count} tokens` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function pageLabel(chunk: RetrievalPreviewResponse["retrieved_chunks"][number]): string {
+  const pageStart = typeof chunk.page_start === "number" ? chunk.page_start : undefined;
+  const pageEnd = typeof chunk.page_end === "number" ? chunk.page_end : undefined;
+  const page = typeof chunk.page === "number" ? chunk.page : undefined;
+  if (pageStart !== undefined || pageEnd !== undefined) {
+    const start = pageStart ?? page ?? pageEnd;
+    const end = pageEnd ?? pageStart;
+    if (start !== undefined && end !== undefined && end !== start) {
+      return `pages ${start}-${end}`;
+    }
+    return start !== undefined ? `page ${start}` : "";
+  }
+  return page !== undefined ? `page ${page}` : "";
+}
+
+function primaryScoreLabel(chunk: RetrievalPreviewResponse["retrieved_chunks"][number]): string {
+  if (chunk.rerank_score !== undefined && chunk.rerank_score !== null) {
+    return `rerank ${chunk.rerank_score.toFixed(4)}`;
+  }
+  if (chunk.score !== undefined && chunk.score !== null) {
+    return `score ${chunk.score.toFixed(4)}`;
+  }
+  if (chunk.dense_score !== undefined && chunk.dense_score !== null) {
+    return `dense ${chunk.dense_score.toFixed(4)}`;
+  }
+  if (chunk.sparse_score !== undefined && chunk.sparse_score !== null) {
+    return `sparse ${chunk.sparse_score.toFixed(4)}`;
+  }
+  return "score n/a";
+}
+
+function groundTruthAnswerText(question: GroundTruthQuestion): string {
+  if (question.expected_answer_brief && question.expected_answer_brief.trim()) {
+    return question.expected_answer_brief.trim();
+  }
+  if (question.expected_answer !== undefined && question.expected_answer !== null) {
+    return typeof question.expected_answer === "string"
+      ? question.expected_answer
+      : JSON.stringify(question.expected_answer, null, 2);
+  }
+  return "";
 }
 
 function RankingMetrics({ score, title }: { score: GroundTruthRankingScore; title: string }) {

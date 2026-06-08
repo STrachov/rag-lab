@@ -226,6 +226,10 @@ Ground truth upload accepts JSON or JSONL plus an optional prepared `data_asset_
 shape and canonicalizes the file. Chunk-id compatibility is checked later against the selected
 chunks cache during retrieval/reranking evaluation.
 
+Ground truth question list responses include optional `expected_answer` and
+`expected_answer_brief` fields when the uploaded ground truth provides an answer value. These fields
+are omitted for question records that only define relevance judgments.
+
 `score-ranking` evaluates one ranked preview result for one ground-truth question and returns metrics
 only. Batch evaluation should reuse the same scorer family.
 

@@ -420,6 +420,8 @@ class GroundTruthQuestionResponse(BaseModel):
     question: str
     question_type: str
     expected_answer_type: str
+    expected_answer: Any | None = None
+    expected_answer_brief: str | None = None
     relevant_chunk_count: int
     relevant_page_count: int = 0
     relevant_pages: list[JsonObject] = Field(default_factory=list)

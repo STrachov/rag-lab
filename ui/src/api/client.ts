@@ -400,6 +400,8 @@ export type GroundTruthSetDeleteResponse = {
 
 export type GroundTruthQuestion = {
   expected_answer_type: string;
+  expected_answer?: unknown;
+  expected_answer_brief?: string | null;
   question: string;
   question_id: string;
   question_type: string;

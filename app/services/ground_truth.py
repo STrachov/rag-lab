@@ -33,6 +33,8 @@ def list_ground_truth_questions(ground_truth_set: models.GroundTruthSet) -> list
     for question in canonical["questions"]:
         questions.append(
             {
+                "expected_answer": question.get("expected_answer"),
+                "expected_answer_brief": question.get("expected_answer_brief"),
                 "expected_answer_type": question["expected_answer_type"],
                 "question": question["question"],
                 "question_id": question["question_id"],

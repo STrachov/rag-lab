@@ -1901,6 +1901,8 @@ def test_page_level_ground_truth_questions_and_ranking_metrics(
     assert questions_response.status_code == 200
     assert questions_response.json()["questions"] == [
         {
+            "expected_answer": 30758000,
+            "expected_answer_brief": "30758000",
             "expected_answer_type": "found",
             "question": "What is cash flow from operations?",
             "question_id": "q000001",
