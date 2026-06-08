@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     voyage_api_key: str = ""
     voyage_base_url: str = "https://api.voyageai.com"
     voyage_max_retries: int = 5
-    voyage_rpm_limit: int = 3
-    voyage_tpm_limit: int = 10000
-    voyage_tpm_utilization: float = 0.65
+    voyage_rpm_limit: int = 2000
+    voyage_tpm_limit: int = 16000000
+    voyage_tpm_utilization: float = 0.95
     database_url: str = Field(
         default="postgresql+psycopg://raglab:raglab@localhost:5433/raglab",
         validation_alias="DATABASE_URL",

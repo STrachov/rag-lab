@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import math
 from threading import Lock
 import time
@@ -9,6 +10,8 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -265,13 +268,35 @@ class VoyageEmbedder:
 
         embeddings: list[list[float]] = []
         batch_size = min(1000, max(1, int(self.params["batch_size"])))
-        for batch in _voyage_batches(
+        batches = _voyage_batches(
             texts,
             batch_size=batch_size,
             tpm_limit=self.tpm_limit,
             tpm_utilization=self.tpm_utilization,
-        ):
-            response = self._post_embeddings(batch, input_type=input_type)
+        )
+        logger.info(
+            "voyage embedding plan model=%s input_type=%s text_count=%s batch_count=%s "
+            "estimated_tokens=%s batch_size=%s output_dimension=%s rpm_limit=%s tpm_limit=%s "
+            "tpm_utilization=%.2f timeout_seconds=%s",
+            self.spec.model_name,
+            input_type,
+            len(texts),
+            len(batches),
+            _estimate_voyage_tokens(texts),
+            batch_size,
+            int(self.params["output_dimension"]),
+            self.rpm_limit,
+            self.tpm_limit,
+            self.tpm_utilization,
+            float(self.params["timeout_seconds"]),
+        )
+        for index, batch in enumerate(batches, start=1):
+            response = self._post_embeddings(
+                batch,
+                batch_count=len(batches),
+                batch_number=index,
+                input_type=input_type,
+            )
             payload = response.json()
             items = payload.get("data")
             if not isinstance(items, list):
@@ -279,7 +304,14 @@ class VoyageEmbedder:
             embeddings.extend([_coerce_embedding_vector(item) for item in items])
         return embeddings
 
-    def _post_embeddings(self, batch: list[str], *, input_type: str) -> httpx.Response:
+    def _post_embeddings(
+        self,
+        batch: list[str],
+        *,
+        batch_count: int,
+        batch_number: int,
+        input_type: str,
+    ) -> httpx.Response:
         payload = {
             "input": batch,
             "input_type": input_type,
@@ -289,6 +321,16 @@ class VoyageEmbedder:
         }
         timeout = float(self.params["timeout_seconds"])
         estimated_tokens = _estimate_voyage_tokens(batch)
+        logger.info(
+            "voyage embedding batch start model=%s input_type=%s batch=%s/%s text_count=%s "
+            "estimated_tokens=%s",
+            self.spec.model_name,
+            input_type,
+            batch_number,
+            batch_count,
+            len(batch),
+            estimated_tokens,
+        )
         for attempt in range(self.max_retries + 1):
             _wait_for_voyage_capacity(
                 estimated_tokens=estimated_tokens,
@@ -296,15 +338,30 @@ class VoyageEmbedder:
                 tpm_limit=self.tpm_limit,
             )
             try:
+                started_at = time.perf_counter()
                 response = httpx.post(
                     f"{self.base_url}/v1/embeddings",
                     headers=self.headers,
                     json=payload,
                     timeout=timeout,
                 )
+                elapsed_seconds = time.perf_counter() - started_at
             except httpx.TimeoutException as exc:
                 if attempt < self.max_retries:
-                    time.sleep(_voyage_transport_retry_delay(attempt))
+                    delay = _voyage_transport_retry_delay(attempt)
+                    logger.warning(
+                        "voyage embedding batch timeout model=%s input_type=%s batch=%s/%s "
+                        "attempt=%s/%s retry_in_seconds=%.1f timeout_seconds=%s",
+                        self.spec.model_name,
+                        input_type,
+                        batch_number,
+                        batch_count,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        delay,
+                        timeout,
+                    )
+                    time.sleep(delay)
                     continue
                 raise ValueError(
                     f"Voyage embeddings request timed out after {timeout:g} seconds. "
@@ -313,20 +370,58 @@ class VoyageEmbedder:
                 ) from exc
             except httpx.TransportError as exc:
                 if attempt < self.max_retries:
-                    time.sleep(_voyage_transport_retry_delay(attempt))
+                    delay = _voyage_transport_retry_delay(attempt)
+                    logger.warning(
+                        "voyage embedding batch transport error model=%s input_type=%s batch=%s/%s "
+                        "attempt=%s/%s retry_in_seconds=%.1f error_type=%s",
+                        self.spec.model_name,
+                        input_type,
+                        batch_number,
+                        batch_count,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        delay,
+                        type(exc).__name__,
+                    )
+                    time.sleep(delay)
                     continue
                 raise ValueError(
                     "Voyage embeddings request failed due to a network transport error. "
                     "Check the current VPN/proxy connection or try again later."
                 ) from exc
+            logger.info(
+                "voyage embedding batch response model=%s input_type=%s batch=%s/%s "
+                "attempt=%s/%s status_code=%s elapsed_seconds=%.2f retry_after=%s",
+                self.spec.model_name,
+                input_type,
+                batch_number,
+                batch_count,
+                attempt + 1,
+                self.max_retries + 1,
+                response.status_code,
+                elapsed_seconds,
+                response.headers.get("Retry-After"),
+            )
             if response.status_code in VOYAGE_RETRY_STATUS_CODES and attempt < self.max_retries:
-                time.sleep(_voyage_retry_delay(response, attempt))
+                delay = _voyage_retry_delay(response, attempt)
+                logger.warning(
+                    "voyage embedding batch retry model=%s input_type=%s batch=%s/%s "
+                    "status_code=%s retry_in_seconds=%.1f",
+                    self.spec.model_name,
+                    input_type,
+                    batch_number,
+                    batch_count,
+                    response.status_code,
+                    delay,
+                )
+                time.sleep(delay)
                 continue
             if response.status_code == 429:
                 raise ValueError(
                     "Voyage embeddings returned 429 Too Many Requests after retries. "
-                    "The free plan is very tight; wait for the Voyage quota window to reset, "
-                    "or lower RAG_LAB_VOYAGE_TPM_LIMIT / RAG_LAB_VOYAGE_TPM_UTILIZATION."
+                    "Wait for the Voyage quota window to reset, or lower the configured "
+                    "RAG_LAB_VOYAGE_RPM_LIMIT / RAG_LAB_VOYAGE_TPM_LIMIT / "
+                    "RAG_LAB_VOYAGE_TPM_UTILIZATION values."
                 )
             if response.status_code == 403:
                 raise ValueError(
@@ -466,8 +561,10 @@ def _wait_for_voyage_capacity(*, estimated_tokens: int, rpm_limit: int, tpm_limi
         with _VOYAGE_THROTTLE_LOCK:
             now = time.monotonic()
             wait_seconds = 0.0
+            wait_reason = ""
             if rpm_limit > 0 and now < _VOYAGE_NEXT_REQUEST_AT:
                 wait_seconds = max(wait_seconds, _VOYAGE_NEXT_REQUEST_AT - now)
+                wait_reason = "rpm"
 
             if tpm_limit > 0:
                 if _VOYAGE_TOKEN_WINDOW_STARTED_AT == 0.0 or now - _VOYAGE_TOKEN_WINDOW_STARTED_AT >= 60.0:
@@ -475,7 +572,10 @@ def _wait_for_voyage_capacity(*, estimated_tokens: int, rpm_limit: int, tpm_limi
                     _VOYAGE_TOKENS_USED_IN_WINDOW = 0
                 token_charge = min(max(1, estimated_tokens), tpm_limit)
                 if _VOYAGE_TOKENS_USED_IN_WINDOW + token_charge > tpm_limit:
-                    wait_seconds = max(wait_seconds, 60.0 - (now - _VOYAGE_TOKEN_WINDOW_STARTED_AT))
+                    token_wait_seconds = 60.0 - (now - _VOYAGE_TOKEN_WINDOW_STARTED_AT)
+                    if token_wait_seconds >= wait_seconds:
+                        wait_reason = "tpm"
+                    wait_seconds = max(wait_seconds, token_wait_seconds)
 
             if wait_seconds <= 0.0:
                 if rpm_limit > 0:
@@ -484,6 +584,14 @@ def _wait_for_voyage_capacity(*, estimated_tokens: int, rpm_limit: int, tpm_limi
                     _VOYAGE_TOKENS_USED_IN_WINDOW += min(max(1, estimated_tokens), tpm_limit)
                 return
 
+        logger.info(
+            "voyage throttle wait reason=%s wait_seconds=%.1f estimated_tokens=%s rpm_limit=%s tpm_limit=%s",
+            wait_reason or "unknown",
+            wait_seconds,
+            estimated_tokens,
+            rpm_limit,
+            tpm_limit,
+        )
         time.sleep(wait_seconds)
 
 

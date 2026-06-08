@@ -96,6 +96,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const selectedIndexCache = linkedIndexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? linkedIndexCaches[0] ?? null;
   const selectedGroundTruthQuestion =
     groundTruthQuestions.find((question) => question.question_id === selectedGroundTruthQuestionId) ?? null;
+  const indexingEstimate = selectedChunksCache ? cacheIndexingEstimate(selectedChunksCache) : null;
   const retrievalSnapshot = {
     retrieval: {
       candidate_k: candidateK,
@@ -581,6 +582,12 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 </div>
                 <p className="form-note">{selectedSparseModel.description}</p>
               </>
+            ) : null}
+            {indexingEstimate ? (
+              <div className="asset-mini-summary">
+                <span>{formatInteger(indexingEstimate.chunkCount)} chunks</span>
+                <span>{formatEstimatedTokens(indexingEstimate.estimatedTokens)}</span>
+              </div>
             ) : null}
             <button className="primary-action" disabled={isIndexing || !chunksCacheId} type="submit">
               {isIndexing ? "Indexing..." : "Create Qdrant index"}
@@ -1133,6 +1140,21 @@ function cacheChunkCount(cache: DerivedCache): number {
   return typeof cache.metadata_json.chunk_count === "number" ? cache.metadata_json.chunk_count : 0;
 }
 
+function cacheIndexingEstimate(cache: DerivedCache): { chunkCount: number; estimatedTokens: number | null } {
+  const chunkCount = cacheChunkCount(cache);
+  const summary = cache.metadata_json.summary;
+  if (summary && typeof summary === "object") {
+    const avgTokens = (summary as { avg_tokens?: unknown }).avg_tokens;
+    if (typeof avgTokens === "number" && Number.isFinite(avgTokens)) {
+      return {
+        chunkCount,
+        estimatedTokens: Math.round(chunkCount * avgTokens),
+      };
+    }
+  }
+  return { chunkCount, estimatedTokens: null };
+}
+
 function cacheBelongsToChunks(indexCache: DerivedCache, chunksCache: DerivedCache): boolean {
   return (
     String(indexCache.metadata_json.chunks_cache_id ?? "") === chunksCache.id ||
@@ -1249,6 +1271,17 @@ function formatMetricValue(value: number): string {
     return String(value);
   }
   return value.toFixed(3);
+}
+
+function formatInteger(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatEstimatedTokens(value: number | null): string {
+  if (value === null) {
+    return "estimated tokens unknown";
+  }
+  return `~${formatInteger(value)} estimated tokens`;
 }
 
 function formatQuestionOption(question: string): string {
