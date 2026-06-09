@@ -439,6 +439,21 @@ export type SavedExperiment = {
   error_json?: Record<string, unknown> | null;
 };
 
+export type SavedExperimentCreate = {
+  code_commit?: string | null;
+  data_asset_id: string;
+  debug_level?: "none" | "summary" | "full";
+  ground_truth_set_id?: string | null;
+  metrics_summary_json?: Record<string, unknown>;
+  name: string;
+  notes?: string | null;
+  parameter_set_id?: string | null;
+  params_hash: string;
+  params_snapshot_json: Record<string, unknown>;
+  pipeline_version?: string | null;
+  status?: string;
+};
+
 export async function getHealth(): Promise<{ status: string }> {
   return request("/health");
 }
@@ -789,6 +804,27 @@ export async function listSavedExperiments(
   projectId: string,
 ): Promise<{ saved_experiments: SavedExperiment[] }> {
   return request(`/projects/${projectId}/saved-experiments`);
+}
+
+export async function createSavedExperiment(
+  projectId: string,
+  payload: SavedExperimentCreate,
+): Promise<SavedExperiment> {
+  return request(`/projects/${projectId}/saved-experiments`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export async function evaluateSavedExperiment(
+  projectId: string,
+  savedExperimentId: string,
+  payload: { index_cache_id?: string | null } = {},
+): Promise<SavedExperiment> {
+  return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}/evaluate`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

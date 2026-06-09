@@ -475,3 +475,7 @@ class SavedExperimentResponse(SavedExperimentCreate):
 
 class SavedExperimentListResponse(BaseModel):
     saved_experiments: list[SavedExperimentResponse]
+
+
+class SavedExperimentEvaluateRequest(BaseModel):
+    index_cache_id: str | None = None

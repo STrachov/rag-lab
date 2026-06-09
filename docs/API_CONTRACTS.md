@@ -270,7 +270,7 @@ Evaluate response:
 ```json
 {
   "saved_experiment_id": "uuid",
-  "status": "queued"
+  "status": "completed"
 }
 ```
 
@@ -280,6 +280,20 @@ Metrics may be returned in:
 SavedExperiment.metrics_summary_json
 MetricValue rows
 ```
+
+The first implementation of `POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate`
+runs synchronously. It reads `index_cache_id`, retrieval params, and optional enabled reranking params
+from `SavedExperiment.params_snapshot_json`, loops over every question in the linked ground truth set,
+retrieves/reranks candidates, scores them with the existing single-question scorer, and stores:
+
+```text
+metrics_summary_json.evaluation
+metrics_summary_json.metric_averages
+metrics_summary_json.questions
+```
+
+Per-question rows store metrics, warnings, error metadata, and compact top-result metadata only. They
+must not store full chunk text unless a later explicit debug-full mode is added.
 
 ## Breaking-Change Rule
 

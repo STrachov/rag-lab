@@ -926,6 +926,97 @@ def test_retrieval_preview_can_rerank_candidates(
     assert retrieved[0]["original_rank"] is not None
 
 
+def test_saved_experiment_evaluates_all_ground_truth_questions(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    fake_qdrant = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.api.projects._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_response.json()["id"],
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+    assert index_response.status_code == 201
+    ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+    snapshot = {
+        "ground_truth": {"ground_truth_set_id": ground_truth_set["id"]},
+        "index_cache_id": index_response.json()["id"],
+        "retrieval": {
+            "candidate_k": 5,
+            "mode": "dense",
+            "parent_score": "max",
+            "strategy": "chunk_retrieval",
+            "top_k": 1,
+        },
+        "reranking": None,
+    }
+    experiment_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "data_asset_id": data_asset_id,
+            "debug_level": "summary",
+            "ground_truth_set_id": ground_truth_set["id"],
+            "name": "Evaluate GT",
+            "params_hash": "sha256:evaluate-gt",
+            "params_snapshot_json": snapshot,
+        },
+    )
+    assert experiment_response.status_code == 201
+
+    evaluate_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments/{experiment_response.json()['id']}/evaluate",
+        json={},
+    )
+
+    assert evaluate_response.status_code == 200
+    body = evaluate_response.json()
+    assert body["status"] == "completed"
+    summary = body["metrics_summary_json"]
+    assert summary["evaluation"]["question_count"] == 1
+    assert summary["evaluation"]["completed_question_count"] == 1
+    assert summary["evaluation"]["error_count"] == 0
+    assert summary["metric_averages"]["hit_at_k"] == 1.0
+    assert summary["questions"][0]["question_id"] == "q001"
+    assert summary["questions"][0]["top_result"]["chunk_id"] == "chunk_000001"
+
+
 def test_qdrant_index_failure_is_visible_in_derived_cache(
     client: TestClient,
     monkeypatch,

@@ -1,5 +1,6 @@
 import json
 import shutil
+from datetime import UTC, datetime
 from threading import Lock
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.vectorstores.qdrant_store import QdrantVectorStore
 from app.core.config import get_settings
 from app.db import models
 from app.db.session import get_db
@@ -37,6 +39,7 @@ from app.models.api import (
     ProjectListResponse,
     ProjectResponse,
     SavedExperimentCreate,
+    SavedExperimentEvaluateRequest,
     SavedExperimentListResponse,
     SavedExperimentResponse,
 )
@@ -62,6 +65,7 @@ from app.services.ground_truth import (
     score_ground_truth_ranking,
     store_uploaded_ground_truth_set,
 )
+from app.services.evaluation import evaluate_ground_truth_questions
 from app.services.preparation import list_preparation_methods
 from app.services.preparation import prepare_docling
 from app.services.preparation import prepare_pymupdf_text
@@ -742,6 +746,79 @@ def create_saved_experiment(
     return saved_experiment
 
 
+@router.post(
+    "/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate",
+    response_model=SavedExperimentResponse,
+)
+def evaluate_saved_experiment(
+    project_id: str,
+    saved_experiment_id: str,
+    payload: SavedExperimentEvaluateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> models.SavedExperiment:
+    _get_project_or_404(db, project_id)
+    saved_experiment = _get_saved_experiment_or_404(db, project_id, saved_experiment_id)
+    if saved_experiment.ground_truth_set_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved experiment has no ground truth set",
+        )
+    ground_truth_set = _get_ground_truth_set_or_404(db, project_id, saved_experiment.ground_truth_set_id)
+    index_cache_id = (
+        payload.index_cache_id
+        if payload is not None and payload.index_cache_id
+        else str(saved_experiment.params_snapshot_json.get("index_cache_id") or "")
+    )
+    if not index_cache_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved experiment evaluation requires index_cache_id",
+        )
+    index_cache = _get_project_cache_or_404(db, project_id, index_cache_id)
+    if index_cache.cache_type != "qdrant_index":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="index_cache_id must reference a qdrant_index cache",
+        )
+
+    started_at = datetime.now(UTC)
+    saved_experiment.status = "running"
+    saved_experiment.started_at = started_at
+    saved_experiment.finished_at = None
+    saved_experiment.error_json = None
+    db.commit()
+    try:
+        summary = evaluate_ground_truth_questions(
+            ground_truth_set=ground_truth_set,
+            index_cache=index_cache,
+            saved_experiment=saved_experiment,
+            vector_store=_qdrant_store(),
+        )
+    except ValueError as exc:
+        saved_experiment.status = "failed"
+        saved_experiment.finished_at = datetime.now(UTC)
+        saved_experiment.error_json = {"message": str(exc), "type": type(exc).__name__}
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        saved_experiment.status = "failed"
+        saved_experiment.finished_at = datetime.now(UTC)
+        saved_experiment.error_json = {"message": str(exc), "type": type(exc).__name__}
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to evaluate saved experiment: {exc}",
+        ) from exc
+
+    saved_experiment.metrics_summary_json = summary
+    saved_experiment.status = str(summary.get("evaluation", {}).get("status") or "completed")
+    saved_experiment.finished_at = datetime.now(UTC)
+    index_cache.last_used_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(saved_experiment)
+    return saved_experiment
+
+
 def _get_project_or_404(db: Session, project_id: str) -> models.Project:
     project = db.get(models.Project, project_id)
     if project is None:
@@ -784,6 +861,17 @@ def _get_project_cache_or_404(db: Session, project_id: str, cache_id: str) -> mo
     if cache is None or cache.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Derived cache not found")
     return cache
+
+
+def _get_saved_experiment_or_404(
+    db: Session,
+    project_id: str,
+    saved_experiment_id: str,
+) -> models.SavedExperiment:
+    saved_experiment = db.get(models.SavedExperiment, saved_experiment_id)
+    if saved_experiment is None or saved_experiment.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Saved experiment not found")
+    return saved_experiment
 
 
 def _get_parameter_set_or_404(
@@ -1290,3 +1378,7 @@ def _ground_truth_storage_dir(project_id: str, storage_path: str | None) -> Path
     if not ground_truth_dir.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ground truth storage is missing")
     return ground_truth_dir
+
+
+def _qdrant_store() -> QdrantVectorStore:
+    return QdrantVectorStore(get_settings().qdrant_url)

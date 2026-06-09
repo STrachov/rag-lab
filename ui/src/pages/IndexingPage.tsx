@@ -4,12 +4,14 @@ import { useSearchParams } from "react-router-dom";
 import {
   createParameterSet,
   createQdrantIndex,
+  createSavedExperiment,
   DataAsset,
   deleteDerivedCache,
   deleteParameterSet,
   DerivedCache,
   EmbeddingModel,
   EmbeddingParamValue,
+  evaluateSavedExperiment,
   GroundTruthQuestion,
   GroundTruthRankingScore,
   GroundTruthSet,
@@ -27,6 +29,7 @@ import {
   Project,
   RerankerModel,
   RetrievalPreviewResponse,
+  SavedExperiment,
   scoreGroundTruthRanking,
   SparseModel,
 } from "../api/client";
@@ -72,10 +75,13 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
   const [rerankResult, setRerankResult] = useState<RetrievalPreviewResponse | null>(null);
   const [retrievalMetrics, setRetrievalMetrics] = useState<GroundTruthRankingScore | null>(null);
   const [rerankMetrics, setRerankMetrics] = useState<GroundTruthRankingScore | null>(null);
+  const [evaluationExperiment, setEvaluationExperiment] = useState<SavedExperiment | null>(null);
   const [isSavingRetrievalPreset, setIsSavingRetrievalPreset] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [isRetrieving, setIsRetrieving] = useState(false);
   const [isReranking, setIsReranking] = useState(false);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [evaluateWithReranking, setEvaluateWithReranking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const preparedAssets = useMemo(
@@ -441,6 +447,58 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       setError(err instanceof Error ? err.message : "Failed to rerank chunks");
     } finally {
       setIsReranking(false);
+    }
+  }
+
+  async function handleEvaluateGroundTruth() {
+    const dataAssetId = String(selectedIndexCache?.data_asset_id ?? selectedChunksCache?.data_asset_id ?? "");
+    if (!currentProject || !selectedIndexCache || !selectedGroundTruthSetId || !dataAssetId) {
+      return;
+    }
+    const snapshot = {
+      ground_truth: {
+        ground_truth_set_id: selectedGroundTruthSetId,
+        question_count: groundTruthQuestions.length,
+      },
+      index_cache_id: selectedIndexCache.id,
+      index_cache_key: selectedIndexCache.cache_key,
+      retrieval: {
+        candidate_k: candidateK,
+        mode: retrievalMode,
+        parent_score: parentScore,
+        strategy: retrievalStrategy,
+        top_k: topK,
+      },
+      reranking:
+        evaluateWithReranking && selectedRerankerModel
+          ? {
+              enabled: true,
+              model_id: selectedRerankerModel.id,
+              params: rerankerParams,
+            }
+          : null,
+    };
+    setIsEvaluating(true);
+    try {
+      const paramsHash = `sha256:${await sha256Hex(stableStringify(snapshot))}`;
+      const experiment = await createSavedExperiment(currentProject.id, {
+        data_asset_id: dataAssetId,
+        debug_level: "summary",
+        ground_truth_set_id: selectedGroundTruthSetId,
+        name: `GT evaluation ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+        params_hash: paramsHash,
+        params_snapshot_json: snapshot,
+        pipeline_version: "runtime-v1",
+      });
+      const evaluated = await evaluateSavedExperiment(currentProject.id, experiment.id, {
+        index_cache_id: selectedIndexCache.id,
+      });
+      setEvaluationExperiment(evaluated);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to evaluate ground truth questions");
+    } finally {
+      setIsEvaluating(false);
     }
   }
 
@@ -945,6 +1003,40 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
           </div>
 
           <div className="parameter-section">
+            <h2>Ground Truth Evaluation</h2>
+            <div className="asset-mini-summary">
+              <span>{groundTruthQuestions.length} questions</span>
+              <span>{selectedIndexCache ? String(selectedIndexCache.metadata_json.collection_name ?? selectedIndexCache.cache_key) : "no index"}</span>
+              <span>{retrievalStrategy}</span>
+              <span>{retrievalMode}</span>
+            </div>
+            <label className="check-row">
+              <input
+                checked={evaluateWithReranking}
+                disabled={!selectedRerankerModel}
+                type="checkbox"
+                onChange={(event) => setEvaluateWithReranking(event.target.checked)}
+              />
+              Use selected reranker
+            </label>
+            <button
+              className="secondary-action"
+              disabled={
+                isEvaluating ||
+                !selectedIndexCache ||
+                selectedIndexCache.status !== "ready" ||
+                !selectedGroundTruthSetId ||
+                groundTruthQuestions.length === 0
+              }
+              onClick={handleEvaluateGroundTruth}
+              type="button"
+            >
+              {isEvaluating ? "Evaluating..." : "Run GT evaluation"}
+            </button>
+            {evaluationExperiment ? <EvaluationResult experiment={evaluationExperiment} /> : null}
+          </div>
+
+          <div className="parameter-section">
             <h2>Index Snapshot</h2>
             <pre className="json-preview">
               {JSON.stringify(selectedIndexCache?.metadata_json ?? { chunks_cache_id: chunksCacheId || null }, null, 2)}
@@ -1215,6 +1307,58 @@ function RankingMetrics({ score, title }: { score: GroundTruthRankingScore; titl
   );
 }
 
+function EvaluationResult({ experiment }: { experiment: SavedExperiment }) {
+  const summary = experiment.metrics_summary_json as {
+    evaluation?: Record<string, unknown>;
+    metric_averages?: Record<string, unknown>;
+    questions?: Array<Record<string, unknown>>;
+  };
+  const evaluation = summary.evaluation ?? {};
+  const metricAverages = summary.metric_averages ?? {};
+  const questions = summary.questions ?? [];
+  return (
+    <div className="chunk-preview">
+      <h3>Evaluation Result</h3>
+      <div className="asset-mini-summary">
+        <span>{experiment.status}</span>
+        <span>{String(evaluation.completed_question_count ?? 0)} completed</span>
+        <span>{String(evaluation.error_count ?? 0)} errors</span>
+        <span>{String(evaluation.warning_count ?? 0)} warnings</span>
+      </div>
+      {Object.keys(metricAverages).length > 0 ? (
+        <div className="metric-strip retrieval-metrics-strip">
+          {Object.entries(metricAverages).map(([name, value]) => (
+            <div key={name}>
+              <span>{formatMetricName(name)}</span>
+              <strong>{typeof value === "number" ? formatMetricValue(value) : "-"}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {questions.length > 0 ? (
+        <div className="table">
+          <div className="table-row experiment-table table-head">
+            <span>Question</span>
+            <span>Status</span>
+            <span>Top result</span>
+            <span>Hit</span>
+            <span>Warnings</span>
+          </div>
+          {questions.map((question, index) => (
+            <div className="table-row experiment-table" key={String(question.question_id ?? index)}>
+              <span>{formatQuestionOption(String(question.question ?? question.question_id ?? ""))}</span>
+              <span>{String(question.status ?? "")}</span>
+              <span>{formatEvaluationTopResult(question.top_result)}</span>
+              <span>{formatEvaluationHit(question.metrics)}</span>
+              <span>{Array.isArray(question.warnings) ? question.warnings.length : 0}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function upsertCache(caches: DerivedCache[], cache: DerivedCache): DerivedCache[] {
   const next = caches.filter((item) => item.id !== cache.id);
   return [cache, ...next];
@@ -1385,6 +1529,29 @@ function formatMetricValue(value: number): string {
     return String(value);
   }
   return value.toFixed(3);
+}
+
+function formatEvaluationHit(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "-";
+  }
+  const metrics = value as Record<string, unknown>;
+  const hit = metrics.hit_at_k ?? metrics.page_hit_at_k ?? metrics.expected_not_found;
+  return typeof hit === "number" ? formatMetricValue(hit) : "-";
+}
+
+function formatEvaluationTopResult(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "-";
+  }
+  const result = value as Record<string, unknown>;
+  const parts = [
+    result.source_name ? String(result.source_name) : "",
+    typeof result.page === "number" ? `page ${result.page}` : "",
+    typeof result.page_start === "number" ? `page ${result.page_start}` : "",
+    result.chunk_id ? String(result.chunk_id) : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "-";
 }
 
 function formatInteger(value: number): string {
