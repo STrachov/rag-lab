@@ -1024,42 +1024,59 @@ function RetrievalResult({ retrieval, title }: { retrieval: RetrievalPreviewResp
     <div className="chunk-list">
       <h3>{title}</h3>
       {retrieval.retrieved_chunks.map((chunk, index) => (
-        <details className="chunk-card chunk-card-collapsible" key={`${chunk.chunk_id ?? "chunk"}-${index}`}>
-          <summary className="chunk-summary">
-            <span className="chunk-summary-main">{chunkResultLabel(chunk, index)}</span>
-            <span className="chunk-summary-score">{primaryScoreLabel(chunk)}</span>
-          </summary>
-          <div className="chunk-card-body">
-            <div className="chunk-meta">
-              {chunk.chunk_id ? <strong>{chunk.chunk_id}</strong> : null}
-              {chunk.source_name ? <span>{chunk.source_name}</span> : null}
-              {pageLabel(chunk) ? <span>{pageLabel(chunk)}</span> : null}
-              {chunk.token_count ? <span>{chunk.token_count} tokens</span> : null}
-              {chunk.score !== undefined && chunk.score !== null ? <span>score {chunk.score.toFixed(4)}</span> : null}
-              {chunk.dense_score !== undefined && chunk.dense_score !== null ? (
-                <span>dense {chunk.dense_score.toFixed(4)}</span>
-              ) : null}
-              {chunk.sparse_score !== undefined && chunk.sparse_score !== null ? (
-                <span>sparse {chunk.sparse_score.toFixed(4)}</span>
-              ) : null}
-              {chunk.rerank_score !== undefined && chunk.rerank_score !== null ? (
-                <span>rerank {chunk.rerank_score.toFixed(4)}</span>
-              ) : null}
-              {chunk.original_score !== undefined && chunk.original_score !== null ? (
-                <span>original {chunk.original_score.toFixed(4)}</span>
-              ) : null}
-              {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
-              {chunk.parent_type ? <span>{chunk.parent_type}</span> : null}
-              {chunk.parent_id ? <span>{chunk.parent_id}</span> : null}
-            </div>
-            {chunk.heading_path && chunk.heading_path.length > 0 ? (
-              <div className="chunk-heading-path">{chunk.heading_path.join(" / ")}</div>
-            ) : null}
-            {chunk.text_preview ? <pre>{chunk.text_preview}</pre> : null}
-          </div>
-        </details>
+        <ChunkResultItem chunk={chunk} index={index} key={`${chunk.chunk_id ?? "chunk"}-${index}`} />
       ))}
     </div>
+  );
+}
+
+function ChunkResultItem({
+  chunk,
+  index,
+}: {
+  chunk: RetrievalPreviewResponse["retrieved_chunks"][number];
+  index: number;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <details
+      className="chunk-card chunk-card-collapsible"
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+    >
+      <summary className="chunk-summary">
+        <span className="chunk-summary-main">{chunkResultLabel(chunk, index)}</span>
+        <span className="chunk-summary-score">{primaryScoreLabel(chunk)}</span>
+      </summary>
+      {isOpen ? (
+        <div className="chunk-card-body">
+          <div className="chunk-meta">
+            {chunk.chunk_id ? <strong>{chunk.chunk_id}</strong> : null}
+            {chunk.source_name ? <span>{chunk.source_name}</span> : null}
+            {pageLabel(chunk) ? <span>{pageLabel(chunk)}</span> : null}
+            {chunk.token_count ? <span>{chunk.token_count} tokens</span> : null}
+            {chunk.score !== undefined && chunk.score !== null ? <span>score {chunk.score.toFixed(4)}</span> : null}
+            {chunk.dense_score !== undefined && chunk.dense_score !== null ? (
+              <span>dense {chunk.dense_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.sparse_score !== undefined && chunk.sparse_score !== null ? (
+              <span>sparse {chunk.sparse_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.rerank_score !== undefined && chunk.rerank_score !== null ? (
+              <span>rerank {chunk.rerank_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.original_score !== undefined && chunk.original_score !== null ? (
+              <span>original {chunk.original_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
+          </div>
+          {chunk.heading_path && chunk.heading_path.length > 0 ? (
+            <div className="chunk-heading-path">{chunk.heading_path.join(" / ")}</div>
+          ) : null}
+          {chunk.text_preview ? <pre>{chunk.text_preview}</pre> : null}
+        </div>
+      ) : null}
+    </details>
   );
 }
 
@@ -1100,7 +1117,7 @@ function chunkResultLabel(chunk: RetrievalPreviewResponse["retrieved_chunks"][nu
     chunk.token_count ? `${chunk.token_count} tokens` : "",
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" / ");
 }
 
 function pageLabel(chunk: RetrievalPreviewResponse["retrieved_chunks"][number]): string {
