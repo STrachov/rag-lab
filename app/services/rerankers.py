@@ -1,8 +1,25 @@
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
+from threading import Lock
+import time
 from typing import Any
+
+import httpx
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+VOYAGE_RERANK_RETRY_STATUS_CODES = {429, 502, 503, 504}
+VOYAGE_RERANK_TOKEN_CHARS = 2
+VOYAGE_RERANK_TOKEN_OVERHEAD_PER_TEXT = 8
+_VOYAGE_RERANK_THROTTLE_LOCK = Lock()
+_VOYAGE_RERANK_NEXT_REQUEST_AT = 0.0
+_VOYAGE_RERANK_TOKEN_WINDOW_STARTED_AT = 0.0
+_VOYAGE_RERANK_TOKENS_USED_IN_WINDOW = 0
 
 
 @dataclass(frozen=True)
@@ -103,6 +120,26 @@ COMMON_CROSS_ENCODER_FIELDS = [
 ]
 
 
+COMMON_VOYAGE_RERANK_FIELDS = [
+    RerankerParamField(
+        name="truncation",
+        label="Truncate overlength inputs",
+        field_type="boolean",
+        default=True,
+        help_text="Allow Voyage to truncate overlength query/document pairs instead of rejecting the request.",
+    ),
+    RerankerParamField(
+        name="timeout_seconds",
+        label="Timeout seconds",
+        field_type="number",
+        default=120,
+        min_value=1,
+        max_value=600,
+        step=1,
+    ),
+]
+
+
 RERANKER_MODELS: dict[str, RerankerModelSpec] = {
     "baai_bge_reranker_v2_m3": RerankerModelSpec(
         id="baai_bge_reranker_v2_m3",
@@ -139,6 +176,30 @@ RERANKER_MODELS: dict[str, RerankerModelSpec] = {
         model_name="cross-encoder/ms-marco-MiniLM-L6-v2",
         backend="cross_encoder",
         fields=COMMON_CROSS_ENCODER_FIELDS,
+    ),
+    "voyage_rerank_2_5": RerankerModelSpec(
+        id="voyage_rerank_2_5",
+        label="Voyage rerank-2.5",
+        description=(
+            "Remote Voyage AI reranker for higher-quality reranking of retrieved candidates. "
+            "Sends the query and candidate chunk text to Voyage."
+        ),
+        provider="voyage",
+        model_name="rerank-2.5",
+        backend="remote_api",
+        fields=COMMON_VOYAGE_RERANK_FIELDS,
+    ),
+    "voyage_rerank_2_5_lite": RerankerModelSpec(
+        id="voyage_rerank_2_5_lite",
+        label="Voyage rerank-2.5 Lite",
+        description=(
+            "Remote Voyage AI reranker optimized for lower latency and higher throughput. "
+            "Sends the query and candidate chunk text to Voyage."
+        ),
+        provider="voyage",
+        model_name="rerank-2.5-lite",
+        backend="remote_api",
+        fields=COMMON_VOYAGE_RERANK_FIELDS,
     ),
 }
 
@@ -182,6 +243,183 @@ class CrossEncoderReranker:
         return values
 
 
+class VoyageReranker:
+    def __init__(self, spec: RerankerModelSpec, params: dict[str, Any]) -> None:
+        settings = get_settings()
+        api_key = str(getattr(settings, "voyage_api_key", "") or "")
+        if not api_key:
+            raise ValueError("RAG_LAB_VOYAGE_API_KEY is required for Voyage reranker models")
+
+        self.base_url = str(getattr(settings, "voyage_base_url", "https://api.voyageai.com")).rstrip("/")
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        self.max_retries = max(0, int(getattr(settings, "voyage_rerank_max_retries", 0) or 0))
+        self.params = params
+        self.rpm_limit = max(0, int(getattr(settings, "voyage_rerank_rpm_limit", 0) or 0))
+        self.spec = spec
+        self.tpm_limit = _voyage_rerank_tpm_limit(settings, spec.model_name)
+        self.tpm_utilization = min(
+            1.0,
+            max(0.1, float(getattr(settings, "voyage_rerank_tpm_utilization", 0.65) or 0.65)),
+        )
+
+    def score(self, query: str, passages: list[str]) -> list[float]:
+        if not passages:
+            return []
+
+        estimated_tokens = _estimate_voyage_rerank_tokens(query, passages)
+        logger.info(
+            "voyage rerank plan model=%s document_count=%s estimated_tokens=%s "
+            "rpm_limit=%s tpm_limit=%s tpm_utilization=%.2f timeout_seconds=%s",
+            self.spec.model_name,
+            len(passages),
+            estimated_tokens,
+            self.rpm_limit,
+            self.tpm_limit,
+            self.tpm_utilization,
+            float(self.params["timeout_seconds"]),
+        )
+        response = self._post_rerank(query, passages, estimated_tokens=estimated_tokens)
+        payload = response.json()
+        items = payload.get("data")
+        if not isinstance(items, list):
+            raise ValueError("Voyage rerank response did not include a data list")
+
+        scores: list[float | None] = [None] * len(passages)
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("Voyage rerank response contained an invalid item")
+            try:
+                index = int(item["index"])
+                score = float(item.get("relevance_score", item.get("score")))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("Voyage rerank response contained an invalid score item") from exc
+            if 0 <= index < len(scores):
+                scores[index] = score
+
+        if any(score is None for score in scores):
+            raise ValueError("Voyage rerank response did not return a score for every candidate")
+        return [float(score) for score in scores]
+
+    def _post_rerank(
+        self,
+        query: str,
+        passages: list[str],
+        *,
+        estimated_tokens: int,
+    ) -> httpx.Response:
+        payload = {
+            "documents": passages,
+            "model": self.spec.model_name,
+            "query": query,
+            "return_documents": False,
+            "top_k": len(passages),
+            "truncation": bool(self.params["truncation"]),
+        }
+        timeout = float(self.params["timeout_seconds"])
+        for attempt in range(self.max_retries + 1):
+            _wait_for_voyage_rerank_capacity(
+                estimated_tokens=estimated_tokens,
+                rpm_limit=self.rpm_limit,
+                tpm_limit=self.tpm_limit,
+                tpm_utilization=self.tpm_utilization,
+            )
+            try:
+                started_at = time.perf_counter()
+                response = httpx.post(
+                    f"{self.base_url}/v1/rerank",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=timeout,
+                )
+                elapsed_seconds = time.perf_counter() - started_at
+            except httpx.TimeoutException as exc:
+                if attempt < self.max_retries:
+                    delay = _voyage_rerank_transport_retry_delay(attempt)
+                    logger.warning(
+                        "voyage rerank timeout model=%s attempt=%s/%s retry_in_seconds=%.1f "
+                        "timeout_seconds=%s document_count=%s estimated_tokens=%s",
+                        self.spec.model_name,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        delay,
+                        timeout,
+                        len(passages),
+                        estimated_tokens,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise ValueError(
+                    f"Voyage rerank request timed out after {timeout:g} seconds. "
+                    "Try increasing timeout_seconds, reducing candidate_k, or checking whether "
+                    "the current VPN/proxy is slowing the connection."
+                ) from exc
+            except httpx.TransportError as exc:
+                if attempt < self.max_retries:
+                    delay = _voyage_rerank_transport_retry_delay(attempt)
+                    logger.warning(
+                        "voyage rerank transport error model=%s attempt=%s/%s retry_in_seconds=%.1f "
+                        "error_type=%s document_count=%s estimated_tokens=%s",
+                        self.spec.model_name,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        delay,
+                        type(exc).__name__,
+                        len(passages),
+                        estimated_tokens,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise ValueError(
+                    "Voyage rerank request failed due to a network transport error. "
+                    "Check the current VPN/proxy connection or try again later."
+                ) from exc
+
+            logger.info(
+                "voyage rerank response model=%s attempt=%s/%s status_code=%s elapsed_seconds=%.2f "
+                "retry_after=%s document_count=%s estimated_tokens=%s",
+                self.spec.model_name,
+                attempt + 1,
+                self.max_retries + 1,
+                response.status_code,
+                elapsed_seconds,
+                response.headers.get("Retry-After"),
+                len(passages),
+                estimated_tokens,
+            )
+            if response.status_code in VOYAGE_RERANK_RETRY_STATUS_CODES and attempt < self.max_retries:
+                delay = _voyage_rerank_retry_delay(response, attempt)
+                logger.warning(
+                    "voyage rerank retry model=%s status_code=%s retry_in_seconds=%.1f "
+                    "document_count=%s estimated_tokens=%s",
+                    self.spec.model_name,
+                    response.status_code,
+                    delay,
+                    len(passages),
+                    estimated_tokens,
+                )
+                time.sleep(delay)
+                continue
+            if response.status_code == 429:
+                raise ValueError(
+                    "Voyage rerank returned 429 Too Many Requests after retries. "
+                    "Wait for the Voyage quota window to reset, or lower "
+                    "RAG_LAB_VOYAGE_RERANK_RPM_LIMIT / model TPM limit / "
+                    "RAG_LAB_VOYAGE_RERANK_TPM_UTILIZATION."
+                )
+            if response.status_code == 403:
+                raise ValueError(
+                    "Voyage rerank returned 403 Forbidden. Check whether the current VPN, proxy, "
+                    "IP address, or API project is allowed by Voyage AI."
+                )
+            if response.is_error:
+                response.raise_for_status()
+            return response
+        raise RuntimeError("Voyage rerank retry loop exited unexpectedly")
+
+
 def list_reranker_models() -> list[dict[str, Any]]:
     return [model.to_dict() for model in RERANKER_MODELS.values()]
 
@@ -200,9 +438,14 @@ def normalize_reranker_params(model_id: str, params: dict[str, Any] | None = Non
     return _coerce_params(spec, merged)
 
 
-def create_reranker(model_id: str, params: dict[str, Any] | None = None) -> CrossEncoderReranker:
+def create_reranker(model_id: str, params: dict[str, Any] | None = None) -> CrossEncoderReranker | VoyageReranker:
     spec = get_reranker_model(model_id)
-    return CrossEncoderReranker(spec, normalize_reranker_params(model_id, params))
+    normalized = normalize_reranker_params(model_id, params)
+    if spec.provider == "sentence_transformers":
+        return CrossEncoderReranker(spec, normalized)
+    if spec.provider == "voyage":
+        return VoyageReranker(spec, normalized)
+    raise ValueError(f"Unsupported reranker provider: {spec.provider}")
 
 
 def rerank_chunks(
@@ -248,7 +491,7 @@ def _coerce_params(spec: RerankerModelSpec, params: dict[str, Any]) -> dict[str,
             if field.max_value is not None and value > field.max_value:
                 raise ValueError(f"{name} must be at most {field.max_value}")
         elif field.field_type == "boolean":
-            value = bool(value)
+            value = _coerce_bool(value, name)
         elif field.field_type == "select":
             value = str(value)
             allowed = {option["value"] for option in field.options or []}
@@ -258,6 +501,20 @@ def _coerce_params(spec: RerankerModelSpec, params: dict[str, Any]) -> dict[str,
             value = str(value)
         coerced[name] = value
     return coerced
+
+
+def _coerce_bool(value: Any, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+    if isinstance(value, int):
+        return bool(value)
+    raise ValueError(f"{name} must be a boolean")
 
 
 def _as_float(value: Any) -> float:
@@ -278,3 +535,91 @@ def _sigmoid(value: float) -> float:
         return 1.0 / (1.0 + z)
     z = math.exp(value)
     return z / (1.0 + z)
+
+
+def _voyage_rerank_tpm_limit(settings: Any, model_name: str) -> int:
+    if model_name == "rerank-2.5-lite":
+        value = getattr(settings, "voyage_rerank_2_5_lite_tpm_limit", 0)
+    else:
+        value = getattr(settings, "voyage_rerank_2_5_tpm_limit", 0)
+    return max(0, int(value or 0))
+
+
+def _estimate_voyage_rerank_tokens(query: str, passages: list[str]) -> int:
+    texts = [query, *passages]
+    return sum(
+        max(1, math.ceil(len(text) / VOYAGE_RERANK_TOKEN_CHARS) + VOYAGE_RERANK_TOKEN_OVERHEAD_PER_TEXT)
+        for text in texts
+    )
+
+
+def _wait_for_voyage_rerank_capacity(
+    *,
+    estimated_tokens: int,
+    rpm_limit: int,
+    tpm_limit: int,
+    tpm_utilization: float,
+) -> None:
+    global _VOYAGE_RERANK_NEXT_REQUEST_AT
+    global _VOYAGE_RERANK_TOKEN_WINDOW_STARTED_AT
+    global _VOYAGE_RERANK_TOKENS_USED_IN_WINDOW
+
+    if rpm_limit <= 0 and tpm_limit <= 0:
+        return
+
+    usable_tpm_limit = max(1, int(tpm_limit * min(1.0, max(0.1, tpm_utilization)))) if tpm_limit > 0 else 0
+    while True:
+        with _VOYAGE_RERANK_THROTTLE_LOCK:
+            now = time.monotonic()
+            wait_seconds = 0.0
+            wait_reason = ""
+            if rpm_limit > 0 and now < _VOYAGE_RERANK_NEXT_REQUEST_AT:
+                wait_seconds = max(wait_seconds, _VOYAGE_RERANK_NEXT_REQUEST_AT - now)
+                wait_reason = "rpm"
+
+            if usable_tpm_limit > 0:
+                if (
+                    _VOYAGE_RERANK_TOKEN_WINDOW_STARTED_AT == 0.0
+                    or now - _VOYAGE_RERANK_TOKEN_WINDOW_STARTED_AT >= 60.0
+                ):
+                    _VOYAGE_RERANK_TOKEN_WINDOW_STARTED_AT = now
+                    _VOYAGE_RERANK_TOKENS_USED_IN_WINDOW = 0
+                token_charge = min(max(1, estimated_tokens), usable_tpm_limit)
+                if _VOYAGE_RERANK_TOKENS_USED_IN_WINDOW + token_charge > usable_tpm_limit:
+                    token_wait_seconds = 60.0 - (now - _VOYAGE_RERANK_TOKEN_WINDOW_STARTED_AT)
+                    if token_wait_seconds >= wait_seconds:
+                        wait_reason = "tpm"
+                    wait_seconds = max(wait_seconds, token_wait_seconds)
+
+            if wait_seconds <= 0.0:
+                if rpm_limit > 0:
+                    _VOYAGE_RERANK_NEXT_REQUEST_AT = now + (60.0 / rpm_limit)
+                if usable_tpm_limit > 0:
+                    _VOYAGE_RERANK_TOKENS_USED_IN_WINDOW += min(max(1, estimated_tokens), usable_tpm_limit)
+                return
+
+        logger.info(
+            "voyage rerank throttle wait reason=%s wait_seconds=%.1f estimated_tokens=%s "
+            "rpm_limit=%s tpm_limit=%s tpm_utilization=%.2f",
+            wait_reason or "unknown",
+            wait_seconds,
+            estimated_tokens,
+            rpm_limit,
+            tpm_limit,
+            tpm_utilization,
+        )
+        time.sleep(wait_seconds)
+
+
+def _voyage_rerank_retry_delay(response: httpx.Response, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+    return min(60.0, float(2**attempt))
+
+
+def _voyage_rerank_transport_retry_delay(attempt: int) -> float:
+    return min(60.0, float(2**attempt))

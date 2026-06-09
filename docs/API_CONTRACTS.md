@@ -211,6 +211,11 @@ Rerank preview request:
 }
 ```
 
+Reranker catalog entries may be local `sentence_transformers` cross-encoders or remote Voyage API
+entries. Voyage entries are `voyage_rerank_2_5` and `voyage_rerank_2_5_lite`; when selected, rerank
+preview sends the query and full text for the current retrieval candidate cache to Voyage `/v1/rerank`
+and stores only scores plus the existing retrieval metadata in the preview response.
+
 ## Ground Truth Sets
 
 ```http

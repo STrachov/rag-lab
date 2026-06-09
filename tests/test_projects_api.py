@@ -377,6 +377,8 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     assert "baai_bge_reranker_v2_m3" in model_ids
     assert "qwen3_reranker_0_6b" in model_ids
     assert "ms_marco_minilm_l6_v2" in model_ids
+    assert "voyage_rerank_2_5" in model_ids
+    assert "voyage_rerank_2_5_lite" in model_ids
     qwen = next(model for model in models if model["id"] == "qwen3_reranker_0_6b")
     assert qwen["provider"] == "sentence_transformers"
     assert qwen["model_name"] == "Qwen/Qwen3-Reranker-0.6B"
@@ -384,6 +386,105 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     assert fields["device"]["default"] == "cpu"
     assert fields["max_length"]["max"] == 8192
     assert "instruction" in fields
+    voyage_lite = next(model for model in models if model["id"] == "voyage_rerank_2_5_lite")
+    assert voyage_lite["provider"] == "voyage"
+    assert voyage_lite["model_name"] == "rerank-2.5-lite"
+    assert voyage_lite["backend"] == "remote_api"
+    voyage_fields = {field["name"]: field for field in voyage_lite["fields"]}
+    assert voyage_fields["timeout_seconds"]["default"] == 120
+    assert voyage_fields["truncation"]["default"] is True
+
+
+def test_voyage_reranker_sends_query_and_documents(monkeypatch) -> None:
+    from app.services.rerankers import rerank_chunks
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "voyage_api_key": "test-key",
+            "voyage_base_url": "https://voyage.test",
+            "voyage_rerank_2_5_lite_tpm_limit": 4000000,
+            "voyage_rerank_max_retries": 1,
+            "voyage_rerank_rpm_limit": 0,
+            "voyage_rerank_tpm_utilization": 0.95,
+        },
+    )()
+    calls: list[dict] = []
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: float) -> httpx.Response:
+        calls.append({"headers": headers, "json": json, "timeout": timeout, "url": url})
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": 1, "relevance_score": 0.95},
+                    {"index": 0, "relevance_score": 0.10},
+                ]
+            },
+        )
+
+    monkeypatch.setattr("app.services.rerankers.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.rerankers.httpx.post", fake_post)
+
+    reranked = rerank_chunks(
+        chunks=[
+            {"chunk_id": "chunk_1", "score": 0.8, "text_preview": "fallback one"},
+            {"chunk_id": "chunk_2", "score": 0.7, "text_preview": "fallback two"},
+        ],
+        model_id="voyage_rerank_2_5_lite",
+        params={"timeout_seconds": "45", "truncation": "false"},
+        query="When is payment due?",
+        text_by_chunk_id={"chunk_1": "weak passage", "chunk_2": "payment is due in 30 days"},
+    )
+
+    assert [chunk["chunk_id"] for chunk in reranked] == ["chunk_2", "chunk_1"]
+    assert reranked[0]["rerank_score"] == 0.95
+    assert calls[0]["url"] == "https://voyage.test/v1/rerank"
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-key"
+    assert calls[0]["json"] == {
+        "documents": ["weak passage", "payment is due in 30 days"],
+        "model": "rerank-2.5-lite",
+        "query": "When is payment due?",
+        "return_documents": False,
+        "top_k": 2,
+        "truncation": False,
+    }
+    assert calls[0]["timeout"] == 45.0
+
+
+def test_voyage_reranker_retries_rate_limit_response(monkeypatch) -> None:
+    from app.services.rerankers import create_reranker
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "voyage_api_key": "test-key",
+            "voyage_base_url": "https://voyage.test",
+            "voyage_rerank_2_5_tpm_limit": 2000000,
+            "voyage_rerank_max_retries": 2,
+            "voyage_rerank_rpm_limit": 0,
+            "voyage_rerank_tpm_utilization": 0.95,
+        },
+    )()
+    responses = [
+        httpx.Response(429, headers={"Retry-After": "0.5"}),
+        httpx.Response(200, json={"data": [{"index": 0, "relevance_score": 0.75}]}),
+    ]
+    sleeps: list[float] = []
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: float) -> httpx.Response:
+        return responses.pop(0)
+
+    monkeypatch.setattr("app.services.rerankers.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.rerankers.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.rerankers.time.sleep", lambda seconds: sleeps.append(seconds))
+
+    reranker = create_reranker("voyage_rerank_2_5", {"timeout_seconds": 30, "truncation": True})
+
+    assert reranker.score("payment terms", ["payment is due in 30 days"]) == [0.75]
+    assert sleeps == [0.5]
 
 
 def test_materialize_chunks_creates_derived_cache_with_docling_sidecar(

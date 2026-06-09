@@ -263,3 +263,39 @@ Cons:
 - chunk and query text leave the local machine when a Voyage model is selected;
 - indexing now depends on external API availability, credentials, rate limits, and cost;
 - Qdrant collections must be rebuilt when `output_dimension` changes.
+
+---
+
+## 2026-06-09 - Add explicit remote Voyage rerank adapters
+
+Status: accepted
+
+### Context
+
+Local cross-encoder rerankers are useful baselines but can be slow on CPU and require first-run model
+downloads. The lab needs production-relevant remote reranking candidates while keeping data movement
+and rate limits visible.
+
+### Decision
+
+- Add `voyage_rerank_2_5` and `voyage_rerank_2_5_lite` to the backend reranker catalog.
+- Treat Voyage reranking as an explicit remote API backend, not a replacement for local rerankers.
+- Use the Voyage `/v1/rerank` contract with `query`, `documents`, `model`, `top_k`,
+  `return_documents=false`, and `truncation`.
+- Keep rerank rate-limit settings separate from embedding settings because Voyage exposes different
+  TPM limits for rerank models.
+- Show a compact frontend summary that remote reranking sends query and candidate text to the
+  provider API.
+
+### Consequences
+
+Pros:
+- faster and stronger reranking candidates are available without local model downloads;
+- reranker parameter snapshots remain explicit and comparable;
+- logs show request counts, estimated tokens, latency, retries, and rate-limit waits without logging
+  chunk text or secrets.
+
+Cons:
+- query and candidate chunk text leave the local machine when a Voyage reranker is selected;
+- reranking now depends on external API availability, credentials, rate limits, and cost;
+- local token estimates remain approximate and may need conservative utilization on smaller plans.

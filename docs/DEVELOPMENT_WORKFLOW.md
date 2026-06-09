@@ -66,6 +66,17 @@ RAG_LAB_VOYAGE_TPM_UTILIZATION=0.95
 RAG_LAB_VOYAGE_MAX_RETRIES=5
 ```
 
+Voyage reranker models use the same `RAG_LAB_VOYAGE_API_KEY` and base URL, but have separate
+throttle settings because the account limits differ by endpoint/model:
+
+```bash
+RAG_LAB_VOYAGE_RERANK_RPM_LIMIT=2000
+RAG_LAB_VOYAGE_RERANK_2_5_TPM_LIMIT=2000000
+RAG_LAB_VOYAGE_RERANK_2_5_LITE_TPM_LIMIT=4000000
+RAG_LAB_VOYAGE_RERANK_TPM_UTILIZATION=0.95
+RAG_LAB_VOYAGE_RERANK_MAX_RETRIES=5
+```
+
 Tune these to match the active Voyage project limits. `RAG_LAB_VOYAGE_TPM_UTILIZATION`
 keeps batch planning below the advertised TPM limit because local token estimates are approximate.
 For a free-plan `voyage-4-lite` account, use:

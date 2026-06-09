@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     voyage_base_url: str = "https://api.voyageai.com"
     voyage_max_retries: int = 5
     voyage_rpm_limit: int = 2000
+    voyage_rerank_2_5_lite_tpm_limit: int = 4000000
+    voyage_rerank_2_5_tpm_limit: int = 2000000
+    voyage_rerank_max_retries: int = 5
+    voyage_rerank_rpm_limit: int = 2000
+    voyage_rerank_tpm_utilization: float = 0.95
     voyage_tpm_limit: int = 16000000
     voyage_tpm_utilization: float = 0.95
     database_url: str = Field(
