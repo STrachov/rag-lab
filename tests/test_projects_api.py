@@ -1016,6 +1016,13 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     assert summary["questions"][0]["question_id"] == "q001"
     assert summary["questions"][0]["top_result"]["chunk_id"] == "chunk_000001"
 
+    detail_response = client.get(
+        f"/v1/projects/{project_id}/saved-experiments/{experiment_response.json()['id']}",
+    )
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["metrics_summary_json"]["evaluation"]["question_count"] == 1
+
 
 def test_qdrant_index_failure_is_visible_in_derived_cache(
     client: TestClient,

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import {
   createParameterSet,
@@ -1033,7 +1033,18 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
             >
               {isEvaluating ? "Evaluating..." : "Run GT evaluation"}
             </button>
-            {evaluationExperiment ? <EvaluationResult experiment={evaluationExperiment} /> : null}
+            {evaluationExperiment ? (
+              <div className="notice neutral">
+                Evaluation saved as{" "}
+                <Link
+                  className="project-link"
+                  to={`/projects/${currentProject.id}/saved-experiments/${evaluationExperiment.id}`}
+                >
+                  {evaluationExperiment.name}
+                </Link>
+                .
+              </div>
+            ) : null}
           </div>
 
           <div className="parameter-section">
@@ -1307,58 +1318,6 @@ function RankingMetrics({ score, title }: { score: GroundTruthRankingScore; titl
   );
 }
 
-function EvaluationResult({ experiment }: { experiment: SavedExperiment }) {
-  const summary = experiment.metrics_summary_json as {
-    evaluation?: Record<string, unknown>;
-    metric_averages?: Record<string, unknown>;
-    questions?: Array<Record<string, unknown>>;
-  };
-  const evaluation = summary.evaluation ?? {};
-  const metricAverages = summary.metric_averages ?? {};
-  const questions = summary.questions ?? [];
-  return (
-    <div className="chunk-preview">
-      <h3>Evaluation Result</h3>
-      <div className="asset-mini-summary">
-        <span>{experiment.status}</span>
-        <span>{String(evaluation.completed_question_count ?? 0)} completed</span>
-        <span>{String(evaluation.error_count ?? 0)} errors</span>
-        <span>{String(evaluation.warning_count ?? 0)} warnings</span>
-      </div>
-      {Object.keys(metricAverages).length > 0 ? (
-        <div className="metric-strip retrieval-metrics-strip">
-          {Object.entries(metricAverages).map(([name, value]) => (
-            <div key={name}>
-              <span>{formatMetricName(name)}</span>
-              <strong>{typeof value === "number" ? formatMetricValue(value) : "-"}</strong>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {questions.length > 0 ? (
-        <div className="table">
-          <div className="table-row experiment-table table-head">
-            <span>Question</span>
-            <span>Status</span>
-            <span>Top result</span>
-            <span>Hit</span>
-            <span>Warnings</span>
-          </div>
-          {questions.map((question, index) => (
-            <div className="table-row experiment-table" key={String(question.question_id ?? index)}>
-              <span>{formatQuestionOption(String(question.question ?? question.question_id ?? ""))}</span>
-              <span>{String(question.status ?? "")}</span>
-              <span>{formatEvaluationTopResult(question.top_result)}</span>
-              <span>{formatEvaluationHit(question.metrics)}</span>
-              <span>{Array.isArray(question.warnings) ? question.warnings.length : 0}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function upsertCache(caches: DerivedCache[], cache: DerivedCache): DerivedCache[] {
   const next = caches.filter((item) => item.id !== cache.id);
   return [cache, ...next];
@@ -1529,29 +1488,6 @@ function formatMetricValue(value: number): string {
     return String(value);
   }
   return value.toFixed(3);
-}
-
-function formatEvaluationHit(value: unknown): string {
-  if (!value || typeof value !== "object") {
-    return "-";
-  }
-  const metrics = value as Record<string, unknown>;
-  const hit = metrics.hit_at_k ?? metrics.page_hit_at_k ?? metrics.expected_not_found;
-  return typeof hit === "number" ? formatMetricValue(hit) : "-";
-}
-
-function formatEvaluationTopResult(value: unknown): string {
-  if (!value || typeof value !== "object") {
-    return "-";
-  }
-  const result = value as Record<string, unknown>;
-  const parts = [
-    result.source_name ? String(result.source_name) : "",
-    typeof result.page === "number" ? `page ${result.page}` : "",
-    typeof result.page_start === "number" ? `page ${result.page_start}` : "",
-    result.chunk_id ? String(result.chunk_id) : "",
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" / ") : "-";
 }
 
 function formatInteger(value: number): string {

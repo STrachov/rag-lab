@@ -294,6 +294,9 @@ metrics_summary_json.questions
 
 Per-question rows store metrics, warnings, error metadata, and compact top-result metadata only. They
 must not store full chunk text unless a later explicit debug-full mode is added.
+The UI should treat the saved experiment detail page as the canonical result view. Retrieval preview
+may launch evaluation and link to the saved result, but should not duplicate the full per-question
+result table inline.
 
 ## Breaking-Change Rule
 

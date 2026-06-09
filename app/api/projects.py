@@ -704,6 +704,19 @@ def list_saved_experiments(
     return SavedExperimentListResponse(saved_experiments=saved_experiments)
 
 
+@router.get(
+    "/projects/{project_id}/saved-experiments/{saved_experiment_id}",
+    response_model=SavedExperimentResponse,
+)
+def get_saved_experiment(
+    project_id: str,
+    saved_experiment_id: str,
+    db: Session = Depends(get_db),
+) -> models.SavedExperiment:
+    _get_project_or_404(db, project_id)
+    return _get_saved_experiment_or_404(db, project_id, saved_experiment_id)
+
+
 @router.post(
     "/projects/{project_id}/saved-experiments",
     response_model=SavedExperimentResponse,

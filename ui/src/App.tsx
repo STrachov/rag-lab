@@ -16,6 +16,7 @@ import { ComparisonPage } from "./pages/ComparisonPage";
 import { DataPage } from "./pages/DataPage";
 import { GroundTruthPage } from "./pages/GroundTruthPage";
 import { IndexingPage } from "./pages/IndexingPage";
+import { ExperimentResultsPage } from "./pages/ExperimentResultsPage";
 import { ParametersPage } from "./pages/ParametersPage";
 import { PreparationPage } from "./pages/PreparationPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -133,6 +134,10 @@ export default function App() {
           path="/projects/:projectId/saved-experiments"
         />
         <Route
+          element={projectScopedPage(<ExperimentResultsPage currentProject={currentProject} />)}
+          path="/projects/:projectId/saved-experiments/:experimentId"
+        />
+        <Route
           element={projectScopedPage(<ComparisonPage currentProject={currentProject} />)}
           path="/projects/:projectId/comparison"
         />
@@ -191,7 +196,10 @@ function getActivePage(pathname: string): PageKey {
   if (matchPath("/projects/:projectId/ground-truth", pathname)) {
     return "groundTruth";
   }
-  if (matchPath("/projects/:projectId/saved-experiments", pathname)) {
+  if (
+    matchPath("/projects/:projectId/saved-experiments", pathname) ||
+    matchPath("/projects/:projectId/saved-experiments/:experimentId", pathname)
+  ) {
     return "savedExperiments";
   }
   if (matchPath("/projects/:projectId/comparison", pathname)) {

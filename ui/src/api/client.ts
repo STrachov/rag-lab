@@ -806,6 +806,13 @@ export async function listSavedExperiments(
   return request(`/projects/${projectId}/saved-experiments`);
 }
 
+export async function getSavedExperiment(
+  projectId: string,
+  savedExperimentId: string,
+): Promise<SavedExperiment> {
+  return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}`);
+}
+
 export async function createSavedExperiment(
   projectId: string,
   payload: SavedExperimentCreate,

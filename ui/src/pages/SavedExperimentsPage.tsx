@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { listSavedExperiments, Project, SavedExperiment } from "../api/client";
 
@@ -61,14 +62,35 @@ export function SavedExperimentsPage({ currentProject }: SavedExperimentsPagePro
           {savedExperiments.map((experiment) => (
             <div className="table-row experiment-table" key={experiment.id}>
               <span>{experiment.id}</span>
-              <span>{experiment.name}</span>
+              <span>
+                <Link className="project-link" to={`/projects/${currentProject.id}/saved-experiments/${experiment.id}`}>
+                  {experiment.name}
+                </Link>
+              </span>
               <span>{experiment.data_asset_id}</span>
               <span>{experiment.status}</span>
-              <span>{Object.keys(experiment.metrics_summary_json).length}</span>
+              <span>{experimentMetricsLabel(experiment)}</span>
             </div>
           ))}
         </div>
       )}
     </section>
   );
+}
+
+function experimentMetricsLabel(experiment: SavedExperiment): string {
+  const summary = experiment.metrics_summary_json as {
+    evaluation?: Record<string, unknown>;
+    metric_averages?: Record<string, unknown>;
+  };
+  const metricAverages = summary.metric_averages ?? {};
+  const hit = metricAverages.hit_at_k ?? metricAverages.page_hit_at_k ?? metricAverages.expected_not_found;
+  const completed = summary.evaluation?.completed_question_count;
+  if (typeof hit === "number" && typeof completed === "number") {
+    return `${completed} questions / hit ${hit.toFixed(3)}`;
+  }
+  if (typeof completed === "number") {
+    return `${completed} questions`;
+  }
+  return Object.keys(experiment.metrics_summary_json).length ? "metrics saved" : "-";
 }
