@@ -454,6 +454,10 @@ export type SavedExperimentCreate = {
   status?: string;
 };
 
+export type SavedExperimentDeleteResponse = {
+  deleted_saved_experiment_id: string;
+};
+
 export async function getHealth(): Promise<{ status: string }> {
   return request("/health");
 }
@@ -831,6 +835,26 @@ export async function evaluateSavedExperiment(
   return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}/evaluate`, {
     body: JSON.stringify(payload),
     method: "POST",
+  });
+}
+
+export async function renameSavedExperiment(
+  projectId: string,
+  savedExperimentId: string,
+  payload: { name: string },
+): Promise<SavedExperiment> {
+  return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}`, {
+    body: JSON.stringify(payload),
+    method: "PATCH",
+  });
+}
+
+export async function deleteSavedExperiment(
+  projectId: string,
+  savedExperimentId: string,
+): Promise<SavedExperimentDeleteResponse> {
+  return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}`, {
+    method: "DELETE",
   });
 }
 

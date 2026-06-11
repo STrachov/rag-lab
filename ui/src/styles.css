@@ -486,6 +486,37 @@ h1 {
   color: #a94442;
 }
 
+.icon-action {
+  align-items: center;
+  background: #f8fafb;
+  border: 1px solid #cbd8de;
+  border-radius: 6px;
+  color: #176b87;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  height: 30px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 30px;
+}
+
+.icon-action:hover {
+  background: #eef3f5;
+}
+
+.icon-action.danger {
+  color: #a94442;
+}
+
+.icon-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .row-actions {
   align-items: center;
   display: flex;
@@ -1028,7 +1059,7 @@ h1 {
 }
 
 .experiment-table {
-  grid-template-columns: 1.1fr 1.2fr 1.1fr 0.7fr 0.6fr;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(90px, 0.55fr) minmax(100px, 0.55fr) minmax(70px, 0.35fr) minmax(90px, 0.4fr);
 }
 
 .experiment-result-table {
@@ -1056,6 +1087,19 @@ details.experiment-result-table > summary span {
 
 details.experiment-result-table > .json-preview {
   margin: 0 16px 16px;
+}
+
+.experiment-question-details {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  padding: 0 16px 16px;
+}
+
+.experiment-question-details h3 {
+  color: #425864;
+  font-size: 13px;
+  margin: 0 0 8px;
 }
 
 .table-row + .table-row {
@@ -1112,6 +1156,7 @@ details.experiment-result-table > .json-preview {
   .parameter-workbench,
   .preparation-workbench,
   .stage-workbench,
+  .experiment-question-details,
   .parameter-grid,
   .metric-strip {
     grid-template-columns: 1fr;

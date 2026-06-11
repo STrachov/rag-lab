@@ -118,6 +118,16 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
                       <span>{formatEvaluationHit(question.metrics)}</span>
                       <span>{Array.isArray(question.warnings) ? question.warnings.length : 0}</span>
                     </summary>
+                    <div className="experiment-question-details">
+                      <div>
+                        <h3>Ground Truth</h3>
+                        <GroundTruthSummary value={question.ground_truth} />
+                      </div>
+                      <div>
+                        <h3>Retrieved</h3>
+                        <RetrievedSummary value={question.retrieved} />
+                      </div>
+                    </div>
                     <pre className="json-preview">{JSON.stringify(question, null, 2)}</pre>
                   </details>
                 ))}
@@ -132,6 +142,57 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
         </div>
       ) : null}
     </section>
+  );
+}
+
+function GroundTruthSummary({ value }: { value: unknown }) {
+  if (!value || typeof value !== "object") {
+    return <div className="nested-empty">No ground truth details recorded.</div>;
+  }
+  const gt = value as Record<string, unknown>;
+  const relevantPages = Array.isArray(gt.relevant_pages) ? gt.relevant_pages : [];
+  const relevantChunks = Array.isArray(gt.relevant_chunks) ? gt.relevant_chunks : [];
+  return (
+    <div className="stage-details">
+      <div className="asset-mini-summary">
+        <span>{String(gt.expected_answer_type ?? "unknown")}</span>
+        {gt.expected_answer_brief ? <span>{String(gt.expected_answer_brief)}</span> : null}
+      </div>
+      {relevantPages.length > 0 ? (
+        <div className="asset-mini-summary">
+          {relevantPages.map((page, index) => (
+            <span key={index}>{formatGroundTruthPage(page)}</span>
+          ))}
+        </div>
+      ) : null}
+      {relevantChunks.length > 0 ? (
+        <div className="asset-mini-summary">
+          {relevantChunks.map((chunk, index) => (
+            <span key={index}>{formatGroundTruthChunk(chunk)}</span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RetrievedSummary({ value }: { value: unknown }) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return <div className="nested-empty">No retrieved results recorded.</div>;
+  }
+  return (
+    <div className="index-cache-list">
+      {value.map((item, index) => {
+        const result = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+        return (
+          <div className="cache-item" key={index}>
+            <strong>{formatRetrievedTitle(result)}</strong>
+            <span>{formatRetrievedScores(result)}</span>
+            <small>{formatRetrievedMeta(result)}</small>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -177,6 +238,56 @@ function formatEvaluationTopResult(value: unknown): string {
     result.chunk_id ? String(result.chunk_id) : "",
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "-";
+}
+
+function formatGroundTruthPage(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "page";
+  }
+  const page = value as Record<string, unknown>;
+  const pageNumber = page.page_number;
+  const pageIndex = page.page_index;
+  const pdfSha1 = page.pdf_sha1 ? ` / ${String(page.pdf_sha1).slice(0, 8)}` : "";
+  if (typeof pageNumber === "number" && typeof pageIndex === "number") {
+    return `page ${pageNumber} / index ${pageIndex}${pdfSha1}`;
+  }
+  return `page${pdfSha1}`;
+}
+
+function formatGroundTruthChunk(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "chunk";
+  }
+  const chunk = value as Record<string, unknown>;
+  const relevance = typeof chunk.relevance === "number" ? ` / rel ${chunk.relevance}` : "";
+  return `${String(chunk.chunk_id ?? "chunk")}${relevance}`;
+}
+
+function formatRetrievedTitle(result: Record<string, unknown>): string {
+  const rank = typeof result.rank === "number" ? `#${result.rank}` : "#";
+  return `${rank} ${String(result.chunk_id ?? result.source_name ?? "result")}`;
+}
+
+function formatRetrievedScores(result: Record<string, unknown>): string {
+  return [
+    typeof result.score === "number" ? `score ${result.score.toFixed(4)}` : "",
+    typeof result.rerank_score === "number" ? `rerank ${result.rerank_score.toFixed(4)}` : "",
+    typeof result.dense_score === "number" ? `dense ${result.dense_score.toFixed(4)}` : "",
+    typeof result.sparse_score === "number" ? `sparse ${result.sparse_score.toFixed(4)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ") || "score n/a";
+}
+
+function formatRetrievedMeta(result: Record<string, unknown>): string {
+  return [
+    result.source_name ? String(result.source_name) : "",
+    typeof result.page === "number" ? `page ${result.page}` : "",
+    typeof result.page_start === "number" ? `page ${result.page_start}` : "",
+    typeof result.token_count === "number" ? `${result.token_count} tokens` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ") || "-";
 }
 
 function formatQuestionOption(question: string): string {

@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.adapters.vectorstores.qdrant_store import QdrantVectorStore
@@ -39,8 +39,10 @@ from app.models.api import (
     ProjectListResponse,
     ProjectResponse,
     SavedExperimentCreate,
+    SavedExperimentDeleteResponse,
     SavedExperimentEvaluateRequest,
     SavedExperimentListResponse,
+    SavedExperimentRenameRequest,
     SavedExperimentResponse,
 )
 from app.services.chunking import ChunkingParams as ServiceChunkingParams
@@ -715,6 +717,47 @@ def get_saved_experiment(
 ) -> models.SavedExperiment:
     _get_project_or_404(db, project_id)
     return _get_saved_experiment_or_404(db, project_id, saved_experiment_id)
+
+
+@router.delete(
+    "/projects/{project_id}/saved-experiments/{saved_experiment_id}",
+    response_model=SavedExperimentDeleteResponse,
+)
+def delete_saved_experiment(
+    project_id: str,
+    saved_experiment_id: str,
+    db: Session = Depends(get_db),
+) -> SavedExperimentDeleteResponse:
+    _get_project_or_404(db, project_id)
+    saved_experiment = _get_saved_experiment_or_404(db, project_id, saved_experiment_id)
+    db.execute(delete(models.MetricValue).where(models.MetricValue.saved_experiment_id == saved_experiment_id))
+    db.delete(saved_experiment)
+    db.commit()
+    return SavedExperimentDeleteResponse(deleted_saved_experiment_id=saved_experiment_id)
+
+
+@router.patch(
+    "/projects/{project_id}/saved-experiments/{saved_experiment_id}",
+    response_model=SavedExperimentResponse,
+)
+def rename_saved_experiment(
+    project_id: str,
+    saved_experiment_id: str,
+    payload: SavedExperimentRenameRequest,
+    db: Session = Depends(get_db),
+) -> models.SavedExperiment:
+    _get_project_or_404(db, project_id)
+    saved_experiment = _get_saved_experiment_or_404(db, project_id, saved_experiment_id)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Saved experiment name cannot be empty",
+        )
+    saved_experiment.name = name
+    db.commit()
+    db.refresh(saved_experiment)
+    return saved_experiment
 
 
 @router.post(

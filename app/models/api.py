@@ -479,3 +479,11 @@ class SavedExperimentListResponse(BaseModel):
 
 class SavedExperimentEvaluateRequest(BaseModel):
     index_cache_id: str | None = None
+
+
+class SavedExperimentDeleteResponse(BaseModel):
+    deleted_saved_experiment_id: str
+
+
+class SavedExperimentRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)

@@ -100,6 +100,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     ? indexCaches.filter((cache) => cacheBelongsToChunks(cache, selectedChunksCache))
     : indexCaches;
   const selectedIndexCache = linkedIndexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? linkedIndexCaches[0] ?? null;
+  const selectedGroundTruthSet =
+    groundTruthSets.find((groundTruthSet) => groundTruthSet.id === selectedGroundTruthSetId) ?? null;
   const selectedGroundTruthQuestion =
     groundTruthQuestions.find((question) => question.question_id === selectedGroundTruthQuestionId) ?? null;
   const indexingEstimate = selectedChunksCache ? cacheIndexingEstimate(selectedChunksCache) : null;
@@ -455,6 +457,11 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     if (!currentProject || !selectedIndexCache || !selectedGroundTruthSetId || !dataAssetId) {
       return;
     }
+    const suggestedName = defaultEvaluationExperimentName(selectedGroundTruthSet, selectedIndexCache);
+    const experimentName = window.prompt("Saved experiment name", suggestedName)?.trim();
+    if (!experimentName) {
+      return;
+    }
     const snapshot = {
       ground_truth: {
         ground_truth_set_id: selectedGroundTruthSetId,
@@ -485,7 +492,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
         data_asset_id: dataAssetId,
         debug_level: "summary",
         ground_truth_set_id: selectedGroundTruthSetId,
-        name: `GT evaluation ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+        name: experimentName,
         params_hash: paramsHash,
         params_snapshot_json: snapshot,
         pipeline_version: "runtime-v1",
@@ -1370,6 +1377,16 @@ function cacheIndexingEstimate(cache: DerivedCache): { chunkCount: number; estim
     }
   }
   return { chunkCount, estimatedTokens: null };
+}
+
+function defaultEvaluationExperimentName(
+  groundTruthSet: GroundTruthSet | null,
+  indexCache: DerivedCache,
+): string {
+  const groundTruthName = groundTruthSet?.name?.trim() || "GT";
+  const embeddingName = embeddingModelName(indexCache) || "embedding";
+  const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  return `${groundTruthName} / ${embeddingName} / ${timestamp}`;
 }
 
 function cacheBelongsToChunks(indexCache: DerivedCache, chunksCache: DerivedCache): boolean {

@@ -1014,6 +1014,11 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     assert summary["evaluation"]["error_count"] == 0
     assert summary["metric_averages"]["hit_at_k"] == 1.0
     assert summary["questions"][0]["question_id"] == "q001"
+    assert summary["questions"][0]["ground_truth"]["relevant_chunks"] == [
+        {"chunk_id": "chunk_000001", "rank": 1, "reason": None, "relevance": 3}
+    ]
+    assert summary["questions"][0]["retrieved"][0]["chunk_id"] == "chunk_000001"
+    assert summary["questions"][0]["retrieved"][0]["rank"] == 1
     assert summary["questions"][0]["top_result"]["chunk_id"] == "chunk_000001"
 
     detail_response = client.get(
@@ -2365,6 +2370,59 @@ def test_create_saved_experiment_with_metrics_json(client: TestClient, monkeypat
         "latency_ms": 250,
     }
     assert body["data_asset_manifest_hash"].startswith("sha256:")
+
+
+def test_delete_saved_experiment(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+    create_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "name": "Temporary experiment",
+            "data_asset_id": data_asset_id,
+            "params_hash": "sha256:temporary",
+            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
+        },
+    )
+    assert create_response.status_code == 201
+    saved_experiment_id = create_response.json()["id"]
+
+    delete_response = client.delete(
+        f"/v1/projects/{project_id}/saved-experiments/{saved_experiment_id}",
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted_saved_experiment_id": saved_experiment_id}
+    list_response = client.get(f"/v1/projects/{project_id}/saved-experiments")
+    assert list_response.status_code == 200
+    assert list_response.json()["saved_experiments"] == []
+
+
+def test_rename_saved_experiment(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
+    create_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "name": "Old experiment name",
+            "data_asset_id": data_asset_id,
+            "params_hash": "sha256:rename",
+            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
+        },
+    )
+    assert create_response.status_code == 201
+    saved_experiment_id = create_response.json()["id"]
+
+    rename_response = client.patch(
+        f"/v1/projects/{project_id}/saved-experiments/{saved_experiment_id}",
+        json={"name": "Renamed experiment"},
+    )
+
+    assert rename_response.status_code == 200
+    assert rename_response.json()["name"] == "Renamed experiment"
+    detail_response = client.get(f"/v1/projects/{project_id}/saved-experiments/{saved_experiment_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["name"] == "Renamed experiment"
 
 
 def _create_project(client: TestClient) -> str:

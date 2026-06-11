@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.db import models
-from app.services.ground_truth import list_ground_truth_questions, score_ground_truth_ranking
+from app.services.ground_truth import (
+    list_ground_truth_questions,
+    read_canonical_ground_truth,
+    score_ground_truth_ranking,
+)
 from app.services.runtime_cache import build_reranking_snapshot, retrieve_from_qdrant
 
 
@@ -20,6 +24,10 @@ def evaluate_ground_truth_questions(
     retrieval = _retrieval_params(snapshot)
     reranking_snapshot = _reranking_snapshot(snapshot)
     questions = list_ground_truth_questions(ground_truth_set)
+    canonical_questions = {
+        str(question["question_id"]): question
+        for question in read_canonical_ground_truth(ground_truth_set).get("questions", [])
+    }
     rows: list[dict[str, Any]] = []
     metric_values: dict[str, list[float]] = defaultdict(list)
     started_at = datetime.now(UTC)
@@ -52,9 +60,13 @@ def evaluate_ground_truth_questions(
                     "error_json": None,
                     "expected_answer_brief": question.get("expected_answer_brief"),
                     "expected_answer_type": score["expected_answer_type"],
+                    "ground_truth": _ground_truth_summary(
+                        canonical_questions.get(str(question["question_id"]), question)
+                    ),
                     "metrics": metrics,
                     "question": question["question"],
                     "question_id": question["question_id"],
+                    "retrieved": _retrieved_results(result["retrieved_chunks"]),
                     "status": "completed",
                     "top_result": _top_result(result["retrieved_chunks"]),
                     "warnings": list(score.get("warnings") or []),
@@ -69,9 +81,13 @@ def evaluate_ground_truth_questions(
                     },
                     "expected_answer_brief": question.get("expected_answer_brief"),
                     "expected_answer_type": question.get("expected_answer_type"),
+                    "ground_truth": _ground_truth_summary(
+                        canonical_questions.get(str(question.get("question_id")), question)
+                    ),
                     "metrics": {},
                     "question": question.get("question"),
                     "question_id": question.get("question_id"),
+                    "retrieved": [],
                     "status": "failed",
                     "top_result": None,
                     "warnings": [],
@@ -132,19 +148,52 @@ def _optional_int(value: Any) -> int | None:
 def _top_result(chunks: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not chunks:
         return None
-    chunk = chunks[0]
+    return _retrieved_result(chunks[0], rank=1)
+
+
+def _retrieved_results(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_retrieved_result(chunk, rank=index) for index, chunk in enumerate(chunks, start=1)]
+
+
+def _retrieved_result(chunk: dict[str, Any], *, rank: int) -> dict[str, Any]:
     return {
         key: value
         for key, value in {
+            "char_count": chunk.get("char_count"),
             "chunk_id": chunk.get("chunk_id"),
             "dense_score": chunk.get("dense_score"),
+            "original_rank": chunk.get("original_rank"),
+            "original_score": chunk.get("original_score"),
             "page": chunk.get("page"),
             "page_end": chunk.get("page_end"),
             "page_start": chunk.get("page_start"),
+            "rank": rank,
             "rerank_score": chunk.get("rerank_score"),
             "score": chunk.get("score"),
             "source_name": chunk.get("source_name"),
             "sparse_score": chunk.get("sparse_score"),
+            "token_count": chunk.get("token_count"),
         }.items()
         if value is not None
+    }
+
+
+def _ground_truth_summary(question: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            "expected_answer": question.get("expected_answer"),
+            "expected_answer_brief": question.get("expected_answer_brief"),
+            "expected_answer_type": question.get("expected_answer_type"),
+            "relevant_chunks": list(question.get("relevant_chunks") or []),
+            "relevant_pages": [
+                {
+                    **page,
+                    "page_number": int(page["page_index"]) + 1,
+                }
+                for page in question.get("relevant_pages", [])
+                if isinstance(page, dict) and isinstance(page.get("page_index"), int)
+            ],
+        }.items()
+        if value not in (None, [], {})
     }

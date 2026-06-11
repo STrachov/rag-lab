@@ -244,6 +244,8 @@ only. Batch evaluation should reuse the same scorer family.
 GET  /v1/projects/{project_id}/saved-experiments
 POST /v1/projects/{project_id}/saved-experiments
 GET  /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
+PATCH /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
+DELETE /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
 POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate
 GET  /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/metrics
 ```
@@ -292,8 +294,9 @@ metrics_summary_json.metric_averages
 metrics_summary_json.questions
 ```
 
-Per-question rows store metrics, warnings, error metadata, and compact top-result metadata only. They
-must not store full chunk text unless a later explicit debug-full mode is added.
+Per-question rows store metrics, warnings, error metadata, `ground_truth` expectations, and compact
+`retrieved` top-k metadata. Retrieved metadata may include ids, source names, page numbers, ranks,
+and scores, but must not store full chunk text unless a later explicit debug-full mode is added.
 The UI should treat the saved experiment detail page as the canonical result view. Retrieval preview
 may launch evaluation and link to the saved result, but should not duplicate the full per-question
 result table inline.
