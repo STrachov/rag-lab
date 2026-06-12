@@ -109,6 +109,8 @@ export function SavedExperimentsPage({ currentProject }: SavedExperimentsPagePro
             <span>Status</span>
             <span>Questions</span>
             <span>Hit</span>
+            <span>MRR</span>
+            <span>Recall</span>
             <span>Actions</span>
           </div>
           {savedExperiments.map((experiment) => (
@@ -121,7 +123,9 @@ export function SavedExperimentsPage({ currentProject }: SavedExperimentsPagePro
               </span>
               <span>{experiment.status}</span>
               <span>{experimentQuestionsLabel(experiment)}</span>
-              <span>{experimentHitLabel(experiment)}</span>
+              <span>{experimentMetricLabel(experiment, "hit_at_k", "page_hit_at_k")}</span>
+              <span>{experimentMetricLabel(experiment, "mrr_at_k", "page_mrr_at_k")}</span>
+              <span>{experimentMetricLabel(experiment, "recall_at_k", "page_recall_at_k")}</span>
               <span className="row-actions">
                 <button
                   aria-label={`Rename ${experiment.name}`}
@@ -168,11 +172,15 @@ function experimentQuestionsLabel(experiment: SavedExperiment): string {
   return "-";
 }
 
-function experimentHitLabel(experiment: SavedExperiment): string {
+function experimentMetricLabel(
+  experiment: SavedExperiment,
+  primaryKey: string,
+  fallbackKey: string,
+): string {
   const summary = experiment.metrics_summary_json as {
     metric_averages?: Record<string, unknown>;
   };
   const metricAverages = summary.metric_averages ?? {};
-  const hit = metricAverages.hit_at_k ?? metricAverages.page_hit_at_k;
-  return typeof hit === "number" ? hit.toFixed(3) : "-";
+  const value = metricAverages[primaryKey] ?? metricAverages[fallbackKey];
+  return typeof value === "number" ? value.toFixed(3) : "-";
 }
