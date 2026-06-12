@@ -48,7 +48,6 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
   const [description, setDescription] = useState("");
   const [chunking, setChunking] = useState<ChunkingParams>(DEFAULT_CHUNKING);
   const [maxChunks, setMaxChunks] = useState(50);
-  const [textPreviewChars, setTextPreviewChars] = useState(900);
   const [preview, setPreview] = useState<ChunkingPreviewResponse | null>(null);
   const navigate = useNavigate();
 
@@ -156,7 +155,6 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
         chunking,
         data_asset_id: selectedAssetId,
         max_chunks: maxChunks,
-        text_preview_chars: textPreviewChars,
       });
       setPreview(result);
       setError(null);
@@ -379,16 +377,6 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
                     type="number"
                     value={maxChunks}
                     onChange={(event) => setMaxChunks(Number(event.target.value))}
-                  />
-                </label>
-                <label>
-                  Preview chars
-                  <input
-                    max={4000}
-                    min={120}
-                    type="number"
-                    value={textPreviewChars}
-                    onChange={(event) => setTextPreviewChars(Number(event.target.value))}
                   />
                 </label>
               </div>

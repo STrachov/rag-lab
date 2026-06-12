@@ -234,7 +234,7 @@ def preview_prepared_asset_chunks(
     manifest_json: dict[str, Any],
     chunking: ChunkingParams,
     max_chunks: int = 50,
-    text_preview_chars: int = 900,
+    text_preview_chars: int | None = None,
 ) -> dict[str, Any]:
     materialized = chunk_prepared_asset(
         storage_path=storage_path,
@@ -247,7 +247,7 @@ def preview_prepared_asset_chunks(
     for index, chunk in enumerate(chunks, start=1):
         chunk["chunk_id"] = f"preview_{index:06d}"
         chunk_text_value = str(chunk.pop("text"))
-        chunk["text_preview"] = _clip(chunk_text_value, text_preview_chars)
+        chunk["text_preview"] = chunk_text_value
 
     visible_chunks = chunks[:max_chunks]
     if len(chunks) > max_chunks:

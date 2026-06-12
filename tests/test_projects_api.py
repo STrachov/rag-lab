@@ -1133,6 +1133,41 @@ def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch,
     assert "Payment" in " ".join(chunk["text_preview"] for chunk in body["chunks"])
 
 
+def test_preview_chunking_returns_full_chunk_text(client: TestClient, monkeypatch, tmp_path) -> None:
+    project_id = _create_project(client)
+    long_clause = " ".join(["alpha"] * 80) + " FULL_CHUNK_TAIL"
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        f"# Policy\n\n{long_clause}".encode("utf-8"),
+    )
+
+    response = client.post(
+        f"/v1/projects/{project_id}/parameter-sets/chunking/preview",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 200,
+                    "chunk_overlap": 0,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+            "text_preview_chars": 120,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "FULL_CHUNK_TAIL" in body["chunks"][0]["text_preview"]
+
+
 def test_preview_langchain_recursive_character_chunking(
     client: TestClient,
     monkeypatch,
