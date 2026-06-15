@@ -220,6 +220,10 @@ retrieval candidate cache to Voyage `/v1/rerank` and stores only scores plus the
 metadata in the preview response. `openai_llm_reranker` sends query plus candidate text batches to
 OpenAI Chat Completions, requests strict JSON relevance scores, stores `llm_score` and normalized
 retrieval score metadata, and uses `llm_weight` / `retrieval_weight` to compute final rerank scores.
+Remote reranking responses may include a `usage.reranking` object with provider/model, request and
+retry counts, candidate count, token counts, elapsed seconds, and `estimated_cost_usd` when local
+cost-per-token settings are configured. OpenAI usage uses provider-reported token counts; Voyage
+rerank usage uses the local token estimate used for rate-limit planning.
 
 ## Ground Truth Sets
 
@@ -320,6 +324,8 @@ metrics_summary_json.questions
 Per-question rows store metrics, warnings, error metadata, `ground_truth` expectations, and compact
 `retrieved` top-k metadata. Retrieved metadata may include ids, source names, page numbers, ranks,
 and scores, but must not store full chunk text unless a later explicit debug-full mode is added.
+Rows may also store compact `usage` summaries for API stages, and `metrics_summary_json.evaluation.usage`
+contains stage-level totals across the whole GT run.
 The scorer can emit chunk-level metrics such as `hit_at_k`, `mrr_at_k`, and `recall_at_k`, and
 page-oriented metrics such as `page_hit_at_k`, `page_mrr_at_k`, and `page_recall_at_k`. The Saved
 Experiments list displays compact aggregate values and falls back from chunk-level keys to page-level

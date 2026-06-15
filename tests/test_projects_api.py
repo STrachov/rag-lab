@@ -570,7 +570,7 @@ def test_voyage_reranker_retries_rate_limit_response(monkeypatch) -> None:
 
 
 def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> None:
-    from app.services.rerankers import rerank_chunks
+    from app.services.rerankers import rerank_chunks_with_usage
 
     settings = type(
         "Settings",
@@ -578,6 +578,8 @@ def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> 
         {
             "openai_api_key": "test-key",
             "openai_base_url": "https://openai.test",
+            "openai_llm_rerank_input_cost_per_1m_tokens": 1.0,
+            "openai_llm_rerank_output_cost_per_1m_tokens": 2.0,
             "openai_max_retries": 1,
         },
     )()
@@ -594,14 +596,15 @@ def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> 
                             "content": '{"scores":[{"index":0,"relevance_score":0.2},{"index":1,"relevance_score":0.9}]}'
                         }
                     }
-                ]
+                ],
+                "usage": {"completion_tokens": 20, "prompt_tokens": 100, "total_tokens": 120},
             },
         )
 
     monkeypatch.setattr("app.services.rerankers.get_settings", lambda: settings)
     monkeypatch.setattr("app.services.rerankers.httpx.post", fake_post)
 
-    reranked = rerank_chunks(
+    result = rerank_chunks_with_usage(
         chunks=[
             {"chunk_id": "chunk_1", "score": 0.8, "text_preview": "fallback one"},
             {"chunk_id": "chunk_2", "score": 0.7, "text_preview": "fallback two"},
@@ -620,11 +623,18 @@ def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> 
         query="When is payment due?",
         text_by_chunk_id={"chunk_1": "weak passage", "chunk_2": "payment is due in 30 days"},
     )
+    reranked = result["chunks"]
 
     assert [chunk["chunk_id"] for chunk in reranked] == ["chunk_2", "chunk_1"]
     assert reranked[0]["llm_score"] == 0.9
     assert reranked[0]["retrieval_score_normalized"] == 0.0
     assert reranked[0]["rerank_score"] == 0.63
+    assert result["usage"]["candidate_count"] == 2
+    assert result["usage"]["estimated_cost_usd"] == 0.00014
+    assert result["usage"]["input_tokens"] == 100
+    assert result["usage"]["output_tokens"] == 20
+    assert result["usage"]["request_count"] == 1
+    assert result["usage"]["total_tokens"] == 120
     assert calls[0]["url"] == "https://openai.test/v1/chat/completions"
     assert calls[0]["headers"]["Authorization"] == "Bearer test-key"
     assert calls[0]["timeout"] == 45.0

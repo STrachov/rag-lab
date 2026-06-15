@@ -41,7 +41,7 @@ Current implemented foundation:
 - Qdrant indexing with dense and local BM25-style sparse vectors for dense, sparse, and hybrid retrieval preview;
 - optional reranking over retrieved candidates with local cross-encoder, remote Voyage, or OpenAI LLM-as-reranker models;
 - full ground-truth evaluation over all questions in a Ground Truth Set;
-- saved experiment detail pages with aggregate metrics and per-question result summaries;
+- saved experiment detail pages with aggregate metrics, API reranking usage totals, and per-question result summaries;
 - saved experiment rename/delete actions and compact list metrics for questions, Hit, MRR, and Recall;
 - categorized parameter sets with protected deletion;
 - saved experiments that snapshot prepared data manifest hashes and parameter snapshots.

@@ -106,6 +106,18 @@ RAG_LAB_OPENAI_MAX_RETRIES=2
 
 The concrete OpenAI model is a reranker parameter named `model` and defaults to `gpt-5.4-mini`.
 Change it in the UI if the active OpenAI project uses a different available model name.
+API reranking previews and GT evaluations record compact usage summaries. Set local price hints if
+you want estimated cost in the UI:
+
+```bash
+RAG_LAB_OPENAI_LLM_RERANK_INPUT_COST_PER_1M_TOKENS=0
+RAG_LAB_OPENAI_LLM_RERANK_OUTPUT_COST_PER_1M_TOKENS=0
+RAG_LAB_VOYAGE_RERANK_2_5_COST_PER_1M_TOKENS=0
+RAG_LAB_VOYAGE_RERANK_2_5_LITE_COST_PER_1M_TOKENS=0
+```
+
+OpenAI cost uses provider-reported prompt/completion tokens. Voyage rerank cost uses the same local
+token estimate used for throttling, so treat it as an approximation.
 
 ## Minimal Manual Workflow
 

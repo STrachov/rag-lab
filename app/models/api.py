@@ -392,6 +392,7 @@ class RetrievalPreviewResponse(BaseModel):
     candidate_k: int | None = None
     reranking: JsonObject | None = None
     retrieved_chunks: list[RetrievedChunk]
+    usage: JsonObject | None = None
 
 
 class GroundTruthSetResponse(BaseModel):

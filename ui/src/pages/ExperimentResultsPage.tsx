@@ -97,6 +97,11 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
           </div>
 
           <div className="parameter-section">
+            <h2>API Usage</h2>
+            <ApiUsageSummary usage={evaluation.usage} />
+          </div>
+
+          <div className="parameter-section">
             <h2>Questions</h2>
             {questions.length === 0 ? (
               <div className="nested-empty">No per-question results recorded.</div>
@@ -148,6 +153,40 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
         </div>
       ) : null}
     </section>
+  );
+}
+
+function ApiUsageSummary({ usage }: { usage: unknown }) {
+  if (!usage || typeof usage !== "object") {
+    return <div className="nested-empty">No API usage recorded.</div>;
+  }
+  const usageMap = usage as Record<string, unknown>;
+  const reranking = usageMap.reranking;
+  if (!reranking || typeof reranking !== "object") {
+    return <div className="nested-empty">No API reranking usage recorded.</div>;
+  }
+  const data = reranking as Record<string, unknown>;
+  const tokens = numericUsageValue(data.total_tokens) ?? numericUsageValue(data.estimated_tokens);
+  const cost = numericUsageValue(data.estimated_cost_usd);
+  const items = [
+    stringUsageValue(data.provider),
+    stringUsageValue(data.model),
+    usageBadge(data.request_count, "requests"),
+    usageBadge(data.candidate_count, "candidates"),
+    tokens !== null ? `${formatInteger(tokens)} tokens` : "",
+    usageBadge(data.retry_count, "retries"),
+    cost !== null && cost > 0 ? `${formatUsd(cost)} estimated` : "",
+    usageDuration(data.duration_seconds),
+  ].filter(Boolean);
+  if (items.length === 0) {
+    return <div className="nested-empty">No API usage recorded.</div>;
+  }
+  return (
+    <div className="asset-mini-summary api-usage-summary">
+      {items.map((item, index) => (
+        <span key={`${item}-${index}`}>{item}</span>
+      ))}
+    </div>
   );
 }
 
@@ -228,6 +267,40 @@ function formatMetricValue(value: number): string {
     return String(value);
   }
   return value.toFixed(3);
+}
+
+function formatInteger(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    currency: "USD",
+    maximumFractionDigits: 6,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
+function numericUsageValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return null;
+}
+
+function stringUsageValue(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function usageBadge(value: unknown, label: string): string {
+  const numberValue = numericUsageValue(value);
+  return numberValue !== null ? `${formatInteger(numberValue)} ${label}` : "";
+}
+
+function usageDuration(value: unknown): string {
+  const numberValue = numericUsageValue(value);
+  return numberValue !== null ? `${numberValue.toFixed(2)} sec` : "";
 }
 
 function formatEvaluationHit(value: unknown): string {

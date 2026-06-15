@@ -356,6 +356,7 @@ class VoyageReranker:
             1.0,
             max(0.1, float(getattr(settings, "voyage_rerank_tpm_utilization", 0.65) or 0.65)),
         )
+        self.usage: dict[str, Any] = {}
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:
@@ -373,7 +374,9 @@ class VoyageReranker:
             self.tpm_utilization,
             float(self.params["timeout_seconds"]),
         )
+        started_at = time.perf_counter()
         response = self._post_rerank(query, passages, estimated_tokens=estimated_tokens)
+        elapsed_seconds = time.perf_counter() - started_at
         payload = response.json()
         items = payload.get("data")
         if not isinstance(items, list):
@@ -393,6 +396,19 @@ class VoyageReranker:
 
         if any(score is None for score in scores):
             raise ValueError("Voyage rerank response did not return a score for every candidate")
+        self.usage = _usage_payload(
+            candidate_count=len(passages),
+            duration_seconds=elapsed_seconds,
+            estimated_cost_usd=_voyage_rerank_estimated_cost(self.spec.model_name, estimated_tokens),
+            estimated_tokens=estimated_tokens,
+            input_tokens=estimated_tokens,
+            model=self.spec.model_name,
+            output_tokens=0,
+            provider="voyage",
+            request_count=int(getattr(self, "_last_request_count", 1)),
+            retry_count=int(getattr(self, "_last_retry_count", 0)),
+            total_tokens=estimated_tokens,
+        )
         return [float(score) for score in scores]
 
     def _post_rerank(
@@ -508,6 +524,8 @@ class VoyageReranker:
                 )
             if response.is_error:
                 response.raise_for_status()
+            self._last_request_count = attempt + 1
+            self._last_retry_count = attempt
             return response
         raise RuntimeError("Voyage rerank retry loop exited unexpectedly")
 
@@ -527,12 +545,14 @@ class OpenAILLMReranker:
         self.max_retries = max(0, int(getattr(settings, "openai_max_retries", 0) or 0))
         self.params = params
         self.spec = spec
+        self.usage: dict[str, Any] = {}
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:
             return []
 
         scores: list[float | None] = [None] * len(passages)
+        started_at = time.perf_counter()
         items_per_call = max(1, int(self.params["items_per_call"]))
         max_chars = max(1, int(self.params["max_candidate_chars"]))
         model = str(self.params["model"])
@@ -550,10 +570,21 @@ class OpenAILLMReranker:
             {"index": index, "text": passage[:max_chars]}
             for index, passage in enumerate(passages)
         ]
+        request_count = 0
+        retry_count = 0
+        input_tokens = 0
+        output_tokens = 0
+        total_tokens = 0
         for batch_index, start in enumerate(range(0, len(indexed_passages), items_per_call), start=1):
             batch = indexed_passages[start : start + items_per_call]
             payload = self._build_payload(query=query, candidates=batch)
             response = self._post_chat_completions(payload, batch_index=batch_index, batch_count=math.ceil(len(indexed_passages) / items_per_call))
+            request_count += int(getattr(self, "_last_request_count", 1))
+            retry_count += int(getattr(self, "_last_retry_count", 0))
+            response_usage = _openai_response_usage(response)
+            input_tokens += response_usage["input_tokens"]
+            output_tokens += response_usage["output_tokens"]
+            total_tokens += response_usage["total_tokens"]
             parsed_scores = self._parse_scores(response, expected_indexes={item["index"] for item in batch})
             for index, score in parsed_scores.items():
                 scores[index] = score
@@ -561,6 +592,19 @@ class OpenAILLMReranker:
         if any(score is None for score in scores):
             missing = [index for index, score in enumerate(scores) if score is None]
             raise ValueError(f"OpenAI LLM rerank response did not return scores for candidate indexes: {missing}")
+        self.usage = _usage_payload(
+            candidate_count=len(passages),
+            duration_seconds=time.perf_counter() - started_at,
+            estimated_cost_usd=_openai_llm_rerank_estimated_cost(input_tokens, output_tokens),
+            input_tokens=input_tokens,
+            items_per_call=items_per_call,
+            model=model,
+            output_tokens=output_tokens,
+            provider="openai",
+            request_count=request_count,
+            retry_count=retry_count,
+            total_tokens=total_tokens,
+        )
         return [float(score) for score in scores]
 
     def _build_payload(self, *, query: str, candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -669,6 +713,8 @@ class OpenAILLMReranker:
                 raise ValueError("OpenAI LLM rerank returned 403 Forbidden. Check API project, model access, VPN, or proxy.")
             if response.is_error:
                 response.raise_for_status()
+            self._last_request_count = attempt + 1
+            self._last_retry_count = attempt
             return response
         raise RuntimeError("OpenAI LLM rerank retry loop exited unexpectedly")
 
@@ -770,6 +816,23 @@ def rerank_chunks(
     params: dict[str, Any] | None,
     text_by_chunk_id: dict[str, str],
 ) -> list[dict[str, Any]]:
+    return rerank_chunks_with_usage(
+        chunks=chunks,
+        model_id=model_id,
+        params=params,
+        query=query,
+        text_by_chunk_id=text_by_chunk_id,
+    )["chunks"]
+
+
+def rerank_chunks_with_usage(
+    *,
+    query: str,
+    chunks: list[dict[str, Any]],
+    model_id: str,
+    params: dict[str, Any] | None,
+    text_by_chunk_id: dict[str, str],
+) -> dict[str, Any]:
     reranker = create_reranker(model_id, params)
     passages = [
         text_by_chunk_id.get(str(chunk.get("chunk_id") or ""), str(chunk.get("text_preview") or ""))
@@ -807,7 +870,10 @@ def rerank_chunks(
                 "score": final_score,
             }
         )
-    return sorted(reranked, key=lambda chunk: float(chunk["rerank_score"]), reverse=True)
+    return {
+        "chunks": sorted(reranked, key=lambda chunk: float(chunk["rerank_score"]), reverse=True),
+        "usage": getattr(reranker, "usage", {}),
+    }
 
 
 def _coerce_params(spec: RerankerModelSpec, params: dict[str, Any]) -> dict[str, Any]:
@@ -890,6 +956,53 @@ def _safe_float(value: Any) -> float:
     if not math.isfinite(result):
         return 0.0
     return result
+
+
+def _usage_payload(**values: Any) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            **values,
+            "duration_seconds": round(float(values.get("duration_seconds") or 0.0), 3),
+            "estimated_cost_usd": round(float(values.get("estimated_cost_usd") or 0.0), 8),
+        }.items()
+        if value is not None
+    }
+
+
+def _openai_response_usage(response: httpx.Response) -> dict[str, int]:
+    usage = response.json().get("usage") or {}
+    input_tokens = _int_usage(usage.get("prompt_tokens", usage.get("input_tokens")))
+    output_tokens = _int_usage(usage.get("completion_tokens", usage.get("output_tokens")))
+    total_tokens = _int_usage(usage.get("total_tokens")) or input_tokens + output_tokens
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _int_usage(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _openai_llm_rerank_estimated_cost(input_tokens: int, output_tokens: int) -> float:
+    settings = get_settings()
+    input_rate = float(getattr(settings, "openai_llm_rerank_input_cost_per_1m_tokens", 0.0) or 0.0)
+    output_rate = float(getattr(settings, "openai_llm_rerank_output_cost_per_1m_tokens", 0.0) or 0.0)
+    return ((input_tokens / 1_000_000.0) * input_rate) + ((output_tokens / 1_000_000.0) * output_rate)
+
+
+def _voyage_rerank_estimated_cost(model_name: str, estimated_tokens: int) -> float:
+    settings = get_settings()
+    if model_name == "rerank-2.5-lite":
+        rate = float(getattr(settings, "voyage_rerank_2_5_lite_cost_per_1m_tokens", 0.0) or 0.0)
+    else:
+        rate = float(getattr(settings, "voyage_rerank_2_5_cost_per_1m_tokens", 0.0) or 0.0)
+    return (estimated_tokens / 1_000_000.0) * rate
 
 
 def _openai_rerank_system_prompt(*, include_reasoning: bool) -> str:

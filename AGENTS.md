@@ -69,7 +69,8 @@ A feature is not complete unless at least one is true:
 - Reranking models are backend-driven catalogs. Current local rerankers include `BAAI/bge-reranker-v2-m3`, `Qwen/Qwen3-Reranker-0.6B`, and `cross-encoder/ms-marco-MiniLM-L6-v2`; remote entries include Voyage rerank models and `openai_llm_reranker`.
 - Qdrant indexes are derived cache entries. Current Qdrant collections use named vectors (`dense`, optional `sparse`) and support `dense`, `sparse`, and `hybrid` retrieval previews.
 - Retrieval preview is derived debug output. It may show source metadata, retrieval scores, rerank scores, and clipped chunk text, but it is not a saved experiment result.
-- Saved experiment GT evaluation currently runs synchronously from the API/UI, retrieves and optionally reranks every linked GT question, and stores aggregate metrics plus compact per-question summaries under `metrics_summary_json`.
+- API reranking preview and GT evaluation can include compact `usage.reranking` summaries. OpenAI usage relies on provider token counts; Voyage rerank usage is estimated from the local rate-limit token heuristic.
+- Saved experiment GT evaluation currently runs synchronously from the API/UI, retrieves and optionally reranks every linked GT question, and stores aggregate metrics, API usage totals, plus compact per-question summaries under `metrics_summary_json`.
 - Saved Experiments list views should remain compact: name/status/question count and aggregate retrieval metrics such as Hit, MRR, and Recall. The saved experiment detail page is the canonical place for per-question GT and retrieved-result summaries.
 - Runtime failures that matter for reproducibility, such as failed Qdrant indexing, should be recorded as `DerivedCache(status="failed")` with inspectable error metadata.
 

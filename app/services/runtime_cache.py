@@ -25,7 +25,7 @@ from app.services.sparse import (
 from app.services.rerankers import (
     get_reranker_model,
     normalize_reranker_params,
-    rerank_chunks,
+    rerank_chunks_with_usage,
 )
 
 PIPELINE_VERSION = "runtime-v1"
@@ -316,13 +316,17 @@ def retrieve_from_qdrant(
         candidate_chunks = retrieved
     if reranking_snapshot is not None:
         reranking = reranking_snapshot["reranking"]
-        retrieved = rerank_chunks(
+        rerank_result = rerank_chunks_with_usage(
             chunks=retrieved,
             model_id=reranking["model_id"],
             params=reranking["params"],
             query=query,
             text_by_chunk_id=_full_text_by_chunk_id(metadata),
         )
+        retrieved = rerank_result["chunks"]
+        usage = {"reranking": rerank_result["usage"]} if rerank_result.get("usage") else None
+    else:
+        usage = None
     return {
         "candidate_chunks": candidate_chunks,
         "candidate_k": effective_candidate_k,
@@ -333,6 +337,7 @@ def retrieve_from_qdrant(
         "retrieved_chunks": retrieved[:top_k],
         "strategy": strategy,
         "top_k": top_k,
+        **({"usage": usage} if usage else {}),
     }
 
 
@@ -384,7 +389,7 @@ def rerank_retrieval_candidates(
     metadata = retrieval_cache.metadata_json
     reranking = reranking_snapshot["reranking"]
     candidate_chunks = list(metadata.get("retrieved_chunks") or [])
-    reranked = rerank_chunks(
+    rerank_result = rerank_chunks_with_usage(
         chunks=candidate_chunks,
         model_id=reranking["model_id"],
         params=reranking["params"],
@@ -398,9 +403,10 @@ def rerank_retrieval_candidates(
         "query": str(metadata["query"]),
         "reranking": reranking,
         "retrieval_cache_id": retrieval_cache.id,
-        "retrieved_chunks": reranked[:top_k],
+        "retrieved_chunks": rerank_result["chunks"][:top_k],
         "strategy": str(metadata.get("strategy") or "chunk_retrieval"),
         "top_k": top_k,
+        **({"usage": {"reranking": rerank_result["usage"]}} if rerank_result.get("usage") else {}),
     }
 
 

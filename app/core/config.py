@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     docling_timeout_seconds: float = 120.0
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com"
+    openai_llm_rerank_input_cost_per_1m_tokens: float = 0.0
+    openai_llm_rerank_output_cost_per_1m_tokens: float = 0.0
     openai_max_retries: int = 2
     qdrant_url: str = "http://localhost:6333"
     voyage_api_key: str = ""
@@ -22,7 +24,9 @@ class Settings(BaseSettings):
     voyage_max_retries: int = 5
     voyage_rpm_limit: int = 2000
     voyage_rerank_2_5_lite_tpm_limit: int = 4000000
+    voyage_rerank_2_5_lite_cost_per_1m_tokens: float = 0.0
     voyage_rerank_2_5_tpm_limit: int = 2000000
+    voyage_rerank_2_5_cost_per_1m_tokens: float = 0.0
     voyage_rerank_max_retries: int = 5
     voyage_rerank_rpm_limit: int = 2000
     voyage_rerank_tpm_utilization: float = 0.95

@@ -377,6 +377,7 @@ export type RetrievalPreviewResponse = {
   candidate_k?: number | null;
   reranking?: Record<string, unknown> | null;
   retrieved_chunks: RetrievedChunk[];
+  usage?: Record<string, unknown> | null;
 };
 
 export type GroundTruthSet = {

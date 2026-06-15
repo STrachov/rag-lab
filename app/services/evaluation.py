@@ -90,6 +90,7 @@ def evaluate_ground_truth_questions(
                     "retrieved": _retrieved_results(result["retrieved_chunks"]),
                     "status": "completed",
                     "top_result": _top_result(result["retrieved_chunks"]),
+                    "usage": result.get("usage") or {},
                     "warnings": list(score.get("warnings") or []),
                 }
             )
@@ -132,6 +133,7 @@ def evaluate_ground_truth_questions(
                     "retrieved": [],
                     "status": "failed",
                     "top_result": None,
+                    "usage": {},
                     "warnings": [],
                 }
             )
@@ -141,10 +143,13 @@ def evaluate_ground_truth_questions(
     warnings_count = sum(len(row.get("warnings") or []) for row in rows)
     finished_at = datetime.now(UTC)
     first_error = failed_rows[0].get("error_json") if failed_rows else None
+    usage_totals = _aggregate_usage(rows)
+    reranking_usage = usage_totals.get("reranking", {})
     logger.info(
         "gt evaluation finished saved_experiment_id=%s ground_truth_set_id=%s index_cache_id=%s "
         "status=%s completed=%s failed=%s question_count=%s warning_count=%s duration_seconds=%.3f "
-        "metric_keys=%s first_error_type=%s first_error_stage=%s first_error_message=%s",
+        "metric_keys=%s reranking_requests=%s reranking_total_tokens=%s reranking_estimated_cost_usd=%s "
+        "first_error_type=%s first_error_stage=%s first_error_message=%s",
         saved_experiment.id,
         ground_truth_set.id,
         index_cache.id,
@@ -155,6 +160,9 @@ def evaluate_ground_truth_questions(
         warnings_count,
         (finished_at - started_at).total_seconds(),
         ",".join(sorted(metric_values.keys())),
+        reranking_usage.get("request_count") if isinstance(reranking_usage, dict) else None,
+        reranking_usage.get("total_tokens") if isinstance(reranking_usage, dict) else None,
+        reranking_usage.get("estimated_cost_usd") if isinstance(reranking_usage, dict) else None,
         first_error.get("type") if isinstance(first_error, dict) else None,
         first_error.get("failed_stage") if isinstance(first_error, dict) else None,
         first_error.get("message") if isinstance(first_error, dict) else None,
@@ -171,6 +179,7 @@ def evaluate_ground_truth_questions(
             "retrieval": retrieval,
             "schema_version": "raglab.gt_evaluation.v1",
             "status": "completed" if not failed_rows else "completed_with_errors",
+            "usage": usage_totals,
             "warning_count": warnings_count,
         },
         "metric_averages": {
@@ -258,3 +267,67 @@ def _ground_truth_summary(question: dict[str, Any]) -> dict[str, Any]:
         }.items()
         if value not in (None, [], {})
     }
+
+
+def _aggregate_usage(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    totals: dict[str, Any] = {}
+    for row in rows:
+        usage = row.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        for stage, stage_usage in usage.items():
+            if not isinstance(stage_usage, dict):
+                continue
+            stage_total = totals.setdefault(stage, {})
+            _merge_usage(stage_total, stage_usage)
+    return {stage: _finalize_usage(stage_usage) for stage, stage_usage in totals.items()}
+
+
+def _merge_usage(total: dict[str, Any], usage: dict[str, Any]) -> None:
+    sum_fields = {
+        "candidate_count",
+        "duration_seconds",
+        "estimated_cost_usd",
+        "estimated_tokens",
+        "input_tokens",
+        "output_tokens",
+        "request_count",
+        "retry_count",
+        "total_tokens",
+    }
+    for field in sum_fields:
+        value = usage.get(field)
+        if isinstance(value, (int, float)):
+            total[field] = float(total.get(field, 0.0)) + float(value)
+
+    for field in ("provider", "model"):
+        value = usage.get(field)
+        if isinstance(value, str) and value:
+            total.setdefault(f"{field}s", set()).add(value)
+
+
+def _finalize_usage(usage: dict[str, Any]) -> dict[str, Any]:
+    finalized: dict[str, Any] = {}
+    integer_fields = {
+        "candidate_count",
+        "estimated_tokens",
+        "input_tokens",
+        "output_tokens",
+        "request_count",
+        "retry_count",
+        "total_tokens",
+    }
+    for key, value in usage.items():
+        if isinstance(value, set):
+            values = sorted(value)
+            singular = key[:-1] if key.endswith("s") else key
+            finalized[singular] = values[0] if len(values) == 1 else ", ".join(values)
+        elif key in integer_fields:
+            finalized[key] = int(value)
+        elif key == "duration_seconds":
+            finalized[key] = round(float(value), 3)
+        elif key == "estimated_cost_usd":
+            finalized[key] = round(float(value), 8)
+        else:
+            finalized[key] = value
+    return finalized
