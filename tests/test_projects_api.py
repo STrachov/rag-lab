@@ -6,6 +6,8 @@ import io
 import json
 import logging
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 from app.api import projects
@@ -343,6 +345,78 @@ def test_voyage_embedder_retries_timeout(monkeypatch) -> None:
     assert embedder.embed_query("payment terms") == [2.0, 0.5]
     assert attempts == 2
     assert sleeps == [1.0]
+
+
+def test_local_embedder_is_cached(monkeypatch) -> None:
+    from app.services import embeddings
+    from app.services.embeddings import create_embedder
+
+    embeddings._LOCAL_EMBEDDER_CACHE.clear()
+    init_calls: list[tuple[str, str]] = []
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str, device: str) -> None:
+            init_calls.append((model_name, device))
+
+        def encode(
+            self,
+            texts: list[str],
+            *,
+            batch_size: int,
+            convert_to_numpy: bool,
+            normalize_embeddings: bool,
+            show_progress_bar: bool,
+        ):
+            class FakeArray:
+                def astype(self, _dtype):
+                    return self
+
+                def tolist(self):
+                    return [[1.0, 2.0] for _ in texts]
+
+            return FakeArray()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+    first = create_embedder("intfloat_multilingual_e5_small", {"batch_size": 4, "device": "cpu", "normalize": True})
+    second = create_embedder("intfloat_multilingual_e5_small", {"batch_size": 4, "device": "cpu", "normalize": True})
+
+    assert first is second
+    assert init_calls == [("intfloat/multilingual-e5-small", "cpu")]
+    embeddings._LOCAL_EMBEDDER_CACHE.clear()
+
+
+def test_local_reranker_is_cached(monkeypatch) -> None:
+    from app.services import rerankers
+    from app.services.rerankers import create_reranker
+
+    rerankers._LOCAL_RERANKER_CACHE.clear()
+    init_calls: list[tuple[str, str, int]] = []
+
+    class FakeCrossEncoder:
+        def __init__(self, model_name: str, *, device: str, max_length: int, **_kwargs) -> None:
+            init_calls.append((model_name, device, max_length))
+
+        def predict(self, pairs: list[tuple[str, str]], *, batch_size: int, show_progress_bar: bool) -> list[float]:
+            return [0.5 for _ in pairs]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(CrossEncoder=FakeCrossEncoder),
+    )
+
+    params = {"batch_size": 2, "device": "cpu", "max_length": 512, "normalize_scores": True}
+    first = create_reranker("ms_marco_minilm_l6_v2", params)
+    second = create_reranker("ms_marco_minilm_l6_v2", params)
+
+    assert first is second
+    assert init_calls == [("cross-encoder/ms-marco-MiniLM-L6-v2", "cpu", 512)]
+    rerankers._LOCAL_RERANKER_CACHE.clear()
 
 
 def test_list_sparse_models_for_hybrid_indexing_ui(client: TestClient) -> None:

@@ -10,8 +10,11 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.services.hashing import stable_json_dumps
 
 logger = logging.getLogger(__name__)
+_LOCAL_EMBEDDER_CACHE_LOCK = Lock()
+_LOCAL_EMBEDDER_CACHE: dict[str, "SentenceTransformerEmbedder"] = {}
 
 
 @dataclass(frozen=True)
@@ -470,10 +473,41 @@ def create_embedder(
     spec = get_embedding_model(model_id)
     normalized = normalize_embedding_params(model_id, params)
     if spec.provider == "sentence_transformers":
-        return SentenceTransformerEmbedder(spec, normalized)
+        return _cached_sentence_transformer_embedder(spec, normalized)
     if spec.provider == "voyage":
         return VoyageEmbedder(spec, normalized)
     raise ValueError(f"Unsupported embedding provider: {spec.provider}")
+
+
+def _cached_sentence_transformer_embedder(
+    spec: EmbeddingModelSpec,
+    params: dict[str, Any],
+) -> SentenceTransformerEmbedder:
+    cache_key = _model_cache_key(spec.id, params)
+    with _LOCAL_EMBEDDER_CACHE_LOCK:
+        cached = _LOCAL_EMBEDDER_CACHE.get(cache_key)
+        if cached is not None:
+            logger.debug("local embedding model cache hit model_id=%s model_name=%s", spec.id, spec.model_name)
+            return cached
+        logger.info(
+            "local embedding model load start model_id=%s model_name=%s device=%s",
+            spec.id,
+            spec.model_name,
+            params.get("device"),
+        )
+        embedder = SentenceTransformerEmbedder(spec, dict(params))
+        _LOCAL_EMBEDDER_CACHE[cache_key] = embedder
+        logger.info(
+            "local embedding model load finished model_id=%s model_name=%s device=%s",
+            spec.id,
+            spec.model_name,
+            params.get("device"),
+        )
+        return embedder
+
+
+def _model_cache_key(model_id: str, params: dict[str, Any]) -> str:
+    return stable_json_dumps({"model_id": model_id, "params": params})
 
 
 def _coerce_params(spec: EmbeddingModelSpec, params: dict[str, Any]) -> dict[str, Any]:

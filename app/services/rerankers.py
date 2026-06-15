@@ -10,8 +10,11 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.services.hashing import stable_json_dumps
 
 logger = logging.getLogger(__name__)
+_LOCAL_RERANKER_CACHE_LOCK = Lock()
+_LOCAL_RERANKER_CACHE: dict[str, "CrossEncoderReranker"] = {}
 
 VOYAGE_RERANK_RETRY_STATUS_CODES = {429, 502, 503, 504}
 VOYAGE_RERANK_TOKEN_CHARS = 2
@@ -442,10 +445,41 @@ def create_reranker(model_id: str, params: dict[str, Any] | None = None) -> Cros
     spec = get_reranker_model(model_id)
     normalized = normalize_reranker_params(model_id, params)
     if spec.provider == "sentence_transformers":
-        return CrossEncoderReranker(spec, normalized)
+        return _cached_cross_encoder_reranker(spec, normalized)
     if spec.provider == "voyage":
         return VoyageReranker(spec, normalized)
     raise ValueError(f"Unsupported reranker provider: {spec.provider}")
+
+
+def _cached_cross_encoder_reranker(
+    spec: RerankerModelSpec,
+    params: dict[str, Any],
+) -> CrossEncoderReranker:
+    cache_key = _model_cache_key(spec.id, params)
+    with _LOCAL_RERANKER_CACHE_LOCK:
+        cached = _LOCAL_RERANKER_CACHE.get(cache_key)
+        if cached is not None:
+            logger.debug("local reranker cache hit model_id=%s model_name=%s", spec.id, spec.model_name)
+            return cached
+        logger.info(
+            "local reranker load start model_id=%s model_name=%s device=%s",
+            spec.id,
+            spec.model_name,
+            params.get("device"),
+        )
+        reranker = CrossEncoderReranker(spec, dict(params))
+        _LOCAL_RERANKER_CACHE[cache_key] = reranker
+        logger.info(
+            "local reranker load finished model_id=%s model_name=%s device=%s",
+            spec.id,
+            spec.model_name,
+            params.get("device"),
+        )
+        return reranker
+
+
+def _model_cache_key(model_id: str, params: dict[str, Any]) -> str:
+    return stable_json_dumps({"model_id": model_id, "params": params})
 
 
 def rerank_chunks(
