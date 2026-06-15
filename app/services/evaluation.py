@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
@@ -11,6 +12,8 @@ from app.services.ground_truth import (
     score_ground_truth_ranking,
 )
 from app.services.runtime_cache import build_reranking_snapshot, retrieve_from_qdrant
+
+logger = logging.getLogger(__name__)
 
 
 def evaluate_ground_truth_questions(
@@ -31,9 +34,26 @@ def evaluate_ground_truth_questions(
     rows: list[dict[str, Any]] = []
     metric_values: dict[str, list[float]] = defaultdict(list)
     started_at = datetime.now(UTC)
+    reranking = reranking_snapshot["reranking"] if reranking_snapshot else None
+    logger.info(
+        "gt evaluation start saved_experiment_id=%s ground_truth_set_id=%s index_cache_id=%s "
+        "question_count=%s retrieval_strategy=%s retrieval_mode=%s top_k=%s candidate_k=%s "
+        "reranker_model_id=%s",
+        saved_experiment.id,
+        ground_truth_set.id,
+        index_cache.id,
+        len(questions),
+        retrieval["strategy"],
+        retrieval["mode"],
+        retrieval["top_k"],
+        retrieval["candidate_k"],
+        reranking.get("model_id") if reranking else None,
+    )
 
-    for question in questions:
+    for question_index, question in enumerate(questions, start=1):
+        failed_stage = "start"
         try:
+            failed_stage = "retrieve"
             result = retrieve_from_qdrant(
                 candidate_k=retrieval["candidate_k"],
                 index_cache=index_cache,
@@ -45,6 +65,7 @@ def evaluate_ground_truth_questions(
                 top_k=retrieval["top_k"],
                 vector_store=vector_store,
             )
+            failed_stage = "score_ground_truth"
             score = score_ground_truth_ranking(
                 ground_truth_set=ground_truth_set,
                 index_cache=index_cache,
@@ -73,9 +94,30 @@ def evaluate_ground_truth_questions(
                 }
             )
         except Exception as exc:
+            logger.exception(
+                "gt evaluation question failed saved_experiment_id=%s ground_truth_set_id=%s "
+                "index_cache_id=%s question_id=%s question_index=%s question_count=%s "
+                "failed_stage=%s retrieval_strategy=%s retrieval_mode=%s top_k=%s candidate_k=%s "
+                "reranker_model_id=%s error_type=%s error_message=%s",
+                saved_experiment.id,
+                ground_truth_set.id,
+                index_cache.id,
+                question.get("question_id"),
+                question_index,
+                len(questions),
+                failed_stage,
+                retrieval["strategy"],
+                retrieval["mode"],
+                retrieval["top_k"],
+                retrieval["candidate_k"],
+                reranking.get("model_id") if reranking else None,
+                type(exc).__name__,
+                str(exc),
+            )
             rows.append(
                 {
                     "error_json": {
+                        "failed_stage": failed_stage,
                         "message": str(exc),
                         "type": type(exc).__name__,
                     },
@@ -98,6 +140,25 @@ def evaluate_ground_truth_questions(
     failed_rows = [row for row in rows if row["status"] == "failed"]
     warnings_count = sum(len(row.get("warnings") or []) for row in rows)
     finished_at = datetime.now(UTC)
+    first_error = failed_rows[0].get("error_json") if failed_rows else None
+    logger.info(
+        "gt evaluation finished saved_experiment_id=%s ground_truth_set_id=%s index_cache_id=%s "
+        "status=%s completed=%s failed=%s question_count=%s warning_count=%s duration_seconds=%.3f "
+        "metric_keys=%s first_error_type=%s first_error_stage=%s first_error_message=%s",
+        saved_experiment.id,
+        ground_truth_set.id,
+        index_cache.id,
+        "completed" if not failed_rows else "completed_with_errors",
+        len(completed_rows),
+        len(failed_rows),
+        len(rows),
+        warnings_count,
+        (finished_at - started_at).total_seconds(),
+        ",".join(sorted(metric_values.keys())),
+        first_error.get("type") if isinstance(first_error, dict) else None,
+        first_error.get("failed_stage") if isinstance(first_error, dict) else None,
+        first_error.get("message") if isinstance(first_error, dict) else None,
+    )
     return {
         "evaluation": {
             "completed_question_count": len(completed_rows),

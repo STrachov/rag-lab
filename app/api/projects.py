@@ -1,4 +1,5 @@
 import json
+import logging
 import shutil
 from datetime import UTC, datetime
 from threading import Lock
@@ -73,6 +74,7 @@ from app.services.preparation import prepare_docling
 from app.services.preparation import prepare_pymupdf_text
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 _active_preparation_jobs: set[tuple[str, str, str]] = set()
 _active_preparation_jobs_lock = Lock()
 
@@ -837,6 +839,14 @@ def evaluate_saved_experiment(
             detail="index_cache_id must reference a qdrant_index cache",
         )
 
+    logger.info(
+        "saved experiment evaluation request start project_id=%s saved_experiment_id=%s "
+        "ground_truth_set_id=%s index_cache_id=%s",
+        project_id,
+        saved_experiment_id,
+        ground_truth_set.id,
+        index_cache.id,
+    )
     started_at = datetime.now(UTC)
     saved_experiment.status = "running"
     saved_experiment.started_at = started_at
@@ -851,12 +861,32 @@ def evaluate_saved_experiment(
             vector_store=_qdrant_store(),
         )
     except ValueError as exc:
+        logger.exception(
+            "saved experiment evaluation request failed project_id=%s saved_experiment_id=%s "
+            "ground_truth_set_id=%s index_cache_id=%s error_type=%s error_message=%s",
+            project_id,
+            saved_experiment_id,
+            ground_truth_set.id,
+            index_cache.id,
+            type(exc).__name__,
+            str(exc),
+        )
         saved_experiment.status = "failed"
         saved_experiment.finished_at = datetime.now(UTC)
         saved_experiment.error_json = {"message": str(exc), "type": type(exc).__name__}
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception(
+            "saved experiment evaluation request failed project_id=%s saved_experiment_id=%s "
+            "ground_truth_set_id=%s index_cache_id=%s error_type=%s error_message=%s",
+            project_id,
+            saved_experiment_id,
+            ground_truth_set.id,
+            index_cache.id,
+            type(exc).__name__,
+            str(exc),
+        )
         saved_experiment.status = "failed"
         saved_experiment.finished_at = datetime.now(UTC)
         saved_experiment.error_json = {"message": str(exc), "type": type(exc).__name__}
@@ -872,6 +902,18 @@ def evaluate_saved_experiment(
     index_cache.last_used_at = datetime.now(UTC)
     db.commit()
     db.refresh(saved_experiment)
+    logger.info(
+        "saved experiment evaluation request finished project_id=%s saved_experiment_id=%s "
+        "ground_truth_set_id=%s index_cache_id=%s status=%s completed=%s errors=%s duration_seconds=%s",
+        project_id,
+        saved_experiment_id,
+        ground_truth_set.id,
+        index_cache.id,
+        saved_experiment.status,
+        summary.get("evaluation", {}).get("completed_question_count"),
+        summary.get("evaluation", {}).get("error_count"),
+        summary.get("evaluation", {}).get("duration_seconds"),
+    )
     return saved_experiment
 
 

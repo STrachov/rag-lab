@@ -114,10 +114,16 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
                     <summary>
                       <span>{formatQuestionOption(String(question.question ?? question.question_id ?? ""))}</span>
                       <span>{String(question.status ?? "")}</span>
-                      <span>{formatEvaluationTopResult(question.top_result)}</span>
+                      <span>{formatEvaluationResultSummary(question)}</span>
                       <span>{formatEvaluationHit(question.metrics)}</span>
                       <span>{Array.isArray(question.warnings) ? question.warnings.length : 0}</span>
                     </summary>
+                    {question.error_json ? (
+                      <div className="notice">
+                        Failed: {errorMessage(question.error_json)}
+                        {errorStage(question.error_json) ? ` (${errorStage(question.error_json)})` : ""}
+                      </div>
+                    ) : null}
                     <div className="experiment-question-details">
                       <div>
                         <h3>Ground Truth</h3>
@@ -203,6 +209,13 @@ function errorMessage(value: unknown): string {
   return "Unknown error";
 }
 
+function errorStage(value: unknown): string {
+  if (value && typeof value === "object" && "failed_stage" in value) {
+    return String((value as { failed_stage?: unknown }).failed_stage ?? "");
+  }
+  return "";
+}
+
 function formatMetricName(name: string): string {
   return name.replace(/_/g, " ");
 }
@@ -238,6 +251,13 @@ function formatEvaluationTopResult(value: unknown): string {
     result.chunk_id ? String(result.chunk_id) : "",
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : "-";
+}
+
+function formatEvaluationResultSummary(question: Record<string, unknown>): string {
+  if (question.status === "failed") {
+    return `Failed: ${errorMessage(question.error_json)}`;
+  }
+  return formatEvaluationTopResult(question.top_result);
 }
 
 function formatGroundTruthPage(value: unknown): string {

@@ -4,6 +4,7 @@ import hashlib
 import httpx
 import io
 import json
+import logging
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -1027,6 +1028,106 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
 
     assert detail_response.status_code == 200
     assert detail_response.json()["metrics_summary_json"]["evaluation"]["question_count"] == 1
+
+
+def test_saved_experiment_evaluation_logs_per_question_failures(
+    client: TestClient,
+    caplog,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    chunks_response = client.post(
+        f"/v1/projects/{project_id}/chunks/materialize",
+        json={
+            "data_asset_id": data_asset_id,
+            "chunking": {
+                "strategy": "heading_recursive",
+                "params": {
+                    "chunk_size": 8,
+                    "chunk_overlap": 2,
+                    "tokenizer": "cl100k_base",
+                    "preserve_headings": True,
+                    "preserve_tables": True,
+                    "page_boundary_mode": "soft",
+                },
+            },
+        },
+    )
+    assert chunks_response.status_code == 201
+    fake_qdrant = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.api.projects._qdrant_store", lambda: fake_qdrant)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+
+    index_response = client.post(
+        f"/v1/projects/{project_id}/indexes/qdrant",
+        json={
+            "chunks_cache_id": chunks_response.json()["id"],
+            "embedding": {
+                "model_id": "intfloat_multilingual_e5_small",
+                "params": {"batch_size": 4, "device": "cpu", "normalize": True},
+            },
+        },
+    )
+    assert index_response.status_code == 201
+    ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+    experiment_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments",
+        json={
+            "data_asset_id": data_asset_id,
+            "debug_level": "summary",
+            "ground_truth_set_id": ground_truth_set["id"],
+            "name": "Evaluate GT failure",
+            "params_hash": "sha256:evaluate-gt-failure",
+            "params_snapshot_json": {
+                "ground_truth": {"ground_truth_set_id": ground_truth_set["id"]},
+                "index_cache_id": index_response.json()["id"],
+                "retrieval": {
+                    "candidate_k": 5,
+                    "mode": "dense",
+                    "parent_score": "max",
+                    "strategy": "chunk_retrieval",
+                    "top_k": 1,
+                },
+                "reranking": None,
+            },
+        },
+    )
+    assert experiment_response.status_code == 201
+
+    def fail_search_dense(*, collection_name: str, query_vector: list[float], top_k: int) -> list[dict]:
+        raise RuntimeError("Qdrant search failed")
+
+    fake_qdrant.search_dense = fail_search_dense  # type: ignore[method-assign]
+    caplog.set_level(logging.INFO, logger="app.services.evaluation")
+
+    evaluate_response = client.post(
+        f"/v1/projects/{project_id}/saved-experiments/{experiment_response.json()['id']}/evaluate",
+        json={},
+    )
+
+    assert evaluate_response.status_code == 200
+    body = evaluate_response.json()
+    assert body["status"] == "completed_with_errors"
+    question = body["metrics_summary_json"]["questions"][0]
+    assert question["status"] == "failed"
+    assert question["error_json"] == {
+        "failed_stage": "retrieve",
+        "message": "Qdrant search failed",
+        "type": "RuntimeError",
+    }
+    assert "gt evaluation question failed" in caplog.text
+    assert "failed_stage=retrieve" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
 
 
 def test_qdrant_index_failure_is_visible_in_derived_cache(
