@@ -28,9 +28,8 @@ Create/open Project
 -> Build dense, sparse, or hybrid Qdrant index cache
 -> Run manual retrieval/reranking previews
 -> Optionally use individual Ground Truth questions for live metrics
--> Tune generation and citation behavior
 -> Save full experiment snapshot
--> Run async evaluation over the selected Ground Truth Set
+-> Run evaluation over the selected Ground Truth Set
 -> Compare metrics across Saved Experiments
 -> Promote a validated recipe
 ```
@@ -81,6 +80,10 @@ reranking models
 generation models/prompts
 evaluation metrics/scorers
 ```
+
+Generation models/prompts and evaluation metric catalogs are planned registry families; the current
+implemented workflow is focused on preparation, chunking, indexing, retrieval, reranking,
+ground-truth scoring/evaluation, and saved metrics.
 
 Each registered implementation should declare:
 
@@ -329,13 +332,15 @@ policy_interpretation
 ```
 
 Manual retrieval/reranking previews may use one selected ground truth question and show compact
-metrics. Final evaluation runs asynchronously over all selected ground truth questions and writes
-metrics to `SavedExperiment.metrics_summary_json` and/or `MetricValue` rows.
+metrics. The current saved-experiment evaluation runs synchronously over all selected ground truth
+questions, optionally reranks candidates according to the saved snapshot, and writes aggregate and
+per-question summaries to `SavedExperiment.metrics_summary_json`.
 
 Required metric families:
 
 ```text
-retrieval: hit@k, MRR, source_recall, source_precision
+retrieval: hit@k, MRR, recall@k, nDCG@k, source_recall, source_precision
+page-oriented retrieval: page_hit@k, page_MRR, page_recall@k
 answer: answer_correctness, groundedness, citation_precision, citation_recall, not_found_accuracy
 operational: latency_ms, models, candidate_k, token counts, estimated_cost
 ```
@@ -386,10 +391,13 @@ The right column contains preview/details panels and the current JSON snapshot. 
 this pattern with source selection, saved preparation ParameterSets, prepared output selection, source
 manifest details, applied preparation snapshot, and generated file details.
 
-The Chunking page previews registered chunking strategies and can materialize chunk caches. The
-Retrieval page builds and reuses Qdrant index caches, previews retrieval, and reranks saved candidate
-sets. The Ground Truth page owns upload and validation. Saved Experiments owns full snapshots,
-evaluation status, metrics, and errors. Comparison compares saved metrics only.
+The Chunking page previews registered chunking strategies with full text for returned preview chunks
+and can materialize chunk caches. The Retrieval page builds and reuses Qdrant index caches, previews
+retrieval, reranks saved candidate sets, and can launch full GT evaluation for the selected index.
+The Ground Truth page owns upload and validation. Saved Experiments owns full snapshots,
+rename/delete actions, compact list metrics such as question count, Hit, MRR, and Recall, detail
+pages with per-question GT/retrieved summaries, evaluation status, metrics, and errors. Comparison
+compares saved metrics only.
 
 ## Citations And Generation
 
@@ -440,6 +448,6 @@ deprecated
 2. Data upload, inspection, and preparation registry
 3. Chunking, materialized chunks, Qdrant indexing, retrieval, and reranking previews
 4. Generation, citations, prompts, and not-found behavior
-5. Async evaluation with ground truth metrics
+5. Saved-experiment evaluation with ground truth metrics
 6. Comparison and recipe export
 ```

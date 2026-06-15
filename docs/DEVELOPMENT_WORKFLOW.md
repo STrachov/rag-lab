@@ -112,8 +112,8 @@ consider lowering `batch_size` for unstable VPN/proxy connections.
 12. Rerank the retrieval cache with different models or params
 13. Register optional ground truth set
 14. Save experiment with full parameter snapshot and prepared data manifest hash
-15. Run async evaluation over all selected GT questions
-16. Inspect metrics and failures
+15. Run GT evaluation over all selected GT questions
+16. Open the saved experiment detail page to inspect aggregate metrics, per-question summaries, and failures
 17. Compare saved experiments
 18. Promote validated parameter snapshot later
 ```
@@ -149,7 +149,7 @@ chunk materialization -> Qdrant index cache -> retrieval preview
 chunk materialization -> GT authoring pack download
 retrieval preview -> rerank candidates
 retrieve -> answer trace
-saved experiment -> async evaluation -> metrics
+saved experiment -> GT evaluation -> metrics
 recipe promotion
 ```
 

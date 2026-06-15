@@ -85,10 +85,10 @@ POST   /v1/projects/{project_id}/parameter-sets/chunking/preview
 GET    /v1/projects/{project_id}/embedding/models
 GET    /v1/projects/{project_id}/sparse/models
 GET    /v1/projects/{project_id}/reranking/models
-GET    /v1/projects/{project_id}/generation/models
-GET    /v1/projects/{project_id}/generation/prompts
-GET    /v1/projects/{project_id}/evaluation/metrics
 ```
+
+Generation model/prompt catalogs and evaluation-metric catalogs are planned, but are not part of the
+current implemented API contract.
 
 Parameter sets include a `category` such as:
 
@@ -124,7 +124,9 @@ Chunking preview payload:
 ```
 
 Preview responses return summary statistics, warnings, and preview chunks. They do not create saved
-experiment results.
+experiment results. The `max_chunks` request field limits how many chunks are returned in the UI
+preview. The returned `text_preview` field contains the full text of each returned chunk; it is named
+`text_preview` for API compatibility, not because it is clipped.
 
 ## Runtime Caches, Indexing, Retrieval, Reranking
 
@@ -247,12 +249,12 @@ GET  /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
 PATCH /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
 DELETE /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
 POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate
-GET  /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/metrics
 ```
 
 Saved experiment creation snapshots the current prepared data asset manifest hash and stores the
-full parameter snapshot. Evaluation should run asynchronously when it may call models, build caches,
-or score many ground-truth questions.
+full parameter snapshot. The current evaluation endpoint runs synchronously; background execution
+should be added later when evaluations may call slow models, build caches, or score large
+ground-truth sets.
 
 Create saved experiment request:
 
@@ -271,19 +273,37 @@ Evaluate response:
 
 ```json
 {
-  "saved_experiment_id": "uuid",
-  "status": "completed"
+  "id": "uuid",
+  "project_id": "uuid",
+  "name": "Hybrid e5 bm25 qwen strict",
+  "status": "completed",
+  "metrics_summary_json": {
+    "evaluation": {},
+    "metric_averages": {},
+    "questions": []
+  }
 }
 ```
 
-Metrics may be returned in:
+Evaluation request body is optional. If supplied, `index_cache_id` overrides the index cache stored
+in `params_snapshot_json`:
+
+```json
+{
+  "index_cache_id": "uuid"
+}
+```
+
+Metrics are currently returned in:
 
 ```text
 SavedExperiment.metrics_summary_json
-MetricValue rows
 ```
 
-The first implementation of `POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate`
+`MetricValue` remains part of the domain model for future normalized metric storage, but current GT
+evaluation does not populate separate metric rows.
+
+The current implementation of `POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate`
 runs synchronously. It reads `index_cache_id`, retrieval params, and optional enabled reranking params
 from `SavedExperiment.params_snapshot_json`, loops over every question in the linked ground truth set,
 retrieves/reranks candidates, scores them with the existing single-question scorer, and stores:
@@ -297,9 +317,12 @@ metrics_summary_json.questions
 Per-question rows store metrics, warnings, error metadata, `ground_truth` expectations, and compact
 `retrieved` top-k metadata. Retrieved metadata may include ids, source names, page numbers, ranks,
 and scores, but must not store full chunk text unless a later explicit debug-full mode is added.
-The UI should treat the saved experiment detail page as the canonical result view. Retrieval preview
-may launch evaluation and link to the saved result, but should not duplicate the full per-question
-result table inline.
+The scorer can emit chunk-level metrics such as `hit_at_k`, `mrr_at_k`, and `recall_at_k`, and
+page-oriented metrics such as `page_hit_at_k`, `page_mrr_at_k`, and `page_recall_at_k`. The Saved
+Experiments list displays compact aggregate values and falls back from chunk-level keys to page-level
+keys when needed. The saved experiment detail page is the canonical result view. Retrieval preview may
+launch evaluation and link to the saved result, but should not duplicate the full per-question result
+table inline.
 
 ## Breaking-Change Rule
 

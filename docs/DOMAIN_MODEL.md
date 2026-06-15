@@ -195,8 +195,9 @@ A persisted experiment record. Do not model a separate `ExperimentRun` as a main
 Saved experiments snapshot the current prepared data manifest via `data_asset_manifest_hash` when they are created. Later edits to the data asset do not change existing experiment records.
 
 Saved experiments are the product-facing unit of evaluation. They may be created before metrics are
-available, run asynchronously, and move through statuses such as `draft`, `queued`, `running`,
-`completed`, and `failed`.
+available and then evaluated against a linked ground truth set. The current API evaluates
+synchronously and moves through statuses such as `created`, `running`, `completed`,
+`completed_with_errors`, and `failed`.
 
 Fields:
 
@@ -226,9 +227,24 @@ error_json
 multiple category-specific `ParameterSet` records, live stage selections, and read-only preparation
 provenance from the prepared data asset.
 
+Current GT evaluation stores a structured summary in `metrics_summary_json`:
+
+```text
+evaluation: run metadata such as question count, index cache id, retrieval params, warnings/errors
+metric_averages: aggregate metric values
+questions: compact per-question rows with GT expectations, metrics, warnings, and retrieved metadata
+```
+
+Aggregate metric keys may be chunk-level (`hit_at_k`, `mrr_at_k`, `recall_at_k`) or page-oriented
+(`page_hit_at_k`, `page_mrr_at_k`, `page_recall_at_k`). The UI list shows compact aggregate columns;
+the saved experiment detail page shows per-question summaries. Retrieved per-question metadata should
+not include full chunk text unless an explicit debug-full mode is added later.
+
 ## MetricValue
 
-A single metric value attached to a saved experiment.
+A single normalized metric value attached to a saved experiment. The table exists in the domain
+model, but the current GT evaluation path stores aggregate and per-question metrics in
+`SavedExperiment.metrics_summary_json`; normalized `MetricValue` writes can be added later.
 
 Fields:
 
@@ -265,7 +281,6 @@ Current cache types:
 ```text
 chunks
 embeddings
-sparse
 qdrant_index
 retrieval_temp
 answer_temp
@@ -280,6 +295,10 @@ stored_path
 section
 heading_path
 page
+page_start
+page_end
+parent_id
+parent_type
 token_count
 char_count
 text
@@ -299,6 +318,9 @@ chunk_count
 data_asset_manifest_hash
 chunks_cache_id
 ```
+
+Sparse/BM25 statistics are stored as metadata/files referenced from `qdrant_index`; they are not a
+separate `DerivedCache(cache_type="sparse")` in the current API model.
 
 Failed index attempts should be visible as `DerivedCache(status="failed")` with `metadata_json.error_json` instead of disappearing from the UI.
 

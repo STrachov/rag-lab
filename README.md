@@ -20,7 +20,7 @@ Project
 -> optional reranking preview
 -> optional Ground Truth Set
 -> Saved Experiment with full parameter snapshot
--> async evaluation metrics
+-> ground-truth evaluation metrics
 -> metrics comparison
 -> validated recipe
 ```
@@ -39,7 +39,10 @@ Current implemented foundation:
 - backend-driven embedding and sparse retrieval model catalogs;
 - backend-driven reranker model catalog;
 - Qdrant indexing with dense and local BM25-style sparse vectors for dense, sparse, and hybrid retrieval preview;
-- optional reranking over retrieved candidates with local cross-encoder models;
+- optional reranking over retrieved candidates with local cross-encoder or remote Voyage models;
+- full ground-truth evaluation over all questions in a Ground Truth Set;
+- saved experiment detail pages with aggregate metrics and per-question result summaries;
+- saved experiment rename/delete actions and compact list metrics for questions, Hit, MRR, and Recall;
 - categorized parameter sets with protected deletion;
 - saved experiments that snapshot prepared data manifest hashes and parameter snapshots.
 

@@ -299,3 +299,70 @@ Cons:
 - query and candidate chunk text leave the local machine when a Voyage reranker is selected;
 - reranking now depends on external API availability, credentials, rate limits, and cost;
 - local token estimates remain approximate and may need conservative utilization on smaller plans.
+
+---
+
+## 2026-06-13 - Store full GT evaluation summaries on Saved Experiments
+
+Status: accepted
+
+### Context
+
+Manual retrieval/reranking previews are useful for debugging one question, but choosing a recipe
+requires running the same saved snapshot over every question in a ground truth set. Showing those
+results inline on the Retrieval page makes the page too noisy and blurs previews with persisted
+experiment results.
+
+### Decision
+
+- `SavedExperiment` remains the product-facing result entity.
+- GT evaluation is launched from the Retrieval page for the selected Qdrant index and saved snapshot,
+  but the canonical result view is the saved experiment detail page.
+- The current evaluation implementation runs synchronously, retrieves and optionally reranks every
+  linked GT question, and stores results in `metrics_summary_json`.
+- `metrics_summary_json` stores aggregate `metric_averages`, run metadata under `evaluation`, and
+  compact per-question rows under `questions`.
+- Per-question rows may include ground-truth expectations, page references, retrieved ids, source
+  names, page numbers, ranks, and scores, but not full chunk text.
+- The Saved Experiments list stays compact with name/status, question count, Hit, MRR, Recall, and
+  icon-only rename/delete actions.
+
+### Consequences
+
+Pros:
+- evaluation results are durable and reachable from Saved Experiments;
+- Retrieval stays focused on previews and launching evaluation;
+- list metrics are scannable while detailed GT/retrieved comparisons remain available one click away;
+- compact saved rows reduce accidental persistence of sensitive chunk text.
+
+Cons:
+- long evaluations currently hold the request open until completion;
+- async/background execution may still be needed for larger GT sets or slow remote models;
+- the list infers chunk-level versus page-level metrics from available metric keys until an explicit
+  metric-family field is added.
+
+---
+
+## 2026-06-13 - Show full text for chunking preview chunks
+
+Status: accepted
+
+### Context
+
+Chunking preview exists to judge chunk boundaries. Clipping the text inside each previewed chunk made
+it impossible to see whether a chunk ended cleanly or swallowed unrelated context.
+
+### Decision
+
+Keep the `max_chunks` preview limit, but return the full text for each returned chunk in the existing
+`text_preview` field for API compatibility. Remove the frontend `Preview chars` control.
+
+### Consequences
+
+Pros:
+- chunk-boundary inspection is much more reliable;
+- the number of returned preview chunks is still bounded.
+
+Cons:
+- chunking preview can expose more sensitive text on screen;
+- users must treat screenshots and copied preview text as sensitive derived data.

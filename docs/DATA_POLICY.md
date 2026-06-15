@@ -74,11 +74,13 @@ sparse_score
 rerank_score
 ```
 
-Chunk text is sensitive derived data. It may be shown as a clipped preview in local debug UI, but do
-not commit derived cache files or paste full retrieved chunks into logs. Local rerankers may read
-full materialized chunk text for scoring. Remote reranker catalog entries, such as Voyage rerank
-models, send the query and current candidate chunk text to the provider API when explicitly selected
-in retrieval/reranking preview.
+Chunk text is sensitive derived data. Chunking preview may show full text for the returned preview
+chunks so users can inspect boundaries; retrieval/reranking preview should show clipped text previews
+for debugging. Do not commit derived cache files, GT authoring packs, screenshots containing client
+text, or paste full retrieved chunks into logs. Local rerankers may read full materialized chunk text
+for scoring. Remote reranker catalog entries, such as Voyage rerank models, send the query and
+current candidate chunk text to the provider API when explicitly selected in retrieval/reranking
+preview.
 
 GT authoring packs contain prepared text and full chunk text. Treat them like derived client cache:
 keep them local, do not commit them, and do not upload them to external tools unless the data owner

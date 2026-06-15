@@ -606,7 +606,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
               <>
                 <div className="asset-mini-summary">
                   <span>{selectedModel.provider}</span>
-                  <span>{selectedModel.model_name}</span>
+                  {/* <span>{selectedModel.model_name}</span> */}
                   <span>{effectiveEmbeddingDims(selectedModel, embeddingParams)} dims</span>
                 </div>
                 <div className="parameter-grid">
@@ -966,7 +966,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 </div>
                 <div className="asset-mini-summary">
                   <span>{selectedRerankerModel.provider}</span>
-                  <span>{selectedRerankerModel.model_name}</span>
+                  {/* <span>{selectedRerankerModel.model_name}</span> */}
                   <span>{selectedRerankerModel.backend}</span>
                 </div>
                 <RerankRequestSummary
@@ -1333,11 +1333,11 @@ function upsertCache(caches: DerivedCache[], cache: DerivedCache): DerivedCache[
 function ChunksCacheSummary({ assets, cache }: { assets: DataAsset[]; cache: DerivedCache }) {
   return (
     <div className="asset-mini-summary">
-      <span>{cacheLabel(cache, assets)}</span>
+      {/* <span>{cacheLabel(cache, assets)}</span> */}
       <span>{cache.status}</span>
       <span>{cacheChunkCount(cache)} chunks</span>
-      <span>{cacheChunkingStrategy(cache)}</span>
-      <span>{cache.params_hash.slice(0, 18)}</span>
+      {/* <span>{cacheChunkingStrategy(cache)}</span> */}
+      {/* <span>{cache.params_hash.slice(0, 18)}</span> */}
     </div>
   );
 }

@@ -8,12 +8,12 @@ Project
 -> file inspection
 -> preparation registry method + params
 -> prepared Data Asset with provenance
--> stage registries/catalogs for chunking, indexing, retrieval, reranking, generation, evaluation
+-> stage registries/catalogs for chunking, indexing, retrieval, reranking, evaluation
 -> materialized chunks and Qdrant index cache
--> manual retrieval/reranking/generation previews
+-> manual retrieval/reranking previews
 -> optional Ground Truth Set
 -> Saved Experiment with full parameter snapshot
--> async evaluation
+-> ground-truth evaluation
 -> metrics
 ```
 
@@ -23,7 +23,7 @@ The runtime pipeline may create chunks, embeddings, Qdrant indexes, retrieval tr
 answers. These are derived cache/debug outputs, not product-facing results. Saved experiment results
 are metrics only.
 
-The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Dense embeddings can be created by local SentenceTransformers adapters or explicit remote Voyage adapters. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder models. It returns retrieved chunk metadata, text previews, retrieval scores, and rerank score breakdowns; it is debug output, not experiment results.
+The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Dense embeddings can be created by local SentenceTransformers adapters or explicit remote Voyage adapters. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder models or explicit remote Voyage rerank adapters. It returns retrieved chunk metadata, clipped retrieval text previews, retrieval scores, and rerank score breakdowns; it is debug output, not experiment results. Chunking preview is a separate debug view and returns full text for the previewed chunks.
 
 ## Recommended Structure
 
@@ -70,11 +70,10 @@ Responsibilities:
 - build Qdrant index caches with named dense vectors and optional BM25-style sparse vectors;
 - preview dense, sparse, and hybrid retrieval over Qdrant index caches;
 - rerank retrieval preview candidates from full materialized chunk text;
-- render prompts and generated answers with citation/not-found behavior;
 - save and delete categorized reusable parameter sets;
 - save optional ground truth set references;
 - save experiments with full parameter snapshots;
-- run saved experiment evaluation asynchronously;
+- run saved experiment evaluation over linked ground truth questions;
 - store metrics-only results;
 - track derived cache entries;
 - wrap external systems behind adapters.
@@ -132,10 +131,12 @@ The `page_recursive` and `chapter_recursive` chunking strategies use those sidec
 chunks with parent metadata. Parent retrieval strategies then retrieve child chunks, aggregate by
 parent id, and return full parent page or chapter context.
 
-The Chunking UI owns chunking preview and reusable chunking `ParameterSet` creation. The Retrieval UI
-materializes chunks, selects embedding, sparse, and reranker model parameters, creates Qdrant index
-caches, lists existing/failed index caches, and previews retrieval. Saved Experiments owns full
-snapshots, async evaluation status, metrics, and errors.
+The Chunking UI owns chunking preview, reusable chunking `ParameterSet` creation, materialized chunk
+caches, GT authoring-pack download, and routing selected chunks into Retrieval. The Retrieval UI
+selects embedding, sparse, and reranker model parameters, creates Qdrant index caches, lists
+existing/failed index caches, previews retrieval/reranking, and can launch GT evaluation for the
+currently selected index. Saved Experiments owns full snapshots, rename/delete, compact aggregate
+metrics, detail pages, per-question evaluation summaries, and errors.
 
 ## Registries And Catalogs
 
@@ -167,6 +168,10 @@ generation prompts/models
 evaluation metrics/scorers
 ```
 
+Generation prompts/models and evaluation metric catalogs are roadmap registry families; they are not
+implemented as current API/UI catalogs. Ground-truth scoring itself is implemented as backend service
+logic and is used by preview scoring and saved-experiment evaluation.
+
 Preparation methods create prepared data assets. Other stage registries usually create reusable
 parameter snapshots, previews, derived caches, or evaluation metrics.
 
@@ -174,6 +179,10 @@ Remote embedding catalog entries must make the provider explicit. Voyage entries
 `RAG_LAB_VOYAGE_API_KEY`, send chunk text as `input_type=document`, send retrieval queries as
 `input_type=query`, and store the selected `output_dimension` in the embedding snapshot used to
 create the Qdrant collection.
+
+Remote reranker catalog entries must also make the provider explicit. Voyage rerank entries use the
+same API key and base URL, send the query plus current candidate text to `/v1/rerank`, and use
+separate RPM/TPM throttle settings because Voyage embedding and rerank limits differ.
 
 Docling is integrated as an external Docling Serve endpoint. Local CPU Docker, local GPU Docker, and remote GPU machines should use the same adapter boundary and differ by `RAG_LAB_DOCLING_BASE_URL`.
 
@@ -202,11 +211,13 @@ Derived cache may include:
 ```text
 chunks
 embeddings
-sparse
 qdrant_index
 retrieval_temp
 answer_temp
 ```
+
+Sparse/BM25 support is currently represented inside qdrant-index metadata, including sparse vector
+configuration and `sparse_stats_path`; it is not exposed as a standalone `DerivedCache` type.
 
 Materialized chunk caches use `raglab.chunks.v1` JSONL with stable project-native fields. Parser
 sidecars such as Docling JSON remain prepared data files or cache metadata; they are not the
