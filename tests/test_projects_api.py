@@ -454,6 +454,7 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     assert "ms_marco_minilm_l6_v2" in model_ids
     assert "voyage_rerank_2_5" in model_ids
     assert "voyage_rerank_2_5_lite" in model_ids
+    assert "openai_llm_reranker" in model_ids
     qwen = next(model for model in models if model["id"] == "qwen3_reranker_0_6b")
     assert qwen["provider"] == "sentence_transformers"
     assert qwen["model_name"] == "Qwen/Qwen3-Reranker-0.6B"
@@ -468,6 +469,12 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     voyage_fields = {field["name"]: field for field in voyage_lite["fields"]}
     assert voyage_fields["timeout_seconds"]["default"] == 120
     assert voyage_fields["truncation"]["default"] is True
+    openai = next(model for model in models if model["id"] == "openai_llm_reranker")
+    assert openai["provider"] == "openai"
+    assert openai["backend"] == "llm_api"
+    openai_fields = {field["name"]: field for field in openai["fields"]}
+    assert openai_fields["items_per_call"]["default"] == 3
+    assert openai_fields["llm_weight"]["default"] == 0.7
 
 
 def test_voyage_reranker_sends_query_and_documents(monkeypatch) -> None:
@@ -560,6 +567,71 @@ def test_voyage_reranker_retries_rate_limit_response(monkeypatch) -> None:
 
     assert reranker.score("payment terms", ["payment is due in 30 days"]) == [0.75]
     assert sleeps == [0.5]
+
+
+def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> None:
+    from app.services.rerankers import rerank_chunks
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "openai_api_key": "test-key",
+            "openai_base_url": "https://openai.test",
+            "openai_max_retries": 1,
+        },
+    )()
+    calls: list[dict] = []
+
+    def fake_post(url: str, *, headers: dict, json: dict, timeout: float) -> httpx.Response:
+        calls.append({"headers": headers, "json": json, "timeout": timeout, "url": url})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"scores":[{"index":0,"relevance_score":0.2},{"index":1,"relevance_score":0.9}]}'
+                        }
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr("app.services.rerankers.get_settings", lambda: settings)
+    monkeypatch.setattr("app.services.rerankers.httpx.post", fake_post)
+
+    reranked = rerank_chunks(
+        chunks=[
+            {"chunk_id": "chunk_1", "score": 0.8, "text_preview": "fallback one"},
+            {"chunk_id": "chunk_2", "score": 0.7, "text_preview": "fallback two"},
+        ],
+        model_id="openai_llm_reranker",
+        params={
+            "include_reasoning": False,
+            "items_per_call": 2,
+            "llm_weight": 0.7,
+            "max_candidate_chars": 200,
+            "model": "gpt-test-mini",
+            "retrieval_weight": 0.3,
+            "temperature": 0,
+            "timeout_seconds": 45,
+        },
+        query="When is payment due?",
+        text_by_chunk_id={"chunk_1": "weak passage", "chunk_2": "payment is due in 30 days"},
+    )
+
+    assert [chunk["chunk_id"] for chunk in reranked] == ["chunk_2", "chunk_1"]
+    assert reranked[0]["llm_score"] == 0.9
+    assert reranked[0]["retrieval_score_normalized"] == 0.0
+    assert reranked[0]["rerank_score"] == 0.63
+    assert calls[0]["url"] == "https://openai.test/v1/chat/completions"
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-key"
+    assert calls[0]["timeout"] == 45.0
+    assert calls[0]["json"]["model"] == "gpt-test-mini"
+    assert calls[0]["json"]["response_format"]["type"] == "json_schema"
+    assert calls[0]["json"]["response_format"]["json_schema"]["strict"] is True
+    assert "weak passage" in calls[0]["json"]["messages"][1]["content"]
 
 
 def test_materialize_chunks_creates_derived_cache_with_docling_sidecar(

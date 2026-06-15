@@ -213,10 +213,13 @@ Rerank preview request:
 }
 ```
 
-Reranker catalog entries may be local `sentence_transformers` cross-encoders or remote Voyage API
-entries. Voyage entries are `voyage_rerank_2_5` and `voyage_rerank_2_5_lite`; when selected, rerank
-preview sends the query and full text for the current retrieval candidate cache to Voyage `/v1/rerank`
-and stores only scores plus the existing retrieval metadata in the preview response.
+Reranker catalog entries may be local `sentence_transformers` cross-encoders, remote Voyage API
+entries, or an OpenAI LLM-as-reranker entry. Voyage entries are `voyage_rerank_2_5` and
+`voyage_rerank_2_5_lite`; when selected, rerank preview sends the query and full text for the current
+retrieval candidate cache to Voyage `/v1/rerank` and stores only scores plus the existing retrieval
+metadata in the preview response. `openai_llm_reranker` sends query plus candidate text batches to
+OpenAI Chat Completions, requests strict JSON relevance scores, stores `llm_score` and normalized
+retrieval score metadata, and uses `llm_weight` / `retrieval_weight` to compute final rerank scores.
 
 ## Ground Truth Sets
 

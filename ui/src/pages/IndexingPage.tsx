@@ -1204,8 +1204,14 @@ function ChunkResultItem({
             {chunk.rerank_score !== undefined && chunk.rerank_score !== null ? (
               <span>rerank {chunk.rerank_score.toFixed(4)}</span>
             ) : null}
+            {chunk.llm_score !== undefined && chunk.llm_score !== null ? (
+              <span>llm {chunk.llm_score.toFixed(4)}</span>
+            ) : null}
             {chunk.original_score !== undefined && chunk.original_score !== null ? (
               <span>original {chunk.original_score.toFixed(4)}</span>
+            ) : null}
+            {chunk.retrieval_score_normalized !== undefined && chunk.retrieval_score_normalized !== null ? (
+              <span>retrieval norm {chunk.retrieval_score_normalized.toFixed(4)}</span>
             ) : null}
             {chunk.original_rank ? <span>rank {chunk.original_rank}</span> : null}
           </div>

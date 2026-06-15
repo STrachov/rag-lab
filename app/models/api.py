@@ -146,7 +146,7 @@ class ChunkingStrategyField(BaseModel):
     help_text: str | None = None
     min: int | None = None
     max: int | None = None
-    step: int | None = None
+    step: float | int | None = None
     options: list[dict[str, str]] | None = None
 
 
@@ -297,7 +297,7 @@ class RerankerModelField(BaseModel):
     help_text: str | None = None
     min: int | None = None
     max: int | None = None
-    step: int | None = None
+    step: float | int | None = None
     options: list[dict[str, str]] | None = None
 
 

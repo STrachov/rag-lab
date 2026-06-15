@@ -78,9 +78,9 @@ Chunk text is sensitive derived data. Chunking preview may show full text for th
 chunks so users can inspect boundaries; retrieval/reranking preview should show clipped text previews
 for debugging. Do not commit derived cache files, GT authoring packs, screenshots containing client
 text, or paste full retrieved chunks into logs. Local rerankers may read full materialized chunk text
-for scoring. Remote reranker catalog entries, such as Voyage rerank models, send the query and
-current candidate chunk text to the provider API when explicitly selected in retrieval/reranking
-preview.
+for scoring. Remote reranker catalog entries, such as Voyage rerank models and the OpenAI
+LLM-as-reranker, send the query and current candidate chunk text to the provider API when explicitly
+selected in retrieval/reranking preview.
 
 GT authoring packs contain prepared text and full chunk text. Treat them like derived client cache:
 keep them local, do not commit them, and do not upload them to external tools unless the data owner

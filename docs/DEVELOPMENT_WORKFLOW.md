@@ -95,6 +95,18 @@ still returns `429`, wait for the Voyage quota window to reset or lower `RAG_LAB
 If Voyage returns a read timeout, use a higher embedding `timeout_seconds` value such as 300-600 and
 consider lowering `batch_size` for unstable VPN/proxy connections.
 
+OpenAI LLM-as-reranker uses Chat Completions with strict JSON output. To use
+`openai_llm_reranker`, set:
+
+```bash
+RAG_LAB_OPENAI_API_KEY=...
+RAG_LAB_OPENAI_BASE_URL=https://api.openai.com
+RAG_LAB_OPENAI_MAX_RETRIES=2
+```
+
+The concrete OpenAI model is a reranker parameter named `model` and defaults to `gpt-5.4-mini`.
+Change it in the UI if the active OpenAI project uses a different available model name.
+
 ## Minimal Manual Workflow
 
 ```text

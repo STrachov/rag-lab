@@ -349,8 +349,10 @@ export type RetrievedChunk = {
   dense_score?: number | null;
   sparse_score?: number | null;
   rerank_score?: number | null;
+  llm_score?: number | null;
   original_score?: number | null;
   original_rank?: number | null;
+  retrieval_score_normalized?: number | null;
   source_name?: string | null;
   stored_path?: string | null;
   section?: string | null;

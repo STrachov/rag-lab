@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass
@@ -34,7 +35,7 @@ class RerankerParamField:
     help_text: str | None = None
     min_value: int | None = None
     max_value: int | None = None
-    step: int | None = None
+    step: float | int | None = None
     options: list[dict[str, str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,6 +143,81 @@ COMMON_VOYAGE_RERANK_FIELDS = [
     ),
 ]
 
+COMMON_OPENAI_LLM_RERANK_FIELDS = [
+    RerankerParamField(
+        name="model",
+        label="Model",
+        field_type="text",
+        default="gpt-5.4-mini",
+        help_text="OpenAI chat/completions model used as a pointwise LLM reranker.",
+    ),
+    RerankerParamField(
+        name="items_per_call",
+        label="Items per call",
+        field_type="number",
+        default=3,
+        min_value=1,
+        max_value=10,
+        step=1,
+        help_text="How many candidate passages are scored in one LLM request.",
+    ),
+    RerankerParamField(
+        name="max_candidate_chars",
+        label="Max candidate chars",
+        field_type="number",
+        default=3000,
+        min_value=200,
+        max_value=20000,
+        step=100,
+        help_text="Candidate text is clipped to this many characters before being sent to OpenAI.",
+    ),
+    RerankerParamField(
+        name="llm_weight",
+        label="LLM weight",
+        field_type="number",
+        default=0.7,
+        min_value=0,
+        max_value=1,
+        step=0.05,
+        help_text="Weight of the LLM relevance score in the final rerank score.",
+    ),
+    RerankerParamField(
+        name="retrieval_weight",
+        label="Retrieval weight",
+        field_type="number",
+        default=0.3,
+        min_value=0,
+        max_value=1,
+        step=0.05,
+        help_text="Weight of the normalized original retrieval score in the final rerank score.",
+    ),
+    RerankerParamField(
+        name="include_reasoning",
+        label="Include reasoning",
+        field_type="boolean",
+        default=False,
+        help_text="Ask the LLM to return a short reason for each score. Useful for debugging, slower and more costly.",
+    ),
+    RerankerParamField(
+        name="temperature",
+        label="Temperature",
+        field_type="number",
+        default=0.0,
+        min_value=0,
+        max_value=2,
+        step=0.1,
+    ),
+    RerankerParamField(
+        name="timeout_seconds",
+        label="Timeout seconds",
+        field_type="number",
+        default=120,
+        min_value=1,
+        max_value=600,
+        step=1,
+    ),
+]
+
 
 RERANKER_MODELS: dict[str, RerankerModelSpec] = {
     "baai_bge_reranker_v2_m3": RerankerModelSpec(
@@ -203,6 +279,19 @@ RERANKER_MODELS: dict[str, RerankerModelSpec] = {
         model_name="rerank-2.5-lite",
         backend="remote_api",
         fields=COMMON_VOYAGE_RERANK_FIELDS,
+    ),
+    "openai_llm_reranker": RerankerModelSpec(
+        id="openai_llm_reranker",
+        label="OpenAI LLM reranker",
+        description=(
+            "Pointwise LLM-as-reranker. Sends query and candidate text batches to OpenAI, "
+            "expects strict JSON relevance scores from 0 to 1, and can blend LLM score with "
+            "the original retrieval score."
+        ),
+        provider="openai",
+        model_name="configurable",
+        backend="llm_api",
+        fields=COMMON_OPENAI_LLM_RERANK_FIELDS,
     ),
 }
 
@@ -423,6 +512,195 @@ class VoyageReranker:
         raise RuntimeError("Voyage rerank retry loop exited unexpectedly")
 
 
+class OpenAILLMReranker:
+    def __init__(self, spec: RerankerModelSpec, params: dict[str, Any]) -> None:
+        settings = get_settings()
+        api_key = str(getattr(settings, "openai_api_key", "") or "")
+        if not api_key:
+            raise ValueError("RAG_LAB_OPENAI_API_KEY is required for OpenAI LLM reranker models")
+
+        self.base_url = str(getattr(settings, "openai_base_url", "https://api.openai.com")).rstrip("/")
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        self.max_retries = max(0, int(getattr(settings, "openai_max_retries", 0) or 0))
+        self.params = params
+        self.spec = spec
+
+    def score(self, query: str, passages: list[str]) -> list[float]:
+        if not passages:
+            return []
+
+        scores: list[float | None] = [None] * len(passages)
+        items_per_call = max(1, int(self.params["items_per_call"]))
+        max_chars = max(1, int(self.params["max_candidate_chars"]))
+        model = str(self.params["model"])
+        logger.info(
+            "openai llm rerank plan model=%s candidate_count=%s items_per_call=%s "
+            "max_candidate_chars=%s timeout_seconds=%s include_reasoning=%s",
+            model,
+            len(passages),
+            items_per_call,
+            max_chars,
+            float(self.params["timeout_seconds"]),
+            bool(self.params["include_reasoning"]),
+        )
+        indexed_passages = [
+            {"index": index, "text": passage[:max_chars]}
+            for index, passage in enumerate(passages)
+        ]
+        for batch_index, start in enumerate(range(0, len(indexed_passages), items_per_call), start=1):
+            batch = indexed_passages[start : start + items_per_call]
+            payload = self._build_payload(query=query, candidates=batch)
+            response = self._post_chat_completions(payload, batch_index=batch_index, batch_count=math.ceil(len(indexed_passages) / items_per_call))
+            parsed_scores = self._parse_scores(response, expected_indexes={item["index"] for item in batch})
+            for index, score in parsed_scores.items():
+                scores[index] = score
+
+        if any(score is None for score in scores):
+            missing = [index for index, score in enumerate(scores) if score is None]
+            raise ValueError(f"OpenAI LLM rerank response did not return scores for candidate indexes: {missing}")
+        return [float(score) for score in scores]
+
+    def _build_payload(self, *, query: str, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        include_reasoning = bool(self.params["include_reasoning"])
+        return {
+            "messages": [
+                {
+                    "content": _openai_rerank_system_prompt(include_reasoning=include_reasoning),
+                    "role": "system",
+                },
+                {
+                    "content": json.dumps(
+                        {
+                            "candidates": candidates,
+                            "question": query,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    "role": "user",
+                },
+            ],
+            "model": str(self.params["model"]),
+            "response_format": _openai_rerank_response_format(include_reasoning=include_reasoning),
+            "temperature": float(self.params["temperature"]),
+        }
+
+    def _post_chat_completions(self, payload: dict[str, Any], *, batch_index: int, batch_count: int) -> httpx.Response:
+        timeout = float(self.params["timeout_seconds"])
+        for attempt in range(self.max_retries + 1):
+            try:
+                started_at = time.perf_counter()
+                response = httpx.post(
+                    f"{self.base_url}/v1/chat/completions",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=timeout,
+                )
+                elapsed_seconds = time.perf_counter() - started_at
+            except httpx.TimeoutException as exc:
+                if attempt < self.max_retries:
+                    delay = _openai_retry_delay(None, attempt)
+                    logger.warning(
+                        "openai llm rerank timeout model=%s batch=%s/%s attempt=%s/%s "
+                        "retry_in_seconds=%.1f timeout_seconds=%s",
+                        payload["model"],
+                        batch_index,
+                        batch_count,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        delay,
+                        timeout,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise ValueError(
+                    f"OpenAI LLM rerank request timed out after {timeout:g} seconds. "
+                    "Try increasing timeout_seconds, lowering items_per_call, or lowering candidate_k."
+                ) from exc
+            except httpx.TransportError as exc:
+                if attempt < self.max_retries:
+                    delay = _openai_retry_delay(None, attempt)
+                    logger.warning(
+                        "openai llm rerank transport error model=%s batch=%s/%s attempt=%s/%s "
+                        "retry_in_seconds=%.1f error_type=%s",
+                        payload["model"],
+                        batch_index,
+                        batch_count,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        delay,
+                        type(exc).__name__,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise ValueError("OpenAI LLM rerank request failed due to a network transport error.") from exc
+
+            logger.info(
+                "openai llm rerank response model=%s batch=%s/%s attempt=%s/%s status_code=%s "
+                "elapsed_seconds=%.2f retry_after=%s",
+                payload["model"],
+                batch_index,
+                batch_count,
+                attempt + 1,
+                self.max_retries + 1,
+                response.status_code,
+                elapsed_seconds,
+                response.headers.get("Retry-After"),
+            )
+            if response.status_code in {429, 502, 503, 504} and attempt < self.max_retries:
+                delay = _openai_retry_delay(response, attempt)
+                logger.warning(
+                    "openai llm rerank retry model=%s status_code=%s retry_in_seconds=%.1f batch=%s/%s",
+                    payload["model"],
+                    response.status_code,
+                    delay,
+                    batch_index,
+                    batch_count,
+                )
+                time.sleep(delay)
+                continue
+            if response.status_code == 429:
+                raise ValueError("OpenAI LLM rerank returned 429 Too Many Requests after retries.")
+            if response.status_code == 401:
+                raise ValueError("OpenAI LLM rerank returned 401 Unauthorized. Check RAG_LAB_OPENAI_API_KEY.")
+            if response.status_code == 403:
+                raise ValueError("OpenAI LLM rerank returned 403 Forbidden. Check API project, model access, VPN, or proxy.")
+            if response.is_error:
+                response.raise_for_status()
+            return response
+        raise RuntimeError("OpenAI LLM rerank retry loop exited unexpectedly")
+
+    def _parse_scores(self, response: httpx.Response, *, expected_indexes: set[int]) -> dict[int, float]:
+        payload = response.json()
+        try:
+            content = payload["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            items = parsed["scores"]
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("OpenAI LLM rerank response did not match the expected JSON shape") from exc
+        if not isinstance(items, list):
+            raise ValueError("OpenAI LLM rerank response scores must be a list")
+
+        scores: dict[int, float] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("OpenAI LLM rerank response contained an invalid score item")
+            try:
+                index = int(item["index"])
+                score = float(item["relevance_score"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("OpenAI LLM rerank response contained an invalid score value") from exc
+            if index not in expected_indexes:
+                raise ValueError(f"OpenAI LLM rerank returned an unexpected candidate index: {index}")
+            scores[index] = min(1.0, max(0.0, score))
+        missing = expected_indexes - scores.keys()
+        if missing:
+            raise ValueError(f"OpenAI LLM rerank response omitted candidate indexes: {sorted(missing)}")
+        return scores
+
+
 def list_reranker_models() -> list[dict[str, Any]]:
     return [model.to_dict() for model in RERANKER_MODELS.values()]
 
@@ -441,13 +719,15 @@ def normalize_reranker_params(model_id: str, params: dict[str, Any] | None = Non
     return _coerce_params(spec, merged)
 
 
-def create_reranker(model_id: str, params: dict[str, Any] | None = None) -> CrossEncoderReranker | VoyageReranker:
+def create_reranker(model_id: str, params: dict[str, Any] | None = None) -> CrossEncoderReranker | VoyageReranker | OpenAILLMReranker:
     spec = get_reranker_model(model_id)
     normalized = normalize_reranker_params(model_id, params)
     if spec.provider == "sentence_transformers":
         return _cached_cross_encoder_reranker(spec, normalized)
     if spec.provider == "voyage":
         return VoyageReranker(spec, normalized)
+    if spec.provider == "openai":
+        return OpenAILLMReranker(spec, normalized)
     raise ValueError(f"Unsupported reranker provider: {spec.provider}")
 
 
@@ -496,15 +776,35 @@ def rerank_chunks(
         for chunk in chunks
     ]
     scores = reranker.score(query, passages)
+    original_scores = _normalized_original_scores(chunks)
+    is_llm_reranker = isinstance(reranker, OpenAILLMReranker)
+    llm_weight = float(reranker.params["llm_weight"]) if is_llm_reranker else 1.0
+    retrieval_weight = float(reranker.params["retrieval_weight"]) if is_llm_reranker else 0.0
+    weight_sum = llm_weight + retrieval_weight
+    if is_llm_reranker and weight_sum <= 0:
+        raise ValueError("OpenAI LLM reranker requires llm_weight + retrieval_weight to be greater than 0")
     reranked: list[dict[str, Any]] = []
     for original_rank, (chunk, score) in enumerate(zip(chunks, scores, strict=True), start=1):
+        final_score = (
+            ((llm_weight * score) + (retrieval_weight * original_scores[original_rank - 1])) / weight_sum
+            if is_llm_reranker
+            else score
+        )
         reranked.append(
             {
                 **chunk,
+                **(
+                    {
+                        "llm_score": score,
+                        "retrieval_score_normalized": original_scores[original_rank - 1],
+                    }
+                    if is_llm_reranker
+                    else {}
+                ),
                 "original_rank": original_rank,
                 "original_score": chunk.get("score"),
-                "rerank_score": score,
-                "score": score,
+                "rerank_score": final_score,
+                "score": final_score,
             }
         )
     return sorted(reranked, key=lambda chunk: float(chunk["rerank_score"]), reverse=True)
@@ -517,7 +817,7 @@ def _coerce_params(spec: RerankerModelSpec, params: dict[str, Any]) -> dict[str,
         value = params.get(name, field.default)
         if field.field_type == "number":
             try:
-                value = int(value)
+                value = float(value) if isinstance(field.default, float) else int(value)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{name} must be a number") from exc
             if field.min_value is not None and value < field.min_value:
@@ -569,6 +869,96 @@ def _sigmoid(value: float) -> float:
         return 1.0 / (1.0 + z)
     z = math.exp(value)
     return z / (1.0 + z)
+
+
+def _normalized_original_scores(chunks: list[dict[str, Any]]) -> list[float]:
+    scores = [_safe_float(chunk.get("score")) for chunk in chunks]
+    if not scores:
+        return []
+    min_score = min(scores)
+    max_score = max(scores)
+    if max_score > min_score:
+        return [(score - min_score) / (max_score - min_score) for score in scores]
+    return [min(1.0, max(0.0, score)) for score in scores]
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(result):
+        return 0.0
+    return result
+
+
+def _openai_rerank_system_prompt(*, include_reasoning: bool) -> str:
+    reasoning_instruction = (
+        "Return a concise reason for each score."
+        if include_reasoning
+        else "Do not include reasoning; return only indexes and relevance scores."
+    )
+    return "\n".join(
+        [
+            "You are a reranking model for a RAG system.",
+            "Score each candidate passage by how directly it helps answer the user question.",
+            "Use relevance_score from 0.0 to 1.0 in 0.1-like increments when possible.",
+            "0.0 means irrelevant or contradicts the question.",
+            "0.3 means topical but not useful as answer evidence.",
+            "0.5 means partial or weakly useful evidence.",
+            "0.7 means useful evidence but incomplete.",
+            "0.9 means directly answers the question.",
+            "1.0 means decisive evidence with the exact answer.",
+            "Prefer passages that answer the question over passages that merely share keywords.",
+            "For not-found questions, score absence evidence highly only when the passage explicitly supports absence.",
+            "Return every candidate exactly once and do not invent facts.",
+            reasoning_instruction,
+        ]
+    )
+
+
+def _openai_rerank_response_format(*, include_reasoning: bool) -> dict[str, Any]:
+    item_properties: dict[str, Any] = {
+        "index": {"type": "integer"},
+        "relevance_score": {"maximum": 1, "minimum": 0, "type": "number"},
+    }
+    required = ["index", "relevance_score"]
+    if include_reasoning:
+        item_properties["reasoning"] = {"type": "string"}
+        required.append("reasoning")
+    return {
+        "json_schema": {
+            "name": "raglab_llm_rerank_scores",
+            "schema": {
+                "additionalProperties": False,
+                "properties": {
+                    "scores": {
+                        "items": {
+                            "additionalProperties": False,
+                            "properties": item_properties,
+                            "required": required,
+                            "type": "object",
+                        },
+                        "type": "array",
+                    }
+                },
+                "required": ["scores"],
+                "type": "object",
+            },
+            "strict": True,
+        },
+        "type": "json_schema",
+    }
+
+
+def _openai_retry_delay(response: httpx.Response | None, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After") if response is not None else None
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+    return min(60.0, float(2**attempt))
 
 
 def _voyage_rerank_tpm_limit(settings: Any, model_name: str) -> int:
