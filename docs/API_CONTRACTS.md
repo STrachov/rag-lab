@@ -220,10 +220,14 @@ retrieval candidate cache to Voyage `/v1/rerank` and stores only scores plus the
 metadata in the preview response. `openai_llm_reranker` sends query plus candidate text batches to
 OpenAI Chat Completions, requests strict JSON relevance scores, stores `llm_score` and normalized
 retrieval score metadata, and uses `llm_weight` / `retrieval_weight` to compute final rerank scores.
+The OpenAI model parameter is a backend-catalog `select` field; its default and option list come from
+backend settings so deployments can update available model names without frontend changes.
 Remote reranking responses may include a `usage.reranking` object with provider/model, request and
 retry counts, candidate count, token counts, elapsed seconds, and `estimated_cost_usd` when local
 cost-per-token settings are configured. OpenAI usage uses provider-reported token counts; Voyage
-rerank usage uses the local token estimate used for rate-limit planning.
+rerank usage uses the local token estimate used for rate-limit planning. API reranker price fields
+are returned in the reranker catalog and are also saved in reranking params, so saved experiments keep
+the price assumptions used when they were run.
 
 ## Ground Truth Sets
 

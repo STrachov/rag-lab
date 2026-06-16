@@ -469,12 +469,18 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     voyage_fields = {field["name"]: field for field in voyage_lite["fields"]}
     assert voyage_fields["timeout_seconds"]["default"] == 120
     assert voyage_fields["truncation"]["default"] is True
+    assert voyage_fields["cost_per_1m_tokens"]["default"] == 0.0
+    assert voyage_fields["cost_per_1m_tokens"]["type"] == "number"
     openai = next(model for model in models if model["id"] == "openai_llm_reranker")
     assert openai["provider"] == "openai"
     assert openai["backend"] == "llm_api"
     openai_fields = {field["name"]: field for field in openai["fields"]}
+    assert openai_fields["model"]["type"] == "select"
+    assert "gpt-5.4-mini" in [option["value"] for option in openai_fields["model"]["options"]]
     assert openai_fields["items_per_call"]["default"] == 3
     assert openai_fields["llm_weight"]["default"] == 0.7
+    assert openai_fields["input_cost_per_1m_tokens"]["default"] == 0.0
+    assert openai_fields["output_cost_per_1m_tokens"]["default"] == 0.0
 
 
 def test_voyage_reranker_sends_query_and_documents(monkeypatch) -> None:
@@ -578,8 +584,10 @@ def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> 
         {
             "openai_api_key": "test-key",
             "openai_base_url": "https://openai.test",
-            "openai_llm_rerank_input_cost_per_1m_tokens": 1.0,
-            "openai_llm_rerank_output_cost_per_1m_tokens": 2.0,
+            "openai_llm_rerank_model": "gpt-test-mini",
+            "openai_llm_rerank_model_options": "gpt-test-mini,gpt-test-nano",
+            "openai_llm_rerank_input_cost_per_1m_tokens": 999.0,
+            "openai_llm_rerank_output_cost_per_1m_tokens": 999.0,
             "openai_max_retries": 1,
         },
     )()
@@ -612,10 +620,12 @@ def test_openai_llm_reranker_scores_candidates_with_json_schema(monkeypatch) -> 
         model_id="openai_llm_reranker",
         params={
             "include_reasoning": False,
+            "input_cost_per_1m_tokens": 1.0,
             "items_per_call": 2,
             "llm_weight": 0.7,
             "max_candidate_chars": 200,
             "model": "gpt-test-mini",
+            "output_cost_per_1m_tokens": 2.0,
             "retrieval_weight": 0.3,
             "temperature": 0,
             "timeout_seconds": 45,

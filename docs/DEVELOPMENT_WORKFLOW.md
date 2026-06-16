@@ -101,11 +101,14 @@ OpenAI LLM-as-reranker uses Chat Completions with strict JSON output. To use
 ```bash
 RAG_LAB_OPENAI_API_KEY=...
 RAG_LAB_OPENAI_BASE_URL=https://api.openai.com
+RAG_LAB_OPENAI_LLM_RERANK_MODEL=gpt-5.4-mini
+RAG_LAB_OPENAI_LLM_RERANK_MODEL_OPTIONS=gpt-5.4-mini,gpt-5.4-nano
 RAG_LAB_OPENAI_MAX_RETRIES=2
 ```
 
-The concrete OpenAI model is a reranker parameter named `model` and defaults to `gpt-5.4-mini`.
-Change it in the UI if the active OpenAI project uses a different available model name.
+The concrete OpenAI model is a reranker parameter named `model`. The backend catalog exposes it as a
+select field using `RAG_LAB_OPENAI_LLM_RERANK_MODEL_OPTIONS`; change that env value when the active
+OpenAI project uses a different available model list.
 API reranking previews and GT evaluations record compact usage summaries. Set local price hints if
 you want estimated cost in the UI:
 
@@ -117,7 +120,8 @@ RAG_LAB_VOYAGE_RERANK_2_5_LITE_COST_PER_1M_TOKENS=0
 ```
 
 OpenAI cost uses provider-reported prompt/completion tokens. Voyage rerank cost uses the same local
-token estimate used for throttling, so treat it as an approximation.
+token estimate used for throttling, so treat it as an approximation. These values become editable
+reranker params in the UI and are saved in experiment snapshots.
 
 ## Minimal Manual Workflow
 

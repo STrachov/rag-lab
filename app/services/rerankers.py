@@ -70,19 +70,62 @@ class RerankerModelSpec:
 
     @property
     def defaults(self) -> dict[str, Any]:
-        return {field.name: field.default for field in self.fields}
+        return {field.name: _field_default(self, field) for field in self.fields}
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "backend": self.backend,
             "default_params": self.defaults,
             "description": self.description,
-            "fields": [field.to_dict() for field in self.fields],
+            "fields": [_field_to_dict(self, field) for field in self.fields],
             "id": self.id,
             "label": self.label,
             "model_name": self.model_name,
             "provider": self.provider,
         }
+
+
+def _field_to_dict(spec: RerankerModelSpec, field: RerankerParamField) -> dict[str, Any]:
+    payload = field.to_dict()
+    payload["default"] = _field_default(spec, field)
+    options = _field_options(spec, field)
+    if options is not None:
+        payload["options"] = options
+    return payload
+
+
+def _field_default(spec: RerankerModelSpec, field: RerankerParamField) -> Any:
+    settings = get_settings()
+    if spec.id == "openai_llm_reranker":
+        if field.name == "model":
+            return str(getattr(settings, "openai_llm_rerank_model", field.default) or field.default)
+        if field.name == "input_cost_per_1m_tokens":
+            return float(getattr(settings, "openai_llm_rerank_input_cost_per_1m_tokens", field.default) or 0.0)
+        if field.name == "output_cost_per_1m_tokens":
+            return float(getattr(settings, "openai_llm_rerank_output_cost_per_1m_tokens", field.default) or 0.0)
+    if field.name == "cost_per_1m_tokens":
+        if spec.id == "voyage_rerank_2_5_lite":
+            return float(getattr(settings, "voyage_rerank_2_5_lite_cost_per_1m_tokens", field.default) or 0.0)
+        if spec.id == "voyage_rerank_2_5":
+            return float(getattr(settings, "voyage_rerank_2_5_cost_per_1m_tokens", field.default) or 0.0)
+    return field.default
+
+
+def _field_options(spec: RerankerModelSpec, field: RerankerParamField) -> list[dict[str, str]] | None:
+    if spec.id != "openai_llm_reranker" or field.name != "model":
+        return field.options
+    settings = get_settings()
+    values = [
+        value.strip()
+        for value in str(getattr(settings, "openai_llm_rerank_model_options", "") or "").split(",")
+        if value.strip()
+    ]
+    default_model = str(_field_default(spec, field))
+    if default_model and default_model not in values:
+        values.insert(0, default_model)
+    if not values:
+        values = [str(field.default)]
+    return [{"label": value, "value": value} for value in dict.fromkeys(values)]
 
 
 COMMON_CROSS_ENCODER_FIELDS = [
@@ -141,14 +184,27 @@ COMMON_VOYAGE_RERANK_FIELDS = [
         max_value=600,
         step=1,
     ),
+    RerankerParamField(
+        name="cost_per_1m_tokens",
+        label="Cost / 1M estimated tokens",
+        field_type="number",
+        default=0.0,
+        min_value=0,
+        step=0.01,
+        help_text="Local price hint used for estimated rerank cost. Voyage token count is estimated locally.",
+    ),
 ]
 
 COMMON_OPENAI_LLM_RERANK_FIELDS = [
     RerankerParamField(
         name="model",
         label="Model",
-        field_type="text",
+        field_type="select",
         default="gpt-5.4-mini",
+        options=[
+            {"label": "gpt-5.4-mini", "value": "gpt-5.4-mini"},
+            {"label": "gpt-5.4-nano", "value": "gpt-5.4-nano"},
+        ],
         help_text="OpenAI chat/completions model used as a pointwise LLM reranker.",
     ),
     RerankerParamField(
@@ -215,6 +271,24 @@ COMMON_OPENAI_LLM_RERANK_FIELDS = [
         min_value=1,
         max_value=600,
         step=1,
+    ),
+    RerankerParamField(
+        name="input_cost_per_1m_tokens",
+        label="Input cost / 1M tokens",
+        field_type="number",
+        default=0.0,
+        min_value=0,
+        step=0.01,
+        help_text="Local price hint used for estimated OpenAI rerank prompt/input cost.",
+    ),
+    RerankerParamField(
+        name="output_cost_per_1m_tokens",
+        label="Output cost / 1M tokens",
+        field_type="number",
+        default=0.0,
+        min_value=0,
+        step=0.01,
+        help_text="Local price hint used for estimated OpenAI rerank completion/output cost.",
     ),
 ]
 
@@ -399,7 +473,7 @@ class VoyageReranker:
         self.usage = _usage_payload(
             candidate_count=len(passages),
             duration_seconds=elapsed_seconds,
-            estimated_cost_usd=_voyage_rerank_estimated_cost(self.spec.model_name, estimated_tokens),
+            estimated_cost_usd=_voyage_rerank_estimated_cost(self.spec.model_name, estimated_tokens, self.params),
             estimated_tokens=estimated_tokens,
             input_tokens=estimated_tokens,
             model=self.spec.model_name,
@@ -595,7 +669,7 @@ class OpenAILLMReranker:
         self.usage = _usage_payload(
             candidate_count=len(passages),
             duration_seconds=time.perf_counter() - started_at,
-            estimated_cost_usd=_openai_llm_rerank_estimated_cost(input_tokens, output_tokens),
+            estimated_cost_usd=_openai_llm_rerank_estimated_cost(input_tokens, output_tokens, self.params),
             input_tokens=input_tokens,
             items_per_call=items_per_call,
             model=model,
@@ -894,7 +968,7 @@ def _coerce_params(spec: RerankerModelSpec, params: dict[str, Any]) -> dict[str,
             value = _coerce_bool(value, name)
         elif field.field_type == "select":
             value = str(value)
-            allowed = {option["value"] for option in field.options or []}
+            allowed = {option["value"] for option in _field_options(spec, field) or []}
             if value not in allowed:
                 raise ValueError(f"Unsupported value for {name}")
         else:
@@ -989,19 +1063,41 @@ def _int_usage(value: Any) -> int:
         return 0
 
 
-def _openai_llm_rerank_estimated_cost(input_tokens: int, output_tokens: int) -> float:
+def _openai_llm_rerank_estimated_cost(
+    input_tokens: int,
+    output_tokens: int,
+    params: dict[str, Any],
+) -> float:
     settings = get_settings()
-    input_rate = float(getattr(settings, "openai_llm_rerank_input_cost_per_1m_tokens", 0.0) or 0.0)
-    output_rate = float(getattr(settings, "openai_llm_rerank_output_cost_per_1m_tokens", 0.0) or 0.0)
+    input_rate = float(
+        params.get(
+            "input_cost_per_1m_tokens",
+            getattr(settings, "openai_llm_rerank_input_cost_per_1m_tokens", 0.0),
+        )
+        or 0.0
+    )
+    output_rate = float(
+        params.get(
+            "output_cost_per_1m_tokens",
+            getattr(settings, "openai_llm_rerank_output_cost_per_1m_tokens", 0.0),
+        )
+        or 0.0
+    )
     return ((input_tokens / 1_000_000.0) * input_rate) + ((output_tokens / 1_000_000.0) * output_rate)
 
 
-def _voyage_rerank_estimated_cost(model_name: str, estimated_tokens: int) -> float:
+def _voyage_rerank_estimated_cost(
+    model_name: str,
+    estimated_tokens: int,
+    params: dict[str, Any],
+) -> float:
     settings = get_settings()
-    if model_name == "rerank-2.5-lite":
-        rate = float(getattr(settings, "voyage_rerank_2_5_lite_cost_per_1m_tokens", 0.0) or 0.0)
-    else:
-        rate = float(getattr(settings, "voyage_rerank_2_5_cost_per_1m_tokens", 0.0) or 0.0)
+    fallback_rate = (
+        getattr(settings, "voyage_rerank_2_5_lite_cost_per_1m_tokens", 0.0)
+        if model_name == "rerank-2.5-lite"
+        else getattr(settings, "voyage_rerank_2_5_cost_per_1m_tokens", 0.0)
+    )
+    rate = float(params.get("cost_per_1m_tokens", fallback_rate) or 0.0)
     return (estimated_tokens / 1_000_000.0) * rate
 
 
