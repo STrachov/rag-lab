@@ -12,7 +12,6 @@ import {
 
 import { getProject, Project } from "./api/client";
 import { AppShell, PageKey } from "./layout/AppShell";
-import { ComparisonPage } from "./pages/ComparisonPage";
 import { DataPage } from "./pages/DataPage";
 import { GroundTruthPage } from "./pages/GroundTruthPage";
 import { IndexingPage } from "./pages/IndexingPage";
@@ -27,7 +26,6 @@ const SELECTED_PROJECT_STORAGE_KEY = "rag-lab:selected-project-id";
 
 const pagePathByKey: Record<Exclude<PageKey, "projects">, string> = {
   chunking: "chunking",
-  comparison: "comparison",
   data: "data",
   groundTruth: "ground-truth",
   preparation: "preparation",
@@ -137,10 +135,7 @@ export default function App() {
           element={projectScopedPage(<ExperimentResultsPage currentProject={currentProject} />)}
           path="/projects/:projectId/saved-experiments/:experimentId"
         />
-        <Route
-          element={projectScopedPage(<ComparisonPage currentProject={currentProject} />)}
-          path="/projects/:projectId/comparison"
-        />
+        <Route element={<LegacyProjectRedirect target="saved-experiments" />} path="/projects/:projectId/comparison" />
         <Route
           element={projectScopedPage(<SettingsPage currentProject={currentProject} />)}
           path="/projects/:projectId/settings"
@@ -201,9 +196,6 @@ function getActivePage(pathname: string): PageKey {
     matchPath("/projects/:projectId/saved-experiments/:experimentId", pathname)
   ) {
     return "savedExperiments";
-  }
-  if (matchPath("/projects/:projectId/comparison", pathname)) {
-    return "comparison";
   }
   if (matchPath("/projects/:projectId/settings", pathname)) {
     return "settings";

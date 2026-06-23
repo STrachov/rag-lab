@@ -26,7 +26,8 @@ Project
 ```
 
 In the UI, create or open a project first. The Data, Preparation, Chunking, Retrieval, Ground Truth,
-Saved Experiments, and Comparison sections then operate inside that current project context.
+and Saved Experiments sections then operate inside that current project context. Metrics comparison
+is available inside Saved Experiments.
 
 Current implemented foundation:
 

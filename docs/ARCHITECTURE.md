@@ -112,7 +112,6 @@ Pipeline
   Retrieval
 Evaluation
   Saved Experiments
-  Comparison
 Admin
   Settings
 ```
@@ -136,7 +135,9 @@ caches, GT authoring-pack download, and routing selected chunks into Retrieval. 
 selects embedding, sparse, and reranker model parameters, creates Qdrant index caches, lists
 existing/failed index caches, previews retrieval/reranking, and can launch GT evaluation for the
 currently selected index. Saved Experiments owns full snapshots, rename/delete, compact aggregate
-metrics, detail pages, per-question evaluation summaries, and errors.
+metrics, detail pages, per-question evaluation summaries, errors, and inline comparison. Comparison
+is implemented as a derived UI view over selected saved experiments; it does not create a new backend
+product entity or persist comparison results.
 
 ## Registries And Catalogs
 

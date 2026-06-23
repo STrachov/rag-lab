@@ -375,7 +375,6 @@ Pipeline
   Retrieval
 Evaluation
   Saved Experiments
-  Comparison
 Admin
   Settings
 ```
@@ -396,8 +395,10 @@ and can materialize chunk caches. The Retrieval page builds and reuses Qdrant in
 retrieval, reranks saved candidate sets, and can launch full GT evaluation for the selected index.
 The Ground Truth page owns upload and validation. Saved Experiments owns full snapshots,
 rename/delete actions, compact list metrics such as question count, Hit, MRR, and Recall, detail
-pages with per-question GT/retrieved summaries, evaluation status, metrics, and errors. Comparison
-compares saved metrics only.
+pages with per-question GT/retrieved summaries, evaluation status, metrics, errors, and comparison.
+Comparison is an inline derived Saved Experiments view, not a separate domain entity: selected saved
+experiments become columns, and the first comparison view lists question count, Hit, MRR, Recall,
+operational summaries, and the full parameter snapshot for each experiment.
 
 ## Citations And Generation
 

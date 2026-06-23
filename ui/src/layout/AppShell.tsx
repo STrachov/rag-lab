@@ -10,7 +10,6 @@ export type PageKey =
   | "retrieval"
   | "groundTruth"
   | "savedExperiments"
-  | "comparison"
   | "settings";
 
 const navGroups: Array<{ label: string; items: Array<{ key: PageKey; label: string }> }> = [
@@ -32,10 +31,7 @@ const navGroups: Array<{ label: string; items: Array<{ key: PageKey; label: stri
   },
   {
     label: "Evaluation",
-    items: [
-      { key: "savedExperiments", label: "Saved Experiments" },
-      { key: "comparison", label: "Comparison" },
-    ],
+    items: [{ key: "savedExperiments", label: "Saved Experiments" }],
   },
   {
     label: "Admin",

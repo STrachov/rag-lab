@@ -426,6 +426,7 @@ export type SavedExperiment = {
   project_id: string;
   name: string;
   data_asset_id: string;
+  data_asset_manifest_hash?: string | null;
   ground_truth_set_id?: string | null;
   parameter_set_id?: string | null;
   params_snapshot_json: Record<string, unknown>;
