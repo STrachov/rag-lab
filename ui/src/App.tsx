@@ -76,6 +76,12 @@ export default function App() {
     navigate(`/projects/${project.id}/data`);
   }
 
+  function handleProjectUpdated(project: Project) {
+    if (currentProject?.id === project.id) {
+      setCurrentProject(project);
+    }
+  }
+
   function handlePageChange(page: PageKey) {
     if (page === "projects") {
       navigate("/projects");
@@ -101,7 +107,13 @@ export default function App() {
     <AppShell activePage={activePage} currentProject={currentProject} onPageChange={handlePageChange}>
       <Routes>
         <Route
-          element={<ProjectsPage currentProject={currentProject} onProjectOpen={handleProjectOpen} />}
+          element={
+            <ProjectsPage
+              currentProject={currentProject}
+              onProjectOpen={handleProjectOpen}
+              onProjectUpdated={handleProjectUpdated}
+            />
+          }
           path="/projects"
         />
         <Route element={<ProjectIndexRedirect />} path="/projects/:projectId" />

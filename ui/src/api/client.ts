@@ -5,17 +5,27 @@ export type Project = {
   name: string;
   description?: string | null;
   domain?: string | null;
-  status: string;
+  status: ProjectStatus;
   metadata_json: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };
 
+export type ProjectStatus = "active" | "archived";
+
 export type ProjectCreate = {
   name: string;
   description?: string;
   domain?: string;
-  status?: string;
+  status?: ProjectStatus;
+  metadata_json?: Record<string, unknown>;
+};
+
+export type ProjectUpdate = {
+  name?: string;
+  description?: string | null;
+  domain?: string | null;
+  status?: ProjectStatus;
   metadata_json?: Record<string, unknown>;
 };
 
@@ -466,8 +476,9 @@ export async function getHealth(): Promise<{ status: string }> {
   return request("/health");
 }
 
-export async function listProjects(): Promise<{ projects: Project[] }> {
-  return request("/projects");
+export async function listProjects(status?: ProjectStatus): Promise<{ projects: Project[] }> {
+  const params = status ? `?${new URLSearchParams({ status }).toString()}` : "";
+  return request(`/projects${params}`);
 }
 
 export async function getProject(projectId: string): Promise<Project> {
@@ -478,6 +489,16 @@ export async function createProject(payload: ProjectCreate): Promise<Project> {
   return request("/projects", {
     body: JSON.stringify(payload),
     method: "POST",
+  });
+}
+
+export async function updateProject(
+  projectId: string,
+  payload: ProjectUpdate,
+): Promise<Project> {
+  return request(`/projects/${projectId}`, {
+    body: JSON.stringify(payload),
+    method: "PATCH",
   });
 }
 

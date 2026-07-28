@@ -20,10 +20,17 @@ This document defines the UI/backend boundary for RAG Lab. Product intent lives 
 ## Projects
 
 ```http
-GET  /v1/projects
-POST /v1/projects
-GET  /v1/projects/{project_id}
+GET   /v1/projects
+POST  /v1/projects
+GET   /v1/projects/{project_id}
+PATCH /v1/projects/{project_id}
 ```
+
+Projects use the user-facing lifecycle statuses `active` and `archived`. `GET /v1/projects`
+returns all projects by default and accepts `?status=active` or `?status=archived`. PATCH partially
+updates `name`, `description`, `domain`, `status`, or `metadata_json`; an empty project name is
+rejected. Archiving is organizational and does not delete data or prevent the project from being
+opened.
 
 ## Data Assets And Preparation
 

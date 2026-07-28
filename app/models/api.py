@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 JsonObject = dict[str, Any]
+ProjectStatus = Literal["active", "archived"]
 
 
 class HealthResponse(BaseModel):
@@ -15,8 +16,16 @@ class ProjectCreate(BaseModel):
     name: str
     description: str | None = None
     domain: str | None = None
-    status: str = "active"
+    status: ProjectStatus = "active"
     metadata_json: JsonObject = Field(default_factory=dict)
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    domain: str | None = None
+    status: ProjectStatus | None = None
+    metadata_json: JsonObject | None = None
 
 
 class ProjectResponse(ProjectCreate):

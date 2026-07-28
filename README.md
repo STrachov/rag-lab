@@ -4,6 +4,101 @@ Experimental workbench for building, comparing, evaluating, and documenting RAG 
 
 The project is not a generic chat-with-PDF demo. Its purpose is to run controlled experiments inside durable project workspaces and export production-ready RAG recipes after metrics are understood.
 
+## Quick Start
+
+### Prerequisites
+
+- Python 3.12 or newer;
+- Node.js with npm;
+- Docker with Docker Compose.
+
+### Windows PowerShell
+
+Create the Python environment and install the backend:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+```
+
+Start PostgreSQL and Qdrant, then apply all database migrations:
+
+```powershell
+docker compose up -d postgres qdrant
+alembic upgrade head
+```
+
+Start the backend:
+
+```powershell
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
+```
+
+In a second PowerShell terminal, install and start the frontend:
+
+```powershell
+Set-Location ui
+npm ci
+npm run dev
+```
+
+### Linux And macOS
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+cp .env.example .env
+
+docker compose up -d postgres qdrant
+alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8080
+```
+
+In a second terminal:
+
+```bash
+cd ui
+npm ci
+npm run dev
+```
+
+Open:
+
+- UI: `http://127.0.0.1:5173`;
+- API documentation: `http://127.0.0.1:8080/docs`;
+- health check: `http://127.0.0.1:8080/v1/health`.
+
+Docling is optional for the initial launch. Start its local CPU service when Docling preparation is
+needed:
+
+```bash
+docker compose --profile docling up -d docling
+```
+
+### Checks
+
+Run backend tests from the repository root:
+
+```powershell
+python -m pytest
+```
+
+Build the frontend:
+
+```powershell
+Set-Location ui
+npm run build
+```
+
+Remote Voyage and OpenAI models require API keys and optional rate/cost settings. Docling deployment
+options, provider configuration, troubleshooting, and the complete manual workflow are documented in
+[`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md).
+
+## Product Flow
+
 Core flow:
 
 ```text
@@ -31,6 +126,7 @@ is available inside Saved Experiments.
 
 Current implemented foundation:
 
+- editable active/archived projects with server-side status filtering;
 - project-scoped source and prepared data assets with manifest snapshots;
 - preparation through upload, `pymupdf_text`, or Docling Serve;
 - backend-driven chunking strategy catalog;

@@ -39,6 +39,8 @@ from app.models.api import (
     ProjectCreate,
     ProjectListResponse,
     ProjectResponse,
+    ProjectStatus,
+    ProjectUpdate,
     SavedExperimentCreate,
     SavedExperimentDeleteResponse,
     SavedExperimentEvaluateRequest,
@@ -80,8 +82,14 @@ _active_preparation_jobs_lock = Lock()
 
 
 @router.get("/projects", response_model=ProjectListResponse)
-def list_projects(db: Session = Depends(get_db)) -> ProjectListResponse:
-    projects = db.scalars(select(models.Project).order_by(models.Project.created_at)).all()
+def list_projects(
+    project_status: ProjectStatus | None = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+) -> ProjectListResponse:
+    query = select(models.Project)
+    if project_status is not None:
+        query = query.where(models.Project.status == project_status)
+    projects = db.scalars(query.order_by(models.Project.created_at)).all()
     return ProjectListResponse(projects=projects)
 
 
@@ -97,6 +105,43 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)) -> mod
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: str, db: Session = Depends(get_db)) -> models.Project:
     return _get_project_or_404(db, project_id)
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectResponse)
+def update_project(
+    project_id: str,
+    payload: ProjectUpdate,
+    db: Session = Depends(get_db),
+) -> models.Project:
+    project = _get_project_or_404(db, project_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates and updates["status"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Project status cannot be null",
+        )
+    if "metadata_json" in updates and updates["metadata_json"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Project metadata_json cannot be null",
+        )
+    if "name" in updates:
+        name = str(updates["name"] or "").strip()
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Project name cannot be empty",
+            )
+        updates["name"] = name
+    for field in ("description", "domain"):
+        if field in updates and isinstance(updates[field], str):
+            updates[field] = updates[field].strip() or None
+    for field, value in updates.items():
+        setattr(project, field, value)
+    project.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(project)
+    return project
 
 
 @router.get("/projects/{project_id}/data-assets", response_model=DataAssetListResponse)

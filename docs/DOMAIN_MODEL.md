@@ -17,6 +17,18 @@ created_at
 updated_at
 ```
 
+User-facing project statuses are:
+
+```text
+active
+archived
+```
+
+Archiving is a reversible organizational action. It preserves all project data, parameter snapshots,
+ground truth, saved experiments, metrics, and derived-cache references, and does not prevent the
+project from being opened. Project name, description, domain, status, and metadata may be updated;
+`updated_at` records the latest project-field change.
+
 ## DataAsset
 
 A raw or prepared data reference inside a project.

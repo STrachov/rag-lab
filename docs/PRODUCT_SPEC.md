@@ -379,6 +379,10 @@ Admin
   Settings
 ```
 
+The Projects page supports editing project name, domain, description, and lifecycle status. Projects
+may be `active` or `archived`; archived projects remain durable and openable. The project list can be
+filtered to active projects while retaining an all-projects view for restoring archived work.
+
 The Data page owns source/prepared asset inventory, upload, file inspection, download, and deletion.
 The Preparation page owns registered preparation methods, parameter editing, preparation
 ParameterSet creation, and materializing prepared data assets. Preparation should not be hidden in a

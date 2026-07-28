@@ -28,6 +28,15 @@ def test_create_project(client: TestClient) -> None:
     assert body["metadata_json"] == {"owner": "lab"}
 
 
+def test_create_project_rejects_unknown_status(client: TestClient) -> None:
+    response = client.post(
+        "/v1/projects",
+        json={"name": "Policy RAG", "status": "paused"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_list_projects(client: TestClient) -> None:
     client.post("/v1/projects", json={"name": "One"})
     client.post("/v1/projects", json={"name": "Two"})
@@ -37,6 +46,77 @@ def test_list_projects(client: TestClient) -> None:
     assert response.status_code == 200
     names = [project["name"] for project in response.json()["projects"]]
     assert names == ["One", "Two"]
+
+
+def test_list_projects_filters_by_status(client: TestClient) -> None:
+    active_id = _create_project(client)
+    archived_response = client.post(
+        "/v1/projects",
+        json={"name": "Archived project", "status": "archived"},
+    )
+    assert archived_response.status_code == 201
+
+    response = client.get("/v1/projects", params={"status": "active"})
+
+    assert response.status_code == 200
+    assert [project["id"] for project in response.json()["projects"]] == [active_id]
+
+
+def test_list_projects_rejects_unknown_status(client: TestClient) -> None:
+    response = client.get("/v1/projects", params={"status": "unknown"})
+
+    assert response.status_code == 422
+
+
+def test_update_project_fields_and_status(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.patch(
+        f"/v1/projects/{project_id}",
+        json={
+            "name": "  Updated policy lab  ",
+            "description": "  Archived after evaluation  ",
+            "domain": "  legal  ",
+            "status": "archived",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Updated policy lab"
+    assert body["description"] == "Archived after evaluation"
+    assert body["domain"] == "legal"
+    assert body["status"] == "archived"
+
+    get_response = client.get(f"/v1/projects/{project_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["status"] == "archived"
+
+
+def test_update_project_can_clear_optional_fields(client: TestClient) -> None:
+    create_response = client.post(
+        "/v1/projects",
+        json={"name": "Policy RAG", "description": "Old", "domain": "policy"},
+    )
+    project_id = create_response.json()["id"]
+
+    response = client.patch(
+        f"/v1/projects/{project_id}",
+        json={"description": None, "domain": ""},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["description"] is None
+    assert response.json()["domain"] is None
+
+
+def test_update_project_rejects_empty_name(client: TestClient) -> None:
+    project_id = _create_project(client)
+
+    response = client.patch(f"/v1/projects/{project_id}", json={"name": "   "})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Project name cannot be empty"
 
 
 def test_create_data_asset_under_project(client: TestClient) -> None:
