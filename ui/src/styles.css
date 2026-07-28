@@ -515,6 +515,15 @@ h1 {
   background: #eef3f5;
 }
 
+.icon-action svg {
+  height: 17px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 17px;
+}
+
 .icon-action.danger {
   color: #a94442;
 }
