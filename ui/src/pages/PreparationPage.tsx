@@ -396,10 +396,6 @@ export function PreparationPage({ currentProject }: PreparationPageProps) {
           </div>
 
           <div className="stage-right">
-            <div className="parameter-section">
-              <h2>Preparation Snapshot</h2>
-              <pre className="json-preview">{JSON.stringify(snapshot, null, 2)}</pre>
-            </div>
 
             <div className="parameter-section">
               <h2>Source Manifest</h2>
@@ -423,6 +419,11 @@ export function PreparationPage({ currentProject }: PreparationPageProps) {
               ) : (
                 <div className="nested-empty">Run preparation or select a prepared output.</div>
               )}
+            </div>
+            
+            <div className="parameter-section">
+              <h2>Preparation Snapshot</h2>
+              <pre className="json-preview">{JSON.stringify(snapshot, null, 2)}</pre>
             </div>
           </div>
         </div>

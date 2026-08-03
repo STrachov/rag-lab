@@ -488,6 +488,11 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
 
           <div className="stage-right">
             <div className="parameter-section">
+              <h2>Preview</h2>
+              {preview ? <ChunkPreviewResult preview={preview} /> : <div className="nested-empty">No preview yet.</div>}
+            </div>
+
+            <div className="parameter-section">
               <h2>Chunking Snapshot</h2>
               <pre className="json-preview">{JSON.stringify(snapshot, null, 2)}</pre>
             </div>
@@ -515,11 +520,6 @@ export function ParametersPage({ currentProject }: ParametersPageProps) {
               ) : (
                 <div className="nested-empty">No prepared asset selected.</div>
               )}
-            </div>
-
-            <div className="parameter-section">
-              <h2>Preview</h2>
-              {preview ? <ChunkPreviewResult preview={preview} /> : <div className="nested-empty">No preview yet.</div>}
             </div>
 
             <div className="parameter-section">
