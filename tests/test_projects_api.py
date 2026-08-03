@@ -549,7 +549,7 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     voyage_fields = {field["name"]: field for field in voyage_lite["fields"]}
     assert voyage_fields["timeout_seconds"]["default"] == 120
     assert voyage_fields["truncation"]["default"] is True
-    assert voyage_fields["cost_per_1m_tokens"]["default"] == 0.0
+    assert voyage_fields["cost_per_1m_tokens"]["default"] == 0.02
     assert voyage_fields["cost_per_1m_tokens"]["type"] == "number"
     openai = next(model for model in models if model["id"] == "openai_llm_reranker")
     assert openai["provider"] == "openai"
@@ -559,8 +559,8 @@ def test_list_reranker_models_for_retrieval_preview_ui(client: TestClient) -> No
     assert "gpt-5.4-mini" in [option["value"] for option in openai_fields["model"]["options"]]
     assert openai_fields["items_per_call"]["default"] == 3
     assert openai_fields["llm_weight"]["default"] == 0.7
-    assert openai_fields["input_cost_per_1m_tokens"]["default"] == 0.0
-    assert openai_fields["output_cost_per_1m_tokens"]["default"] == 0.0
+    assert openai_fields["input_cost_per_1m_tokens"]["default"] == 0.2
+    assert openai_fields["output_cost_per_1m_tokens"]["default"] == 1.25
 
 
 def test_voyage_reranker_sends_query_and_documents(monkeypatch) -> None:

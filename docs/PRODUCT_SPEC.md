@@ -17,6 +17,8 @@ The product answers questions such as:
 
 ## Core Workflow
 
+Target end-to-end workflow:
+
 ```text
 Create/open Project
 -> Upload source Data Asset
@@ -33,6 +35,9 @@ Create/open Project
 -> Compare metrics across Saved Experiments
 -> Promote a validated recipe
 ```
+
+The implemented boundary currently ends at saved-experiment comparison. Generation, citations, and
+recipe promotion/export are planned. See `CURRENT_STATE.md` for the current implementation matrix.
 
 Manual previews are for tuning and debugging. Product-facing experiment results are metrics only.
 Chunks, embeddings, indexes, retrieval traces, prompts, generated answers, and authoring packs are
@@ -67,16 +72,22 @@ are not a main concept yet.
 User-facing stage choices must come from backend-owned catalogs or registries. The UI should render
 selectors and controls from registry metadata instead of hardcoding method ids or parameter fields.
 
-Registered stages:
+Current backend-driven catalogs/registries:
 
 ```text
 preparation methods
 chunking strategies
 embedding models
 sparse retrieval models
+reranking models
+```
+
+Current indexing modes and retrieval strategies are validated backend contracts, but they are not
+exposed as independent UI-field catalogs. Planned catalog families are:
+
+```text
 indexing options
 retrieval modes and fusion settings
-reranking models
 generation models/prompts
 evaluation metrics/scorers
 ```
@@ -174,6 +185,13 @@ code commit
 pipeline version
 ```
 
+This is the required product invariant, not yet the complete behavior of UI-created experiments.
+The current snapshot contains the index-cache id/key, retrieval settings, optional reranking settings,
+and GT reference. Preparation, chunking, embedding, and sparse lineage is still resolved indirectly
+through the referenced data asset and `DerivedCache` metadata, and `code_commit` is not populated by
+the UI. The implementation must copy that lineage into the saved snapshot before the record can be
+called independently reproducible after cache deletion.
+
 The full snapshot may include:
 
 ```text
@@ -211,10 +229,11 @@ parent_page_retrieval
 parent_chapter_retrieval
 ```
 
-LLM reranking remains a separate later reranking catalog item, not part of these retrieval
-strategies.
+LLM reranking is a separate implemented reranking catalog item, not part of the parent-retrieval
+strategies. The current `openai_llm_reranker` scores candidates pointwise and can blend its relevance
+score with the normalized retrieval score.
 
-Example snapshot:
+Target full snapshot example (generation/evaluation catalog fields shown here are still planned):
 
 ```json
 {
@@ -336,7 +355,16 @@ metrics. The current saved-experiment evaluation runs synchronously over all sel
 questions, optionally reranks candidates according to the saved snapshot, and writes aggregate and
 per-question summaries to `SavedExperiment.metrics_summary_json`.
 
-Required metric families:
+Currently emitted retrieval metrics:
+
+```text
+chunk-level: hit@k, MRR@k, nDCG@k, precision@k, recall@k
+page-level: page_hit@k, page_MRR@k, page_precision@k, page_recall@k
+not-found: expected_not_found, returned_count, top_score
+operational for remote reranking: requests, retries, candidates, tokens, duration, estimated cost
+```
+
+Target metric families:
 
 ```text
 retrieval: hit@k, MRR, recall@k, nDCG@k, source_recall, source_precision
@@ -376,7 +404,7 @@ Pipeline
 Evaluation
   Saved Experiments
 Admin
-  Settings
+  Settings (placeholder; environment-backed runtime configuration only)
 ```
 
 The Projects page supports editing project name, domain, description, and lifecycle status. Projects
@@ -402,7 +430,8 @@ rename/delete actions, compact list metrics such as question count, Hit, MRR, an
 pages with per-question GT/retrieved summaries, evaluation status, metrics, errors, and comparison.
 Comparison is an inline derived Saved Experiments view, not a separate domain entity: selected saved
 experiments become columns, and the first comparison view lists question count, Hit, MRR, Recall,
-operational summaries, and the full parameter snapshot for each experiment.
+operational summaries, and each experiment's submitted parameter snapshot. Until the known snapshot
+lineage gap is closed, that submitted JSON is not independently self-contained.
 
 ## Citations And Generation
 
@@ -433,6 +462,9 @@ new versions such as `grounded_answer_v2.md`.
 
 ## Recipe Output
 
+Recipe promotion/export is a planned capability; no recipe entity, status API, or export workflow is
+implemented yet.
+
 A recipe is the production-ready output of RAG Lab. It is promoted only after metrics beat baseline,
 failure cases are understood, preparation and retrieval parameters are explicit, prompts are
 versioned, citations are acceptable, and not-found behavior was tested.
@@ -449,10 +481,15 @@ deprecated
 ## Roadmap
 
 ```text
+Completed
 1. Project, data asset, manifest, parameter set, and saved experiment foundation
 2. Data upload, inspection, and preparation registry
 3. Chunking, materialized chunks, Qdrant indexing, retrieval, and reranking previews
-4. Generation, citations, prompts, and not-found behavior
-5. Saved-experiment evaluation with ground truth metrics
-6. Comparison and recipe export
+4. Saved-experiment GT evaluation and inline comparison
+
+Next
+5. Make saved experiment snapshots self-contained and populate code provenance
+6. Add background evaluation execution and progress/cancellation
+7. Add generation, citations, versioned prompts, and not-found behavior
+8. Add recipe promotion/export after generation and evaluation metrics are stable
 ```

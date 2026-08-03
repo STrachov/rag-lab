@@ -97,6 +97,22 @@ Remote Voyage and OpenAI models require API keys and optional rate/cost settings
 options, provider configuration, troubleshooting, and the complete manual workflow are documented in
 [`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md).
 
+## Current Scope
+
+The implemented vertical slice covers project/data management, preparation, chunking, Qdrant
+indexing, retrieval/reranking previews, ground truth, synchronous saved-experiment evaluation, and
+inline experiment comparison.
+
+Generation, grounded answers/citations, promoted recipe export, background evaluation, authentication,
+and production deployment hardening are not implemented. The Settings page and the generic
+`/v1/ask`, `/v1/retrieve`, and `/v1/experiments` endpoints are placeholders/reserved stubs.
+
+The target product invariant is a self-contained full parameter snapshot. Current UI-created saved
+experiments store the prepared-data manifest hash, index-cache reference, retrieval settings, optional
+reranking settings, and GT reference. Chunking/embedding/sparse/preparation lineage is still indirect
+through data-asset and derived-cache metadata, and the UI does not populate `code_commit`. See
+[`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the exact implementation boundary.
+
 ## Product Flow
 
 Core flow:
@@ -114,10 +130,10 @@ Project
 -> retrieval_temp candidate cache
 -> optional reranking preview
 -> optional Ground Truth Set
--> Saved Experiment with full parameter snapshot
+-> Saved Experiment with current evaluation snapshot and data manifest hash
 -> ground-truth evaluation metrics
 -> metrics comparison
--> validated recipe
+-> validated parameter choice
 ```
 
 In the UI, create or open a project first. The Data, Preparation, Chunking, Retrieval, Ground Truth,
@@ -142,14 +158,16 @@ Current implemented foundation:
 - saved experiment detail pages with aggregate metrics, API reranking usage totals, and per-question result summaries;
 - saved experiment rename/delete actions and compact list metrics for questions, Hit, MRR, and Recall;
 - categorized parameter sets with protected deletion;
-- saved experiments that snapshot prepared data manifest hashes and parameter snapshots.
+- saved experiments that snapshot prepared data manifest hashes plus current evaluation settings and
+  references; making the snapshot self-contained is still required work.
 
 Start with these files:
 
-1. `docs/PRODUCT_SPEC.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/DOMAIN_MODEL.md`
-4. `docs/API_CONTRACTS.md`
-5. `docs/DEVELOPMENT_WORKFLOW.md`
-6. `docs/DECISIONS.md`
-7. `docs/DATA_POLICY.md`
+1. `docs/CURRENT_STATE.md`
+2. `docs/PRODUCT_SPEC.md`
+3. `docs/ARCHITECTURE.md`
+4. `docs/DOMAIN_MODEL.md`
+5. `docs/API_CONTRACTS.md`
+6. `docs/DEVELOPMENT_WORKFLOW.md`
+7. `docs/DECISIONS.md`
+8. `docs/DATA_POLICY.md`

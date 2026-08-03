@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-py -3.12 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .[dev]
 cp .env.example .env
@@ -36,14 +36,30 @@ Start the UI:
 
 ```bash
 cd ui
-npm install
+npm ci
 npm run dev
+```
+
+Start optional local Docling Serve only when Docling preparation is needed:
+
+```bash
+docker compose --profile docling up -d docling
 ```
 
 ## Run Tests
 
 ```bash
 python -m pytest
+```
+
+The backend tests use an in-memory SQLite database and fake adapters for Qdrant/remote providers;
+they are not live-service integration tests. The UI currently has no automated test suite. Verify
+the production frontend build separately:
+
+```bash
+cd ui
+npm ci
+npm run build
 ```
 
 The first local embedding and reranking models are SentenceTransformers models and may download
@@ -109,18 +125,19 @@ RAG_LAB_OPENAI_MAX_RETRIES=2
 The concrete OpenAI model is a reranker parameter named `model`. The backend catalog exposes it as a
 select field using `RAG_LAB_OPENAI_LLM_RERANK_MODEL_OPTIONS`; change that env value when the active
 OpenAI project uses a different available model list.
-API reranking previews and GT evaluations record compact usage summaries. Set local price hints if
-you want estimated cost in the UI:
+API reranking previews and GT evaluations record compact usage summaries. The current application
+defaults are shown below; override them to match the provider prices you actually use:
 
 ```bash
-RAG_LAB_OPENAI_LLM_RERANK_INPUT_COST_PER_1M_TOKENS=0
-RAG_LAB_OPENAI_LLM_RERANK_OUTPUT_COST_PER_1M_TOKENS=0
-RAG_LAB_VOYAGE_RERANK_2_5_COST_PER_1M_TOKENS=0
-RAG_LAB_VOYAGE_RERANK_2_5_LITE_COST_PER_1M_TOKENS=0
+RAG_LAB_OPENAI_LLM_RERANK_INPUT_COST_PER_1M_TOKENS=0.2
+RAG_LAB_OPENAI_LLM_RERANK_OUTPUT_COST_PER_1M_TOKENS=1.25
+RAG_LAB_VOYAGE_RERANK_2_5_COST_PER_1M_TOKENS=0.05
+RAG_LAB_VOYAGE_RERANK_2_5_LITE_COST_PER_1M_TOKENS=0.02
 ```
 
 OpenAI cost uses provider-reported prompt/completion tokens. Voyage rerank cost uses the same local
-token estimate used for throttling, so treat it as an approximation. These values become editable
+token estimate used for throttling, so treat it as an approximation. Provider pricing can change;
+verify these local assumptions before using cost comparisons. These values become editable
 reranker params in the UI and are saved in experiment snapshots.
 
 ## Minimal Manual Workflow
@@ -139,46 +156,48 @@ reranker params in the UI and are saved in experiment snapshots.
 11. Run retrieval preview with manual questions or one GT question
 12. Rerank the retrieval cache with different models or params
 13. Register optional ground truth set
-14. Save experiment with full parameter snapshot and prepared data manifest hash
+14. Save experiment with the current evaluation snapshot and prepared data manifest hash
 15. Run GT evaluation over all selected GT questions
 16. Open the saved experiment detail page to inspect aggregate metrics, per-question summaries, and failures
 17. Compare saved experiments
-18. Promote validated parameter snapshot later
 ```
+
+The current manual product workflow ends at comparison. Self-contained cache/data/code lineage,
+background evaluation, generation, and recipe promotion/export are follow-up implementation work.
 
 ## Test Coverage Guide
 
-Use unit tests for:
+Current automated coverage includes:
 
 ```text
 file inspection
 preparation registries and adapters
+project lifecycle and filtering
+data asset manifest/edit/delete protections
 parameter set create/delete protections
 chunking strategy catalog and chunkers
-token counting
+Docling page/chapter parent units
 embedding model registry
 sparse model registry and BM25 vector building
-Qdrant vector store adapter
-hybrid retrieval fusion
-reranker model registry and ordering
-prompt rendering
-citation building
-evaluation metrics
-recipe export
-artifact writers
+Qdrant cache contracts through fake adapters
+dense/sparse/hybrid and parent retrieval
+local, Voyage, and OpenAI reranker contracts
+chunk materialization -> GT authoring pack download
+chunk-level and page-level ground truth metrics
+saved experiment -> GT evaluation -> metrics
+saved experiment rename/delete and failure summaries
 ```
 
-Use integration or smoke tests for:
+Still required when those features are implemented:
 
 ```text
-source upload -> inspection -> prepared version
-document ingest -> chunk -> index -> retrieve
-chunk materialization -> Qdrant index cache -> retrieval preview
-chunk materialization -> GT authoring pack download
-retrieval preview -> rerank candidates
-retrieve -> answer trace
-saved experiment -> GT evaluation -> metrics
-recipe promotion
+frontend component/interaction tests
+live PostgreSQL and Qdrant integration tests
+Docling/Voyage/OpenAI opt-in integration tests with approved synthetic data
+prompt rendering and versioning
+citation building and grounded-answer behavior
+not-found answer behavior
+recipe promotion/export
 ```
 
 Golden tests should use fixed synthetic documents and expected outputs, such as expected PDF

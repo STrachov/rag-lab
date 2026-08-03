@@ -224,7 +224,7 @@ parameter_set_id
 params_snapshot_json
 params_hash
 metrics_summary_json
-status: draft | queued | running | completed | failed
+status: created | running | completed | completed_with_errors | failed
 notes
 debug_level: none | summary | full
 code_commit
@@ -238,6 +238,12 @@ error_json
 `params_snapshot_json` is the source of truth for the evaluated pipeline. It may be assembled from
 multiple category-specific `ParameterSet` records, live stage selections, and read-only preparation
 provenance from the prepared data asset.
+
+The current Retrieval UI does not yet assemble that full lineage. It stores the selected index-cache
+id/key, retrieval settings, optional reranking settings, and GT reference. Chunking, embedding,
+sparse, and preparation details remain indirect through the referenced asset/cache metadata, and
+`code_commit` is not populated by the UI. This is a known implementation gap against the
+self-contained snapshot invariant.
 
 Current GT evaluation stores a structured summary in `metrics_summary_json`:
 
@@ -288,7 +294,7 @@ created_at
 last_used_at
 ```
 
-Current cache types:
+Cache types allowed by the current API schema:
 
 ```text
 chunks
@@ -297,6 +303,18 @@ qdrant_index
 retrieval_temp
 answer_temp
 ```
+
+Current runtime creation paths materialize only:
+
+```text
+chunks
+qdrant_index
+retrieval_temp
+```
+
+`embeddings` and `answer_temp` are reserved schema values. Dense embeddings live in Qdrant rather
+than a standalone `DerivedCache`; sparse/BM25 statistics are local files referenced by
+`qdrant_index` metadata.
 
 `chunks` caches materialize prepared data into `raglab.chunks.v1` JSONL. Each chunk record uses stable project-native fields:
 

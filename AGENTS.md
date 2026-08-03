@@ -62,7 +62,7 @@ A feature is not complete unless at least one is true:
 
 - Source and prepared data assets are editable and tracked with manifest snapshots.
 - Preparation provenance belongs to prepared data assets; the Chunking/Retrieval workflow should not re-edit already-applied preparation settings.
-- Parameter sets have a `category` such as `chunking`, `embedding`, `indexing`, `retrieval`, `generation`, `evaluation`, or `general`.
+- Parameter sets have a `category` such as `preparation`, `chunking`, `embedding`, `indexing`, `retrieval`, `reranking`, `generation`, `evaluation`, or `general`.
 - Chunking strategies are backend-driven. The UI must load the strategy catalog instead of hardcoding strategy names or fields.
 - Chunking preview is derived debug output, not a saved experiment result. A chunking snapshot may also be materialized into `DerivedCache(cache_type="chunks")` for later indexing.
 - Embedding and sparse retrieval models are backend-driven catalogs. Current local models include `intfloat/multilingual-e5-small`, `BAAI/bge-small-en-v1.5`, and `bm25_local`.
@@ -71,6 +71,7 @@ A feature is not complete unless at least one is true:
 - Retrieval preview is derived debug output. It may show source metadata, retrieval scores, rerank scores, and clipped chunk text, but it is not a saved experiment result.
 - API reranking preview and GT evaluation can include compact `usage.reranking` summaries. API reranker cost defaults come from the backend catalog/settings, become editable reranker params in the UI, and are saved in experiment snapshots. OpenAI usage relies on provider token counts; Voyage rerank usage is estimated from the local rate-limit token heuristic.
 - Saved experiment GT evaluation currently runs synchronously from the API/UI, retrieves and optionally reranks every linked GT question, and stores aggregate metrics, API usage totals, plus compact per-question summaries under `metrics_summary_json`.
+- The required product invariant is a self-contained full experiment parameter snapshot. The current UI-created snapshot still references Qdrant/index cache lineage for chunking, embedding, sparse, and preparation details, and does not populate `code_commit`; treat this as an implementation gap, not as the desired contract.
 - Saved Experiments list views should remain compact: name/status/question count and aggregate retrieval metrics such as Hit, MRR, and Recall. The saved experiment detail page is the canonical place for per-question GT and retrieved-result summaries.
 - Runtime failures that matter for reproducibility, such as failed Qdrant indexing, should be recorded as `DerivedCache(status="failed")` with inspectable error metadata.
 

@@ -7,15 +7,28 @@ This document defines the UI/backend boundary for RAG Lab. Product intent lives 
 
 ## Error Shape
 
+The API currently uses FastAPI's standard error envelopes. Application errors usually return:
+
 ```json
 {
-  "error": {
-    "code": "string",
-    "message": "string",
-    "details": {}
-  }
+  "detail": "message"
 }
 ```
+
+Request-validation errors return `detail` as an array of validation records. A custom
+`error.code/message/details` envelope is not implemented and must not be assumed by clients.
+
+## Health And Reserved Stubs
+
+```http
+GET  /v1/health
+POST /v1/ask
+POST /v1/retrieve
+POST /v1/experiments
+```
+
+Only `GET /v1/health` is implemented. The three generic POST endpoints are reserved stubs that return
+HTTP 501. Use the project-scoped retrieval-preview and saved-experiment endpoints documented below.
 
 ## Projects
 
@@ -41,11 +54,16 @@ POST   /v1/projects/{project_id}/data-assets/raw/upload
 POST   /v1/projects/{project_id}/data-assets/prepared/upload
 POST   /v1/projects/{project_id}/data-assets/{data_asset_id}/files
 DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}/files?stored_path=...
-DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}
+DELETE /v1/projects/{project_id}/data-assets/{data_asset_id}?cascade_derived_cache=false
 GET    /v1/projects/{project_id}/data-assets/{data_asset_id}/files/download?stored_path=...
 GET    /v1/projects/{project_id}/data-assets/preparation/methods
 POST   /v1/projects/{project_id}/data-assets/{data_asset_id}/prepare
 ```
+
+Deleting a data asset is blocked while saved experiments reference it. It is also blocked while
+derived caches reference it unless `cascade_derived_cache=true`; cascading deletes dependent runtime
+caches/storage before deleting the asset. Deleting a source asset also includes its linked prepared
+assets.
 
 Uploads store files under generated safe filenames and keep original filenames in manifest JSON.
 PDF uploads should record lightweight inspection hints such as page count, encryption status,
@@ -115,6 +133,9 @@ Deleting a parameter set used by a saved experiment is blocked. Preparation Para
 reusable presets; prepared data assets store the applied preparation snapshot in
 `preparation_params_json`.
 
+`POST /parameter-sets` currently requires the client to submit `params_hash` together with
+`params_json`; the backend does not derive that hash automatically.
+
 Chunking preview payload:
 
 ```json
@@ -139,12 +160,17 @@ preview. The returned `text_preview` field contains the full text of each return
 
 ```http
 GET  /v1/projects/{project_id}/derived-cache?cache_type=...
+DELETE /v1/projects/{project_id}/derived-cache/{cache_id}?cascade_dependents=false
 POST /v1/projects/{project_id}/chunks/materialize
 GET  /v1/projects/{project_id}/chunks/{chunks_cache_id}/gt-authoring-pack
 POST /v1/projects/{project_id}/indexes/qdrant
 POST /v1/projects/{project_id}/retrieve/preview
 POST /v1/projects/{project_id}/rerank/preview
 ```
+
+Deleting a cache with dependent runtime caches returns HTTP 409 unless
+`cascade_dependents=true`. Current creation paths use `chunks`, `qdrant_index`, and
+`retrieval_temp`; `embeddings` and `answer_temp` are reserved schema values.
 
 `chunks/materialize` accepts a prepared data asset and canonical chunking snapshot, writes
 `raglab.chunks.v1` JSONL, and creates or reuses `DerivedCache(cache_type="chunks")`.
@@ -230,8 +256,8 @@ retrieval score metadata, and uses `llm_weight` / `retrieval_weight` to compute 
 The OpenAI model parameter is a backend-catalog `select` field; its default and option list come from
 backend settings so deployments can update available model names without frontend changes.
 Remote reranking responses may include a `usage.reranking` object with provider/model, request and
-retry counts, candidate count, token counts, elapsed seconds, and `estimated_cost_usd` when local
-cost-per-token settings are configured. OpenAI usage uses provider-reported token counts; Voyage
+retry counts, candidate count, token counts, `duration_seconds`, and `estimated_cost_usd`. OpenAI
+usage uses provider-reported token counts; Voyage
 rerank usage uses the local token estimate used for rate-limit planning. API reranker price fields
 are returned in the reranker catalog and are also saved in reranking params, so saved experiments keep
 the price assumptions used when they were run.
@@ -270,7 +296,9 @@ POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate
 ```
 
 Saved experiment creation snapshots the current prepared data asset manifest hash and stores the
-full parameter snapshot. The current evaluation endpoint runs synchronously; background execution
+submitted `params_snapshot_json`. The target invariant is a self-contained full parameter snapshot,
+but the current UI submits the index-cache id/key plus retrieval, reranking, and GT settings; earlier
+pipeline lineage remains indirect through data-asset/cache metadata. The current evaluation endpoint runs synchronously; background execution
 should be added later when evaluations may call slow models, build caches, or score large
 ground-truth sets.
 
@@ -281,11 +309,31 @@ Create saved experiment request:
   "name": "Hybrid e5 bm25 qwen strict",
   "data_asset_id": "prepared-data-uuid",
   "ground_truth_set_id": "ground-truth-uuid",
-  "params_snapshot_json": {},
-  "debug_level": "none",
-  "notes": ""
+  "params_snapshot_json": {
+    "index_cache_id": "qdrant-index-cache-uuid",
+    "index_cache_key": "qdrant_index_...",
+    "retrieval": {
+      "mode": "hybrid",
+      "strategy": "chunk_retrieval",
+      "top_k": 5,
+      "candidate_k": 30,
+      "parent_score": "max"
+    },
+    "reranking": null,
+    "ground_truth": {
+      "ground_truth_set_id": "ground-truth-uuid",
+      "question_count": 20
+    }
+  },
+  "params_hash": "sha256:...",
+  "debug_level": "summary",
+  "notes": "",
+  "pipeline_version": "runtime-v1"
 }
 ```
+
+`params_hash` is required and is currently calculated by the client from the submitted snapshot.
+`code_commit` is optional in the schema and is not populated by the current UI.
 
 Evaluate response:
 

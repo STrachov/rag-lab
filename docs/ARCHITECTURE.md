@@ -17,15 +17,19 @@ Project
 -> metrics
 ```
 
+This diagram includes the target self-contained experiment-snapshot invariant. The current UI
+snapshot still depends on data-asset and index-cache metadata for earlier pipeline lineage; see
+`CURRENT_STATE.md`.
+
 Source data assets hold uploaded source files. Prepared data assets are RAG-ready versions linked to source data assets. File changes create `DataAssetManifest` snapshots; saved experiments snapshot the prepared data manifest hash used for the run.
 
 The runtime pipeline may create chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and
 answers. These are derived cache/debug outputs, not product-facing results. Saved experiment results
 are metrics only.
 
-The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Dense embeddings can be created by local SentenceTransformers adapters or explicit remote Voyage adapters. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder models or explicit remote Voyage rerank adapters. It returns retrieved chunk metadata, clipped retrieval text previews, retrieval scores, and rerank score breakdowns; it is debug output, not experiment results. Chunking preview is a separate debug view and returns full text for the previewed chunks.
+The current runtime can materialize prepared data into normalized chunk JSONL under `data/cache/chunks/`, track that cache in PostgreSQL, build a Qdrant index cache with dense and optional sparse vectors, and run retrieval preview in dense, sparse, or hybrid mode. Dense embeddings can be created by local SentenceTransformers adapters or explicit remote Voyage adapters. Retrieval preview can optionally rerank retrieved candidates with local cross-encoder, remote Voyage, or OpenAI pointwise LLM rerankers. It returns retrieved chunk metadata, clipped retrieval text previews, retrieval scores, rerank score breakdowns, and optional API usage/cost summaries; it is debug output, not experiment results. Chunking preview is a separate debug view and returns full text for the previewed chunks.
 
-## Recommended Structure
+## Code And Runtime Storage
 
 ```text
 app/
@@ -36,23 +40,31 @@ app/
   adapters/
   core/
 ui/
-configs/
 data/
   projects/
     {project_id}/
       source/
+        {data_asset_id}/
+          _manifest.json
+          files/
       prepared/
+        {data_asset_id}/
+          _manifest.json
+          files/
   cache/
     chunks/
-    embeddings/
     sparse/
-    qdrant_indexes/
-    retrieval_temp/
-    answer_temp/
   ground_truth/
+    {project_id}/
+      ground_truths/
 tests/
 alembic/
 ```
+
+This is the current local filesystem shape, not a requirement that every cache type has a directory.
+Qdrant vectors live in Qdrant collections; Qdrant-index and retrieval-temp state is tracked through
+PostgreSQL `DerivedCache` metadata. The filesystem currently stores chunk JSONL/manifest files and
+sparse BM25 statistics. `embeddings` and `answer_temp` remain reserved API cache types.
 
 ## Backend
 
@@ -72,7 +84,8 @@ Responsibilities:
 - rerank retrieval preview candidates from full materialized chunk text;
 - save and delete categorized reusable parameter sets;
 - save optional ground truth set references;
-- save experiments with full parameter snapshots;
+- save experiments with submitted parameter snapshots and evolve them to self-contained full
+  lineage snapshots;
 - run saved experiment evaluation over linked ground truth questions;
 - store metrics-only results;
 - track derived cache entries;
@@ -113,7 +126,7 @@ Pipeline
 Evaluation
   Saved Experiments
 Admin
-  Settings
+  Settings (placeholder)
 ```
 
 Debug views for chunks, traces, prompts, and answers may be added later, but they should be clearly marked as derived runtime/debug data.
@@ -157,7 +170,7 @@ implementation adapter/function
 version/provenance where relevant
 ```
 
-Current registry families:
+Current backend-driven registry/catalog families:
 
 ```text
 preparation methods
@@ -165,6 +178,12 @@ chunking strategies
 embedding models
 sparse retrieval models
 reranking models
+```
+
+Current indexing modes and retrieval strategies are backend-validated contracts, but are not exposed
+through independent field catalogs. Planned registry families are:
+
+```text
 generation prompts/models
 evaluation metrics/scorers
 ```
@@ -184,6 +203,12 @@ create the Qdrant collection.
 Remote reranker catalog entries must also make the provider explicit. Voyage rerank entries use the
 same API key and base URL, send the query plus current candidate text to `/v1/rerank`, and use
 separate RPM/TPM throttle settings because Voyage embedding and rerank limits differ.
+
+The OpenAI LLM reranker uses Chat Completions with strict JSON relevance scores, configurable
+candidate batching/clipping, and optional blending with the normalized retrieval score. It is a
+reranking adapter only; answer generation is not implemented. Local SentenceTransformer embedders
+and cross-encoder rerankers are cached in process by normalized model parameters to avoid repeated
+model loading.
 
 Docling is integrated as an external Docling Serve endpoint. Local CPU Docker, local GPU Docker, and remote GPU machines should use the same adapter boundary and differ by `RAG_LAB_DOCLING_BASE_URL`.
 

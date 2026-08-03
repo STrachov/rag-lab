@@ -213,7 +213,7 @@ results.
 
 Pros:
 - the UI can restore existing and failed indexes after navigation;
-- dense, sparse, and hybrid retrieval can be compared before generation/evaluation exists;
+- dense, sparse, and hybrid retrieval can be compared without requiring an answer-generation stage;
 - Qdrant remains a cache backend while PostgreSQL remains the application database;
 - model and sparse params are inspectable and can later become saved experiment snapshots.
 
@@ -366,3 +366,98 @@ Pros:
 Cons:
 - chunking preview can expose more sensitive text on screen;
 - users must treat screenshots and copied preview text as sensitive derived data.
+
+---
+
+## 2026-06-15 - Add OpenAI LLM-as-reranker with explicit usage and price assumptions
+
+Status: accepted
+
+### Context
+
+The lab needs an instruction-aware reranking option beyond local cross-encoders and Voyage while
+keeping provider data movement, scoring behavior, and experiment cost assumptions inspectable.
+
+### Decision
+
+- Add `openai_llm_reranker` as a backend catalog entry, not as an answer-generation stage.
+- Send clipped candidate batches through Chat Completions and require strict JSON relevance scores.
+- Allow blending the LLM score with the normalized retrieval score.
+- Record provider token usage and estimated cost; expose the selected model and price assumptions as
+  reranker parameters so they are included in experiment snapshots.
+
+### Consequences
+
+- query and candidate text leave the local machine when this reranker is selected;
+- results depend on model availability, configured model options, provider behavior, and local price
+  assumptions;
+- strict JSON and batching keep the adapter inspectable, but do not make it deterministic.
+
+---
+
+## 2026-06-15 - Reuse local embedding and reranking model instances
+
+Status: accepted
+
+### Context
+
+Repeatedly loading SentenceTransformer and cross-encoder weights makes interactive experiments slow
+and wastes process memory and CPU initialization time.
+
+### Decision
+
+Cache local embedder and reranker instances in process using normalized model id/parameter keys.
+Remote API adapters are not stored in this model cache.
+
+### Consequences
+
+- repeated previews with identical local model parameters avoid model reloads;
+- cache lifetime is the backend process lifetime;
+- changing model parameters creates a separate instance and may increase memory use.
+
+---
+
+## 2026-06-23 - Keep experiment comparison as an inline derived view
+
+Status: accepted
+
+### Context
+
+Users need to compare aggregate metrics, operational usage, and snapshots without creating another
+product entity or navigating to a disconnected report page.
+
+### Decision
+
+Implement comparison inside Saved Experiments. Selected experiments become columns; comparison reads
+persisted experiment data and does not store a comparison record. Keep the old comparison route as a
+redirect to Saved Experiments.
+
+### Consequences
+
+- comparison remains consistent with the metrics-only product model;
+- no comparison lifecycle or persistence API is required;
+- large experiment selections must remain bounded by UI usability.
+
+---
+
+## 2026-07-28 - Use active and archived project lifecycle states
+
+Status: accepted
+
+### Context
+
+Durable projects need reversible organization without deleting experiment history or preventing old
+work from being inspected.
+
+### Decision
+
+- Restrict user-facing project status to `active` and `archived` in API validation and the database.
+- Allow project metadata and status edits.
+- Filter the Projects list to active projects by default while retaining an all-projects view.
+- Keep archived projects openable and preserve all project data and references.
+
+### Consequences
+
+- archiving is safe and reversible;
+- deletion remains a separate protected operation;
+- clients must handle the two-value lifecycle contract as a breaking-change boundary.
