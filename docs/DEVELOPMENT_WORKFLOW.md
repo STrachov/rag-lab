@@ -62,6 +62,31 @@ npm ci
 npm run build
 ```
 
+## Build ChatGPT Context Bundle
+
+Generate one self-contained Markdown file for upload to ChatGPT:
+
+```powershell
+.\scripts\build_chatgpt_context.ps1
+```
+
+If the local Windows execution policy blocks direct script execution, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_chatgpt_context.ps1
+```
+
+PowerShell 7 on Linux/macOS can run the same generator with:
+
+```bash
+pwsh -File ./scripts/build_chatgpt_context.ps1
+```
+
+The generator concatenates an explicit allowlist of repository Markdown files and writes
+`temp_docs/RAG_LAB_CHATGPT_CONTEXT.md`. The output directory is gitignored. The bundle contains no
+project data, derived cache, environment files, or API keys; update the canonical source documents
+and rerun the generator instead of editing the bundle.
+
 The first local embedding and reranking models are SentenceTransformers models and may download
 weights on first use. Qdrant must be running before creating or previewing indexes.
 

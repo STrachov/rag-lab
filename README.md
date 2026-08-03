@@ -113,6 +113,15 @@ reranking settings, and GT reference. Chunking/embedding/sparse/preparation line
 through data-asset and derived-cache metadata, and the UI does not populate `code_commit`. See
 [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the exact implementation boundary.
 
+Generate a single self-contained project context file for upload to ChatGPT:
+
+```powershell
+.\scripts\build_chatgpt_context.ps1
+```
+
+The generated `temp_docs/RAG_LAB_CHATGPT_CONTEXT.md` is gitignored and should be regenerated after
+documentation changes rather than edited directly.
+
 ## Product Flow
 
 Core flow:
