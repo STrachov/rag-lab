@@ -249,7 +249,10 @@ def _canonicalize_ground_truth(value: Any) -> dict[str, Any]:
     elif isinstance(value, dict) and isinstance(value.get("questions"), list):
         metadata = dict(value.get("metadata") or {})
         metadata["ground_truth_type"] = str(metadata.get("ground_truth_type") or GT_TYPE_CHUNK_QRELS)
-        questions = [_canonical_question_from_qrels(item) for item in value["questions"]]
+        questions = [
+            _canonical_question_from_qrels(item, ground_truth_type=metadata["ground_truth_type"])
+            for item in value["questions"]
+        ]
     elif isinstance(value, list):
         metadata = {"ground_truth_type": GT_TYPE_CHUNK_QRELS}
         questions = [_canonical_question_from_authoring_record(item) for item in value]
@@ -263,14 +266,17 @@ def _canonicalize_ground_truth(value: Any) -> dict[str, Any]:
     if not questions:
         raise ValueError("Ground truth must include at least one question")
 
-    return {
+    canonical = {
         "metadata": metadata,
         "questions": questions,
         "schema_version": GT_SCHEMA_VERSION,
     }
+    if isinstance(value, dict) and "evaluation_slices" in value:
+        canonical["evaluation_slices"] = _canonical_evaluation_slices(value["evaluation_slices"])
+    return canonical
 
 
-def _canonical_question_from_qrels(value: Any) -> dict[str, Any]:
+def _canonical_question_from_qrels(value: Any, *, ground_truth_type: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Each ground truth question must be an object")
     question_id = _required_str(value, "question_id")
@@ -280,19 +286,39 @@ def _canonical_question_from_qrels(value: Any) -> dict[str, Any]:
         _canonical_relevant_chunk(item, fallback_rank=index)
         for index, item in enumerate(value.get("relevant_chunks") or [], start=1)
     ]
-    if expected_answer_type == "not_found" and relevant_chunks:
-        raise ValueError(f"{question_id}: not_found questions cannot include relevant_chunks")
-    if expected_answer_type != "not_found" and not relevant_chunks:
-        raise ValueError(f"{question_id}: found questions must include at least one relevant chunk")
-    return {
+    relevant_pages = [
+        _canonical_relevant_page(item)
+        for item in value.get("relevant_pages") or []
+        if isinstance(item, dict)
+    ]
+    if ground_truth_type == GT_TYPE_PAGE_QRELS:
+        if relevant_chunks:
+            raise ValueError(f"{question_id}: page_level_qrels questions cannot include relevant_chunks")
+        if expected_answer_type == "not_found" and relevant_pages:
+            raise ValueError(f"{question_id}: not_found questions cannot include relevant_pages")
+        if expected_answer_type != "not_found" and not relevant_pages:
+            raise ValueError(f"{question_id}: found questions must include at least one relevant page")
+    else:
+        if relevant_pages:
+            raise ValueError(f"{question_id}: chunk_level_qrels questions cannot include relevant_pages")
+        if expected_answer_type == "not_found" and relevant_chunks:
+            raise ValueError(f"{question_id}: not_found questions cannot include relevant_chunks")
+        if expected_answer_type != "not_found" and not relevant_chunks:
+            raise ValueError(f"{question_id}: found questions must include at least one relevant chunk")
+    canonical = {
+        "expected_answer": value.get("expected_answer"),
         "expected_answer_brief": value.get("expected_answer_brief"),
         "expected_answer_type": expected_answer_type,
         "question": question_text,
         "question_id": question_id,
         "question_type": str(value.get("question_type") or "factual"),
-        "relevant_pages": [],
+        "reasoning_process": value.get("reasoning_process"),
+        "relevant_pages": relevant_pages,
         "relevant_chunks": relevant_chunks,
     }
+    if "metadata" in value:
+        canonical["metadata"] = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    return canonical
 
 
 def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str, Any]:
@@ -313,7 +339,7 @@ def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str
         raise ValueError(f"{question_id}: not_found records cannot include expected_chunks")
     if not not_found and not relevant_chunks:
         raise ValueError(f"{question_id}: records must include expected_chunks unless not_found is true")
-    return {
+    canonical = {
         "expected_answer_brief": None,
         "expected_answer_type": "not_found" if not_found else "found",
         "question": _required_str(value, "question"),
@@ -322,6 +348,9 @@ def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str
         "relevant_pages": [],
         "relevant_chunks": relevant_chunks,
     }
+    if "metadata" in value:
+        canonical["metadata"] = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    return canonical
 
 
 def _canonical_question_from_page_answer(value: Any, *, fallback_index: int) -> dict[str, Any]:
@@ -339,7 +368,7 @@ def _canonical_question_from_page_answer(value: Any, *, fallback_index: int) -> 
         if isinstance(item, dict)
     ]
     expected_answer_type = "found" if relevant_pages else "not_found"
-    return {
+    canonical = {
         "expected_answer": value.get("value"),
         "expected_answer_brief": None if value.get("value") is None else str(value.get("value")),
         "expected_answer_type": expected_answer_type,
@@ -350,6 +379,64 @@ def _canonical_question_from_page_answer(value: Any, *, fallback_index: int) -> 
         "relevant_chunks": [],
         "relevant_pages": relevant_pages,
     }
+    if "metadata" in value:
+        canonical["metadata"] = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    return canonical
+
+
+def _canonical_question_metadata(value: Any, *, question_id: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{question_id}: metadata must be an object")
+    metadata = dict(value)
+    for field in ("source", "difficulty"):
+        field_value = metadata.get(field)
+        if field in metadata and field_value is not None and not isinstance(field_value, str):
+            raise ValueError(f"{question_id}: metadata.{field} must be a string or null")
+    if "tags" in metadata:
+        tags = metadata["tags"]
+        if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+            raise ValueError(f"{question_id}: metadata.tags must be an array of strings")
+        metadata["tags"] = list(tags)
+    return metadata
+
+
+def _canonical_evaluation_slices(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("evaluation_slices must be an array")
+    slices: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Each evaluation slice must be an object")
+        slice_id = _required_str(item, "id")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", slice_id):
+            raise ValueError(f"Evaluation slice id is not machine-friendly: {slice_id}")
+        if slice_id in seen_ids:
+            raise ValueError(f"Duplicate evaluation slice id: {slice_id}")
+        seen_ids.add(slice_id)
+        label = _required_str(item, "label")
+        filter_value = item.get("filter")
+        if not isinstance(filter_value, dict):
+            raise ValueError(f"{slice_id}: evaluation slice filter must be an object")
+        if not filter_value:
+            raise ValueError(f"{slice_id}: evaluation slice filter cannot be empty")
+        normalized_filter: dict[str, list[str]] = {}
+        for key, allowed_values in filter_value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"{slice_id}: evaluation slice filter keys must be non-empty strings")
+            if not isinstance(allowed_values, list) or any(
+                not isinstance(allowed_value, str) for allowed_value in allowed_values
+            ):
+                raise ValueError(f"{slice_id}: evaluation slice filter values must be arrays of strings")
+            if not allowed_values:
+                raise ValueError(f"{slice_id}: evaluation slice filter value arrays cannot be empty")
+            normalized_filter[key] = list(allowed_values)
+        slices.append({"filter": normalized_filter, "id": slice_id, "label": label})
+    return slices
 
 
 def _canonical_relevant_page(value: dict[str, Any]) -> dict[str, Any]:
@@ -527,6 +614,7 @@ def _build_manifest(
         "created_at": datetime.now(UTC).isoformat(),
         "data_asset_id": data_asset.id if data_asset else None,
         "found_count": len(found_questions),
+        "evaluation_slice_count": len(canonical.get("evaluation_slices") or []),
         "ground_truth_set_id": ground_truth_set_id,
         "ground_truth_type": _ground_truth_type(canonical),
         "not_found_count": len(not_found_questions),
@@ -539,6 +627,7 @@ def _build_manifest(
         },
         "project_id": project_id,
         "question_count": len(questions),
+        "question_metadata": any(bool(question.get("metadata")) for question in questions),
         "page_judgment_count": page_judgment_count,
         "relevance_judgment_count": chunk_judgment_count,
         "schema_version": GT_SET_SCHEMA_VERSION,
@@ -558,10 +647,12 @@ def _metadata_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "canonical_format": manifest["canonical_format"],
         "chunks_file_sha256": manifest.get("chunks_file_sha256"),
         "found_count": manifest["found_count"],
+        "evaluation_slice_count": manifest.get("evaluation_slice_count", 0),
         "ground_truth_type": manifest["ground_truth_type"],
         "not_found_count": manifest["not_found_count"],
         "original_filename": manifest["original"]["original_name"],
         "question_count": manifest["question_count"],
+        "question_metadata": bool(manifest.get("question_metadata")),
         "page_judgment_count": manifest["page_judgment_count"],
         "relevance_judgment_count": manifest["relevance_judgment_count"],
         "referenced_page_count": manifest["validation"].get("referenced_page_count", 0),

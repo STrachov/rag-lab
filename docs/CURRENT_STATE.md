@@ -1,6 +1,6 @@
 # Current State
 
-Last verified against the tracked codebase: 2026-08-03.
+Last verified against the tracked codebase: 2026-09-04.
 
 This document is the source of truth for what is implemented now. `PRODUCT_SPEC.md` describes the
 target product, `ARCHITECTURE.md` describes the design boundaries, and `API_CONTRACTS.md` describes
@@ -40,12 +40,15 @@ estimated cost summaries are supported.
 ### Ground Truth
 
 JSON/JSONL upload, canonicalization, chunk-level and page-level judgments, one-question preview
-scoring, and downloadable source/canonical files.
+scoring, downloadable source/canonical files, optional per-question metadata, and declarative
+evaluation slices. Metadata and slice definitions remain part of the canonical GT content.
 
 ### Saved Experiments
 
 Create, rename, delete, synchronously evaluate all linked GT questions, inspect aggregate/per-question
-results, and compare selected experiments inline.
+results, and compare selected experiments inline. One evaluation pass now produces overall metrics
+plus declared slice metrics from the same per-question results; detail rows can be filtered by the
+metadata snapshot stored at evaluation time.
 
 ### Metrics
 
@@ -93,7 +96,7 @@ The API schema reserves `embeddings` and `answer_temp`; current runtime creation
 
 ## Verification Baseline
 
-The repository currently contains 74 Python test functions; all 74 passed in the verification run
+The repository currently contains 95 Python test functions; all 95 passed in the verification run
 for this update. API tests use an in-memory SQLite database and fake runtime adapters where external
 systems are involved. The supported checks are:
 

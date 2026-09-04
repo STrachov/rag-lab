@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -16,6 +16,14 @@ type SavedExperimentsPageProps = {
 type EvaluationSummary = {
   evaluation?: Record<string, unknown>;
   metric_averages?: Record<string, unknown>;
+  slice_metrics?: Record<string, SliceMetricSummary>;
+};
+
+type SliceMetricSummary = {
+  filter?: Record<string, unknown>;
+  label?: string;
+  metric_averages?: Record<string, unknown>;
+  question_count?: number;
 };
 
 type ComparisonRow = {
@@ -240,6 +248,7 @@ export function SavedExperimentsPage({ currentProject }: SavedExperimentsPagePro
                       rows={aggregateMetricRows}
                       title="Aggregate Metrics"
                     />
+                    <SliceComparisonSections experiments={selectedExperiments} />
                     <ComparisonSection
                       experiments={selectedExperiments}
                       rows={operationalMetricRows}
@@ -266,6 +275,81 @@ export function SavedExperimentsPage({ currentProject }: SavedExperimentsPagePro
         </>
       )}
     </section>
+  );
+}
+
+function SliceComparisonSections({ experiments }: { experiments: SavedExperiment[] }) {
+  const sliceIds = Array.from(new Set(experiments.flatMap((experiment) =>
+    Object.keys(evaluationSummary(experiment).slice_metrics ?? {}),
+  ))).sort();
+  return (
+    <>
+      {sliceIds.map((sliceId) => {
+        const definitions = experiments
+          .map((experiment) => evaluationSummary(experiment).slice_metrics?.[sliceId])
+          .filter((slice): slice is SliceMetricSummary => Boolean(slice));
+        const filterKeys = new Set(definitions.map((slice) => stableFilterKey(slice.filter)));
+        const comparable = filterKeys.size <= 1;
+        const label = definitions.find((slice) => slice.label)?.label ?? sliceId;
+        const metricKeys = Array.from(new Set(definitions.flatMap((slice) =>
+          Object.keys(slice.metric_averages ?? {}),
+        ))).sort();
+        return (
+          <Fragment key={sliceId}>
+            <tr className="comparison-section-row">
+              <th colSpan={experiments.length + 1}>
+                Slice: {label}
+                {!comparable ? <span className="comparison-warning">Not comparable: filter definitions differ.</span> : null}
+              </th>
+            </tr>
+            <SliceComparisonRow comparable={comparable} experiments={experiments} label="Questions" sliceId={sliceId} valueKey="question_count" />
+            {metricKeys.map((metricKey) => (
+              <SliceComparisonRow
+                comparable={comparable}
+                experiments={experiments}
+                key={metricKey}
+                label={formatMetricName(metricKey)}
+                metricKey={metricKey}
+                sliceId={sliceId}
+              />
+            ))}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+function SliceComparisonRow({
+  comparable,
+  experiments,
+  label,
+  metricKey,
+  sliceId,
+  valueKey,
+}: {
+  comparable: boolean;
+  experiments: SavedExperiment[];
+  label: string;
+  metricKey?: string;
+  sliceId: string;
+  valueKey?: "question_count";
+}) {
+  return (
+    <tr>
+      <th>{label}</th>
+      {experiments.map((experiment) => {
+        const slice = evaluationSummary(experiment).slice_metrics?.[sliceId];
+        if (!slice) {
+          return <td key={experiment.id}>-</td>;
+        }
+        if (!comparable) {
+          return <td key={experiment.id}>Not comparable</td>;
+        }
+        const value = valueKey ? slice[valueKey] : slice.metric_averages?.[String(metricKey)];
+        return <td key={experiment.id}>{typeof value === "number" ? value.toFixed(valueKey ? 0 : 3) : "-"}</td>;
+      })}
+    </tr>
   );
 }
 
@@ -386,6 +470,25 @@ function experimentMetricLabel(
 
 function evaluationSummary(experiment: SavedExperiment): EvaluationSummary {
   return (experiment.metrics_summary_json ?? {}) as EvaluationSummary;
+}
+
+function stableFilterKey(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "{}";
+  }
+  const normalized = Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [
+        key,
+        Array.isArray(item) ? [...item].map(String).sort() : item,
+      ]),
+  );
+  return JSON.stringify(normalized);
+}
+
+function formatMetricName(name: string): string {
+  return name.replace(/_/g, " ");
 }
 
 function rerankingUsage(experiment: SavedExperiment): Record<string, unknown> {

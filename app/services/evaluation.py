@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,13 +25,13 @@ def evaluate_ground_truth_questions(
     snapshot = dict(saved_experiment.params_snapshot_json or {})
     retrieval = _retrieval_params(snapshot)
     reranking_snapshot = _reranking_snapshot(snapshot)
+    canonical = read_canonical_ground_truth(ground_truth_set)
     questions = list_ground_truth_questions(ground_truth_set)
     canonical_questions = {
         str(question["question_id"]): question
-        for question in read_canonical_ground_truth(ground_truth_set).get("questions", [])
+        for question in canonical.get("questions", [])
     }
     rows: list[dict[str, Any]] = []
-    metric_values: dict[str, list[float]] = defaultdict(list)
     started_at = datetime.now(UTC)
     reranking = reranking_snapshot["reranking"] if reranking_snapshot else None
     logger.info(
@@ -74,19 +73,17 @@ def evaluate_ground_truth_questions(
                 retrieved_chunks=list(result["retrieved_chunks"]),
             )
             metrics = {name: float(value) for name, value in score["metrics"].items()}
-            for name, value in metrics.items():
-                metric_values[name].append(value)
+            canonical_question = canonical_questions.get(str(question["question_id"]), question)
             rows.append(
                 {
                     "error_json": None,
                     "expected_answer_brief": question.get("expected_answer_brief"),
                     "expected_answer_type": score["expected_answer_type"],
-                    "ground_truth": _ground_truth_summary(
-                        canonical_questions.get(str(question["question_id"]), question)
-                    ),
+                    "ground_truth": _ground_truth_summary(canonical_question),
                     "metrics": metrics,
                     "question": question["question"],
                     "question_id": question["question_id"],
+                    "question_metadata": dict(canonical_question.get("metadata") or {}),
                     "retrieved": _retrieved_results(result["retrieved_chunks"]),
                     "status": "completed",
                     "top_result": _top_result(result["retrieved_chunks"]),
@@ -115,6 +112,7 @@ def evaluate_ground_truth_questions(
                 type(exc).__name__,
                 str(exc),
             )
+            canonical_question = canonical_questions.get(str(question.get("question_id")), question)
             rows.append(
                 {
                     "error_json": {
@@ -124,12 +122,11 @@ def evaluate_ground_truth_questions(
                     },
                     "expected_answer_brief": question.get("expected_answer_brief"),
                     "expected_answer_type": question.get("expected_answer_type"),
-                    "ground_truth": _ground_truth_summary(
-                        canonical_questions.get(str(question.get("question_id")), question)
-                    ),
+                    "ground_truth": _ground_truth_summary(canonical_question),
                     "metrics": {},
                     "question": question.get("question"),
                     "question_id": question.get("question_id"),
+                    "question_metadata": dict(canonical_question.get("metadata") or {}),
                     "retrieved": [],
                     "status": "failed",
                     "top_result": None,
@@ -144,6 +141,7 @@ def evaluate_ground_truth_questions(
     finished_at = datetime.now(UTC)
     first_error = failed_rows[0].get("error_json") if failed_rows else None
     usage_totals = _aggregate_usage(rows)
+    metric_averages = aggregate_metrics(rows)
     reranking_usage = usage_totals.get("reranking", {})
     logger.info(
         "gt evaluation finished saved_experiment_id=%s ground_truth_set_id=%s index_cache_id=%s "
@@ -159,7 +157,7 @@ def evaluate_ground_truth_questions(
         len(rows),
         warnings_count,
         (finished_at - started_at).total_seconds(),
-        ",".join(sorted(metric_values.keys())),
+        ",".join(sorted(metric_averages.keys())),
         reranking_usage.get("request_count") if isinstance(reranking_usage, dict) else None,
         reranking_usage.get("total_tokens") if isinstance(reranking_usage, dict) else None,
         reranking_usage.get("estimated_cost_usd") if isinstance(reranking_usage, dict) else None,
@@ -167,12 +165,18 @@ def evaluate_ground_truth_questions(
         first_error.get("failed_stage") if isinstance(first_error, dict) else None,
         first_error.get("message") if isinstance(first_error, dict) else None,
     )
-    return {
+    summary = {
         "evaluation": {
             "completed_question_count": len(completed_rows),
             "duration_seconds": round((finished_at - started_at).total_seconds(), 3),
             "error_count": len(failed_rows),
             "ground_truth_set_id": ground_truth_set.id,
+            "ground_truth_manifest_hash": ground_truth_set.manifest_hash,
+            "ground_truth_schema_version": canonical.get("schema_version"),
+            "ground_truth_annotation_schema_version": canonical.get("metadata", {}).get(
+                "annotation_schema_version"
+            ),
+            "ground_truth_annotation_version": canonical.get("metadata", {}).get("annotation_version"),
             "index_cache_id": index_cache.id,
             "question_count": len(rows),
             "reranking": snapshot.get("reranking"),
@@ -182,13 +186,64 @@ def evaluate_ground_truth_questions(
             "usage": usage_totals,
             "warning_count": warnings_count,
         },
-        "metric_averages": {
-            name: sum(values) / len(values)
-            for name, values in sorted(metric_values.items())
-            if values
-        },
+        "metric_averages": metric_averages,
         "questions": rows,
     }
+    evaluation_slices = canonical.get("evaluation_slices") or []
+    if evaluation_slices:
+        summary["slice_metrics"] = build_slice_metrics(rows, evaluation_slices)
+    return summary
+
+
+def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
+    """Average every numeric per-question metric using one shared overall/slice path."""
+    metric_values: dict[str, list[float]] = {}
+    for row in rows:
+        if row.get("status") != "completed" or not isinstance(row.get("metrics"), dict):
+            continue
+        for name, value in row["metrics"].items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                metric_values.setdefault(str(name), []).append(float(value))
+    return {
+        name: sum(values) / len(values)
+        for name, values in sorted(metric_values.items())
+        if values
+    }
+
+
+def build_slice_metrics(
+    rows: list[dict[str, Any]],
+    evaluation_slices: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    slice_metrics: dict[str, dict[str, Any]] = {}
+    for definition in evaluation_slices:
+        filter_definition = dict(definition.get("filter") or {})
+        selected = [row for row in rows if question_metadata_matches(row, filter_definition)]
+        warnings = [] if selected else ["Evaluation slice matched no questions."]
+        slice_metrics[str(definition["id"])] = {
+            "filter": filter_definition,
+            "label": str(definition["label"]),
+            "metric_averages": aggregate_metrics(selected),
+            "question_count": len(selected),
+            "warnings": warnings,
+        }
+    return slice_metrics
+
+
+def question_metadata_matches(row: dict[str, Any], filter_definition: dict[str, Any]) -> bool:
+    metadata = row.get("question_metadata")
+    if not isinstance(metadata, dict):
+        return False
+    for key, allowed_values in filter_definition.items():
+        if not isinstance(allowed_values, list):
+            return False
+        actual = metadata.get(key)
+        if isinstance(actual, list):
+            if not any(value in allowed_values for value in actual):
+                return False
+        elif actual not in allowed_values:
+            return False
+    return True
 
 
 def _retrieval_params(snapshot: dict[str, Any]) -> dict[str, Any]:

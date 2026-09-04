@@ -277,6 +277,37 @@ Ground truth upload accepts JSON or JSONL plus an optional prepared `data_asset_
 shape and canonicalizes the file. Chunk-id compatibility is checked later against the selected
 chunks cache during retrieval/reranking evaluation.
 
+`raglab.ground_truth.v1` remains backward compatible. A question may include optional metadata, and
+the canonical object may declare optional evaluation slices:
+
+```json
+{
+  "schema_version": "raglab.ground_truth.v1",
+  "evaluation_slices": [
+    {
+      "id": "hard",
+      "label": "Hard",
+      "filter": {"difficulty": ["hard"]}
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "q001",
+      "question": "...",
+      "metadata": {
+        "source": "benchmark_original",
+        "difficulty": "hard",
+        "tags": ["numeric", "multi_page"]
+      }
+    }
+  ]
+}
+```
+
+`source` and `difficulty` accept a string or null; `tags` accepts an array of strings. Values are
+benchmark-defined, not backend enums. Slice filter values are string arrays. Different keys are
+ANDed, values within a key are ORed, and `tags` matches when any question tag is allowed.
+
 Ground truth question list responses include optional `expected_answer` and
 `expected_answer_brief` fields when the uploaded ground truth provides an answer value. These fields
 are omitted for question records that only define relevance judgments.
@@ -346,6 +377,15 @@ Evaluate response:
   "metrics_summary_json": {
     "evaluation": {},
     "metric_averages": {},
+    "slice_metrics": {
+      "hard": {
+        "label": "Hard",
+        "filter": {"difficulty": ["hard"]},
+        "question_count": 3,
+        "metric_averages": {"page_recall_at_k": 0.5},
+        "warnings": []
+      }
+    },
     "questions": []
   }
 }
@@ -377,10 +417,12 @@ retrieves/reranks candidates, scores them with the existing single-question scor
 ```text
 metrics_summary_json.evaluation
 metrics_summary_json.metric_averages
+metrics_summary_json.slice_metrics (optional)
 metrics_summary_json.questions
 ```
 
-Per-question rows store metrics, warnings, error metadata, `ground_truth` expectations, and compact
+Per-question rows store metrics, warnings, error metadata, a compact `question_metadata` snapshot,
+`ground_truth` expectations, and compact
 `retrieved` top-k metadata. Retrieved metadata may include ids, source names, page numbers, ranks,
 and scores, but must not store full chunk text unless a later explicit debug-full mode is added.
 Rows may also store compact `usage` summaries for API stages, and `metrics_summary_json.evaluation.usage`
@@ -388,7 +430,9 @@ contains stage-level totals across the whole GT run.
 The scorer can emit chunk-level metrics such as `hit_at_k`, `mrr_at_k`, and `recall_at_k`, and
 page-oriented metrics such as `page_hit_at_k`, `page_mrr_at_k`, and `page_recall_at_k`. The Saved
 Experiments list displays compact aggregate values and falls back from chunk-level keys to page-level
-keys when needed. The saved experiment detail page is the canonical result view. Retrieval preview may
+keys when needed. Declared slices are aggregated from those already-computed rows with the same metric
+averager; an empty slice has `question_count: 0`, empty metric averages, and a warning. The saved
+experiment detail page is the canonical result view. Retrieval preview may
 launch evaluation and link to the saved result, but should not duplicate the full per-question result
 table inline.
 

@@ -152,6 +152,12 @@ metrics, detail pages, per-question evaluation summaries, errors, and inline com
 is implemented as a derived UI view over selected saved experiments; it does not create a new backend
 product entity or persist comparison results.
 
+Question metadata and evaluation-slice definitions live in canonical GroundTruthSet JSON. Evaluation
+retrieves/reranks each question once, snapshots question metadata into the compact result row, and
+uses one aggregate function for both overall and slice metrics in
+`SavedExperiment.metrics_summary_json`. The comparison UI treats equal slice ids with different
+filter definitions as non-comparable. No slice entity, table, or additional model call is introduced.
+
 ## Registries And Catalogs
 
 Registries are backend-owned contracts used to render UI controls and validate stage parameters.

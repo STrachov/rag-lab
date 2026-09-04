@@ -137,6 +137,15 @@ def _ground_truth_schema() -> dict:
                 "type": "array",
             },
             "expected_facts": {"items": {"type": "string"}, "type": "array"},
+            "metadata": {
+                "additionalProperties": True,
+                "properties": {
+                    "difficulty": {"type": ["string", "null"]},
+                    "source": {"type": ["string", "null"]},
+                    "tags": {"items": {"type": "string"}, "type": "array"},
+                },
+                "type": "object",
+            },
             "expected_sources": {
                 "items": {
                     "additionalProperties": False,
@@ -193,6 +202,7 @@ def _ground_truth_template() -> dict:
             }
         ],
         "not_found": False,
+        "metadata": {"difficulty": "easy", "source": None, "tags": []},
         "notes": "",
         "question": "Replace with an evaluation question.",
         "question_id": "q_001",

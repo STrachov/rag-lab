@@ -198,7 +198,14 @@ created_at
 For uploaded chunk-level qrels, `storage_path` points to
 `data/ground_truth/{project_id}/ground_truths/{ground_truth_set_id}/ground_truth.json`.
 `metadata_json` stores the canonical format, ground truth type, question and judgment counts,
-declared chunk-file hash when available, and upload-time validation status such as `format_valid`.
+declared chunk-file hash when available, whether question metadata is present, the evaluation-slice
+count, and upload-time validation status such as `format_valid`.
+
+The backward-compatible `raglab.ground_truth.v1` canonical content may include optional
+`question.metadata` (`source`, `difficulty`, and string `tags`, with additional keys preserved) and
+top-level declarative `evaluation_slices`. Slice filters use AND between metadata keys and OR within
+each key's allowed values; tag arrays match by overlap. These are embedded GroundTruthSet content,
+not separate product entities or database tables.
 
 ## SavedExperiment
 
@@ -250,12 +257,15 @@ Current GT evaluation stores a structured summary in `metrics_summary_json`:
 ```text
 evaluation: run metadata such as question count, index cache id, retrieval params, warnings/errors
 metric_averages: aggregate metric values
-questions: compact per-question rows with GT expectations, metrics, warnings, and retrieved metadata
+slice_metrics: optional declared-slice definitions, counts, warnings, and aggregate metric values
+questions: compact per-question rows with question_metadata, GT expectations, metrics, warnings, and retrieved metadata
 ```
 
 Aggregate metric keys may be chunk-level (`hit_at_k`, `mrr_at_k`, `recall_at_k`) or page-oriented
 (`page_hit_at_k`, `page_mrr_at_k`, `page_recall_at_k`). The UI list shows compact aggregate columns;
-the saved experiment detail page shows per-question summaries. Retrieved per-question metadata should
+the saved experiment detail page shows per-question summaries and declared slice performance. Slice
+aggregates are computed from the one set of per-question rows with the same averaging function as
+the overall aggregate; they never trigger extra retrieval or reranking calls. Retrieved per-question metadata should
 not include full chunk text unless an explicit debug-full mode is added later.
 
 ## MetricValue

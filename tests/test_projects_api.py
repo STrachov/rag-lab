@@ -1222,6 +1222,11 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     )
     assert index_response.status_code == 201
     ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+    assert ground_truth_set["metadata_json"]["evaluation_slice_count"] == 2
+    assert ground_truth_set["metadata_json"]["question_metadata"] is True
+    canonical_gt = json.loads(Path(ground_truth_set["storage_path"]).read_text(encoding="utf-8"))
+    assert canonical_gt["questions"][0]["metadata"]["source"] == "synthetic"
+    assert canonical_gt["evaluation_slices"][0]["id"] == "synthetic"
     snapshot = {
         "ground_truth": {"ground_truth_set_id": ground_truth_set["id"]},
         "index_cache_id": index_response.json()["id"],
@@ -1247,6 +1252,16 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     )
     assert experiment_response.status_code == 201
 
+    search_calls = 0
+    search_dense = fake_qdrant.search_dense
+
+    def counted_search_dense(*, collection_name: str, query_vector: list[float], top_k: int) -> list[dict]:
+        nonlocal search_calls
+        search_calls += 1
+        return search_dense(collection_name=collection_name, query_vector=query_vector, top_k=top_k)
+
+    fake_qdrant.search_dense = counted_search_dense  # type: ignore[method-assign]
+
     evaluate_response = client.post(
         f"/v1/projects/{project_id}/saved-experiments/{experiment_response.json()['id']}/evaluate",
         json={},
@@ -1260,6 +1275,21 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     assert summary["evaluation"]["completed_question_count"] == 1
     assert summary["evaluation"]["error_count"] == 0
     assert summary["metric_averages"]["hit_at_k"] == 1.0
+    assert search_calls == 1
+    assert summary["questions"][0]["question_metadata"] == {
+        "difficulty": "direct_lookup",
+        "source": "synthetic",
+        "tags": ["lookup", "policy"],
+    }
+    assert summary["slice_metrics"]["synthetic"]["question_count"] == 1
+    assert summary["slice_metrics"]["synthetic"]["metric_averages"] == summary["metric_averages"]
+    assert summary["slice_metrics"]["empty"] == {
+        "filter": {"source": ["missing"]},
+        "label": "Empty",
+        "metric_averages": {},
+        "question_count": 0,
+        "warnings": ["Evaluation slice matched no questions."],
+    }
     assert summary["questions"][0]["question_id"] == "q001"
     assert summary["questions"][0]["ground_truth"]["relevant_chunks"] == [
         {"chunk_id": "chunk_000001", "rank": 1, "reason": None, "relevance": 3}
@@ -3035,9 +3065,18 @@ def _upload_ground_truth_set(
 ) -> httpx.Response:
     gt_payload = {
         "metadata": {"ground_truth_type": "chunk_level_qrels"},
+        "evaluation_slices": [
+            {"id": "synthetic", "label": "Synthetic", "filter": {"source": ["synthetic"]}},
+            {"id": "empty", "label": "Empty", "filter": {"source": ["missing"]}},
+        ],
         "questions": [
             {
                 "expected_answer_type": "found",
+                "metadata": {
+                    "difficulty": "direct_lookup",
+                    "source": "synthetic",
+                    "tags": ["lookup", "policy"],
+                },
                 "question": "When is payment due?",
                 "question_id": "q001",
                 "relevant_chunks": [{"chunk_id": "chunk_000001", "relevance": 3}],

@@ -1163,6 +1163,37 @@ details.experiment-result-table > summary span {
   overflow-wrap: anywhere;
 }
 
+.question-metadata-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.question-filter-bar {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.question-filter-bar label {
+  display: grid;
+  gap: 4px;
+}
+
+.question-filter-bar label > span,
+.question-filter-bar > span {
+  color: #60737d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.question-filter-bar select {
+  min-width: 150px;
+}
+
 details.experiment-result-table > .json-preview {
   margin: 0 16px 16px;
 }
@@ -1265,6 +1296,21 @@ details.experiment-result-table > .json-preview {
   background: #f8fafb !important;
   color: #182026;
   font-size: 14px;
+}
+
+.comparison-warning,
+.slice-warning {
+  color: #9b5f12;
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.slice-metrics-table th,
+.slice-metrics-table td {
+  min-width: 130px;
+  width: auto;
 }
 
 .comparison-json-preview {

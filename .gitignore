@@ -4,7 +4,7 @@
 .env
 __pycache__/
 .pytest_cache/
-.pytest_tmp/
+.pytest_tmp*/
 *.py[cod]
 *.egg-info/
 

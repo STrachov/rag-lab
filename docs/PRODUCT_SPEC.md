@@ -337,6 +337,11 @@ Question shape:
 }
 ```
 
+Canonical questions may also carry optional benchmark-defined `metadata.source`,
+`metadata.difficulty`, and `metadata.tags`. One GroundTruthSet may declare named evaluation slices
+over that metadata. Slice filters use simple AND-between-fields / OR-within-field semantics, with tag
+overlap for `tags`; they are not an arbitrary query language.
+
 Answer types:
 
 ```text
@@ -354,6 +359,8 @@ Manual retrieval/reranking previews may use one selected ground truth question a
 metrics. The current saved-experiment evaluation runs synchronously over all selected ground truth
 questions, optionally reranks candidates according to the saved snapshot, and writes aggregate and
 per-question summaries to `SavedExperiment.metrics_summary_json`.
+The same run also computes aggregates for explicitly declared slices from the already-scored rows.
+Tags support inspection and filtering only; they do not automatically create noisy per-tag metrics.
 
 Currently emitted retrieval metrics:
 
@@ -428,6 +435,8 @@ retrieval, reranks saved candidate sets, and can launch full GT evaluation for t
 The Ground Truth page owns upload and validation. Saved Experiments owns full snapshots,
 rename/delete actions, compact list metrics such as question count, Hit, MRR, and Recall, detail
 pages with per-question GT/retrieved summaries, evaluation status, metrics, errors, and comparison.
+The detail page includes dynamic metadata filters and slice metrics. Comparison includes matching
+slice definitions and warns when the same slice id has a different filter across experiments.
 Comparison is an inline derived Saved Experiments view, not a separate domain entity: selected saved
 experiments become columns, and the first comparison view lists question count, Hit, MRR, Recall,
 operational summaries, and each experiment's submitted parameter snapshot. Until the known snapshot
