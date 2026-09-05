@@ -5,7 +5,7 @@ import pytest
 from app.models.api import SavedExperimentCreate
 from app.services.evaluation import aggregate_metrics, build_slice_metrics, question_metadata_matches
 from app.services.ground_truth import _canonicalize_ground_truth
-from app.services.gt_authoring_pack import _ground_truth_schema
+from app.services.gt_authoring_pack import _ground_truth_schema, _ground_truth_template
 
 
 def _chunk_ground_truth() -> dict:
@@ -270,3 +270,130 @@ def test_authoring_pack_schema_allows_question_metadata() -> None:
         "items": {"type": "string"},
         "type": "array",
     }
+
+
+def _slice_for_rows(rows: list[dict]) -> dict:
+    return build_slice_metrics(
+        [{**row, "question_metadata": {"source": "a"}} for row in rows],
+        [{"id": "a", "label": "A", "filter": {"source": ["a"]}}],
+    )["a"]
+
+
+def test_partially_failed_slice_exposes_completed_population_without_zero_filling() -> None:
+    rows = [
+        {"status": "completed", "metrics": {"page_recall_at_k": 1.0}},
+        {"status": "failed", "metrics": {}},
+        {"status": "failed", "metrics": {"page_recall_at_k": 0.0}},
+    ]
+    result = _slice_for_rows(rows)
+
+    assert result["question_count"] == 3
+    assert result["completed_question_count"] == 1
+    assert result["error_count"] == 2
+    assert result["metric_averages"] == aggregate_metrics(rows) == {"page_recall_at_k": 1.0}
+    assert result["metric_question_counts"] == {"page_recall_at_k": 1}
+    assert "only over completed rows" in " ".join(result["warnings"])
+
+
+def test_fully_failed_nonempty_slice_has_no_metrics_and_explicit_warning() -> None:
+    result = _slice_for_rows([{"status": "failed", "metrics": {}} for _ in range(3)])
+
+    assert result["question_count"] == result["error_count"] == 3
+    assert result["completed_question_count"] == 0
+    assert result["metric_averages"] == result["metric_question_counts"] == {}
+    assert "No questions completed successfully" in " ".join(result["warnings"])
+
+
+def test_heterogeneous_metrics_have_actual_metric_specific_denominators() -> None:
+    rows = [
+        {"status": "completed", "metrics": {"page_recall_at_k": 1.0, "page_hit_at_k": 1.0}},
+        {"status": "completed", "metrics": {"page_recall_at_k": 0.0}},
+        {"status": "completed", "metrics": {"expected_not_found": 1.0, "returned_count": 2}},
+        {"status": "completed", "metrics": {"page_recall_at_k": None, "flag": True, "text": "1"}},
+        {"status": "failed", "metrics": {"page_hit_at_k": 0.0}},
+    ]
+    before = aggregate_metrics(rows)
+    result = _slice_for_rows(rows)
+
+    assert result["completed_question_count"] == 4
+    assert result["error_count"] == 1
+    assert result["metric_averages"] == before == aggregate_metrics(rows) == {
+        "page_recall_at_k": 0.5, "page_hit_at_k": 1.0,
+        "expected_not_found": 1.0, "returned_count": 2.0,
+    }
+    assert result["metric_question_counts"] == {
+        "page_recall_at_k": 2, "page_hit_at_k": 1,
+        "expected_not_found": 1, "returned_count": 1,
+    }
+
+
+@pytest.mark.parametrize("field", ["relevant_pages", "relevant_chunks"])
+@pytest.mark.parametrize("invalid", [None, {}, "", "judgment", False, 0])
+def test_qrels_rejects_non_array_judgment_collections(field: str, invalid: object) -> None:
+    payload = _chunk_ground_truth()
+    if field == "relevant_pages":
+        payload["metadata"]["ground_truth_type"] = "page_level_qrels"
+        payload["questions"][0]["relevant_chunks"] = []
+    payload["questions"][0][field] = invalid
+
+    with pytest.raises(ValueError, match=f"{field} must be an array"):
+        _canonicalize_ground_truth(payload)
+
+
+@pytest.mark.parametrize("invalid", [None, 7, "page", [], {"page_index": -1, "pdf_sha1": "abc"}])
+def test_page_qrels_rejects_any_malformed_judgment(invalid: object) -> None:
+    payload = _chunk_ground_truth()
+    payload["metadata"]["ground_truth_type"] = "page_level_qrels"
+    payload["questions"][0]["relevant_chunks"] = []
+    payload["questions"][0]["relevant_pages"] = [{"page_index": 0, "pdf_sha1": "abc"}, invalid]
+
+    with pytest.raises(ValueError):
+        _canonicalize_ground_truth(payload)
+
+
+def test_chunk_qrels_rejects_mixed_valid_and_non_object_judgments() -> None:
+    payload = _chunk_ground_truth()
+    payload["questions"][0]["relevant_chunks"].append("chunk_2")
+    with pytest.raises(ValueError, match="relevant_chunks entries must be objects"):
+        _canonicalize_ground_truth(payload)
+
+
+@pytest.mark.parametrize("location", ["legacy", "metadata", "both"])
+def test_authoring_difficulty_is_one_canonical_field(location: str) -> None:
+    record = _ground_truth_template()
+    record["metadata"] = {"source": "author", "review_note": {"keep": True}}
+    if location in {"legacy", "both"}:
+        record["difficulty"] = "hard"
+    if location in {"metadata", "both"}:
+        record["metadata"]["difficulty"] = "hard"
+
+    canonical = _canonicalize_ground_truth([record])["questions"][0]
+    assert "difficulty" not in canonical
+    assert canonical["metadata"] == {
+        "difficulty": "hard", "source": "author", "review_note": {"keep": True},
+    }
+
+
+@pytest.mark.parametrize("nested", ["easy", None])
+def test_authoring_rejects_conflicting_difficulty(nested: object) -> None:
+    record = _ground_truth_template()
+    record["difficulty"] = "hard"
+    record["metadata"]["difficulty"] = nested
+    with pytest.raises(ValueError, match="difficulty conflicts with metadata.difficulty"):
+        _canonicalize_ground_truth([record])
+
+
+def test_authoring_template_exposes_only_canonical_difficulty() -> None:
+    template = _ground_truth_template()
+    assert "difficulty" not in template
+    assert template["metadata"]["difficulty"] == "easy"
+    assert _ground_truth_schema()["properties"]["difficulty"]["deprecated"] is True
+
+
+def test_slice_allowed_values_are_deduplicated_deterministically() -> None:
+    payload = _chunk_ground_truth()
+    payload["evaluation_slices"] = [{"id": "a", "label": "A", "filter": {"source": ["b", "a", "b", "a"]}}]
+    canonical = _canonicalize_ground_truth(payload)
+    assert canonical["evaluation_slices"][0]["filter"] == {"source": ["b", "a"]}
+    assert _canonicalize_ground_truth(canonical) == canonical
+    assert payload["evaluation_slices"][0]["filter"]["source"] == ["b", "a", "b", "a"]

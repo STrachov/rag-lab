@@ -307,6 +307,20 @@ the canonical object may declare optional evaluation slices:
 `source` and `difficulty` accept a string or null; `tags` accepts an array of strings. Values are
 benchmark-defined, not backend enums. Slice filter values are string arrays. Different keys are
 ANDed, values within a key are ORed, and `tags` matches when any question tag is allowed.
+Duplicate allowed values are removed in first-occurrence order. Empty filters and empty allowed-value
+arrays are rejected.
+
+Qrels `relevant_pages` and `relevant_chunks`, when supplied, must be arrays of valid judgment objects;
+null, other collection types, and malformed entries are rejected, never silently discarded. Omitted
+collections default to empty arrays. Found page-level questions require pages and cannot include
+chunk judgments; found chunk-level questions require chunks and cannot include page judgments.
+Not-found questions cannot include relevance judgments. Authoring `expected_chunks` and raw page
+`references` collections use the same strict array/object checks.
+
+Authoring records use `metadata.difficulty`. Legacy top-level `difficulty` remains accepted and is
+imported into that same metadata field. If both fields are supplied, they must agree (including null)
+or upload is rejected. New authoring templates expose only `metadata.difficulty`; the legacy schema
+property is marked deprecated. Other question metadata is preserved.
 
 Ground truth question list responses include optional `expected_answer` and
 `expected_answer_brief` fields when the uploaded ground truth provides an answer value. These fields
@@ -382,7 +396,10 @@ Evaluate response:
         "label": "Hard",
         "filter": {"difficulty": ["hard"]},
         "question_count": 3,
+        "completed_question_count": 3,
+        "error_count": 0,
         "metric_averages": {"page_recall_at_k": 0.5},
+        "metric_question_counts": {"page_recall_at_k": 3},
         "warnings": []
       }
     },
@@ -417,6 +434,7 @@ retrieves/reranks candidates, scores them with the existing single-question scor
 ```text
 metrics_summary_json.evaluation
 metrics_summary_json.metric_averages
+metrics_summary_json.metric_question_counts
 metrics_summary_json.slice_metrics (optional)
 metrics_summary_json.questions
 ```
@@ -432,6 +450,15 @@ page-oriented metrics such as `page_hit_at_k`, `page_mrr_at_k`, and `page_recall
 Experiments list displays compact aggregate values and falls back from chunk-level keys to page-level
 keys when needed. Declared slices are aggregated from those already-computed rows with the same metric
 averager; an empty slice has `question_count: 0`, empty metric averages, and a warning. The saved
+slice also records `completed_question_count`, `error_count`, and `metric_question_counts`: the
+actual number of completed rows contributing a numeric value to each metric average. Failed rows
+are excluded, never counted as retrieval metric zero. Different metric keys may have different
+denominators (for example found versus not-found questions). Overall averages expose their counts
+in the sibling `metric_question_counts` object using the same aggregation implementation.
+Incomplete slices warn that metrics use completed rows only; slices with zero successful completions
+have empty averages/count maps and an explicit no-successful-completions warning. Detail and Compare
+show completed/total counts, errors, incomplete warnings, and each recorded metric denominator (`n`).
+Old results lacking completion fields are labeled as not recorded, rather than assumed complete. The saved
 experiment detail page is the canonical result view. Retrieval preview may
 launch evaluation and link to the saved result, but should not duplicate the full per-question result
 table inline.

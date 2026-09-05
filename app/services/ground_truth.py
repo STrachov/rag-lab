@@ -284,12 +284,11 @@ def _canonical_question_from_qrels(value: Any, *, ground_truth_type: str) -> dic
     expected_answer_type = str(value.get("expected_answer_type") or "found")
     relevant_chunks = [
         _canonical_relevant_chunk(item, fallback_rank=index)
-        for index, item in enumerate(value.get("relevant_chunks") or [], start=1)
+        for index, item in enumerate(_judgment_array(value, "relevant_chunks", question_id), start=1)
     ]
     relevant_pages = [
         _canonical_relevant_page(item)
-        for item in value.get("relevant_pages") or []
-        if isinstance(item, dict)
+        for item in _judgment_array(value, "relevant_pages", question_id)
     ]
     if ground_truth_type == GT_TYPE_PAGE_QRELS:
         if relevant_chunks:
@@ -324,7 +323,7 @@ def _canonical_question_from_qrels(value: Any, *, ground_truth_type: str) -> dic
 def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str, Any]:
     question_id = _required_str(value, "question_id")
     not_found = bool(value.get("not_found"))
-    expected_chunks = value.get("expected_chunks") or []
+    expected_chunks = _judgment_array(value, "expected_chunks", question_id)
     relevant_chunks = [
         {
             "chunk_id": _required_str(item, "chunk_id"),
@@ -333,7 +332,6 @@ def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str
             "relevance": 3 if item.get("relevance") == "primary" else 2,
         }
         for index, item in enumerate(expected_chunks, start=1)
-        if isinstance(item, dict)
     ]
     if not_found and relevant_chunks:
         raise ValueError(f"{question_id}: not_found records cannot include expected_chunks")
@@ -348,8 +346,16 @@ def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str
         "relevant_pages": [],
         "relevant_chunks": relevant_chunks,
     }
-    if "metadata" in value:
-        canonical["metadata"] = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    if "metadata" in value or "difficulty" in value:
+        metadata = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+        if "difficulty" in value:
+            difficulty = value["difficulty"]
+            if difficulty is not None and not isinstance(difficulty, str):
+                raise ValueError(f"{question_id}: difficulty must be a string or null")
+            if "difficulty" in metadata and metadata["difficulty"] != difficulty:
+                raise ValueError(f"{question_id}: difficulty conflicts with metadata.difficulty")
+            metadata["difficulty"] = difficulty
+        canonical["metadata"] = metadata
     return canonical
 
 
@@ -359,13 +365,10 @@ def _canonical_question_from_page_answer(value: Any, *, fallback_index: int) -> 
     question_id = str(value.get("question_id") or f"q{fallback_index:06d}").strip()
     if not question_id:
         raise ValueError("Page-level ground truth question_id cannot be empty")
-    references = value.get("references") or []
-    if not isinstance(references, list):
-        raise ValueError(f"{question_id}: references must be a list")
+    references = _judgment_array(value, "references", question_id)
     relevant_pages = [
         _canonical_relevant_page(item)
         for item in references
-        if isinstance(item, dict)
     ]
     expected_answer_type = "found" if relevant_pages else "not_found"
     canonical = {
@@ -434,9 +437,18 @@ def _canonical_evaluation_slices(value: Any) -> list[dict[str, Any]]:
                 raise ValueError(f"{slice_id}: evaluation slice filter values must be arrays of strings")
             if not allowed_values:
                 raise ValueError(f"{slice_id}: evaluation slice filter value arrays cannot be empty")
-            normalized_filter[key] = list(allowed_values)
+            normalized_filter[key] = list(dict.fromkeys(allowed_values))
         slices.append({"filter": normalized_filter, "id": slice_id, "label": label})
     return slices
+
+
+def _judgment_array(value: dict[str, Any], field: str, question_id: str) -> list[dict[str, Any]]:
+    judgments = value.get(field, [])
+    if not isinstance(judgments, list):
+        raise ValueError(f"{question_id}: {field} must be an array")
+    if any(not isinstance(item, dict) for item in judgments):
+        raise ValueError(f"{question_id}: {field} entries must be objects")
+    return judgments
 
 
 def _canonical_relevant_page(value: dict[str, Any]) -> dict[str, Any]:

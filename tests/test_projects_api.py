@@ -1282,13 +1282,23 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
         "tags": ["lookup", "policy"],
     }
     assert summary["slice_metrics"]["synthetic"]["question_count"] == 1
+    assert summary["slice_metrics"]["synthetic"]["completed_question_count"] == 1
+    assert summary["slice_metrics"]["synthetic"]["error_count"] == 0
+    assert summary["slice_metrics"]["synthetic"]["metric_question_counts"] == summary["metric_question_counts"]
+    assert summary["metric_question_counts"] == {key: 1 for key in summary["metric_averages"]}
     assert summary["slice_metrics"]["synthetic"]["metric_averages"] == summary["metric_averages"]
     assert summary["slice_metrics"]["empty"] == {
+        "completed_question_count": 0,
+        "error_count": 0,
         "filter": {"source": ["missing"]},
         "label": "Empty",
         "metric_averages": {},
+        "metric_question_counts": {},
         "question_count": 0,
-        "warnings": ["Evaluation slice matched no questions."],
+        "warnings": [
+            "Evaluation slice matched no questions.",
+            "No questions completed successfully; metrics use completed rows only, so no metrics are available.",
+        ],
     }
     assert summary["questions"][0]["question_id"] == "q001"
     assert summary["questions"][0]["ground_truth"]["relevant_chunks"] == [
@@ -1394,6 +1404,11 @@ def test_saved_experiment_evaluation_logs_per_question_failures(
     assert evaluate_response.status_code == 200
     body = evaluate_response.json()
     assert body["status"] == "completed_with_errors"
+    failed_slice = body["metrics_summary_json"]["slice_metrics"]["synthetic"]
+    assert failed_slice["question_count"] == failed_slice["error_count"] == 1
+    assert failed_slice["completed_question_count"] == 0
+    assert failed_slice["metric_averages"] == failed_slice["metric_question_counts"] == {}
+    assert "No questions completed successfully" in " ".join(failed_slice["warnings"])
     question = body["metrics_summary_json"]["questions"][0]
     assert question["status"] == "failed"
     assert question["error_json"] == {

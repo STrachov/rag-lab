@@ -91,12 +91,12 @@ The API schema reserves `embeddings` and `answer_temp`; current runtime creation
 - generation/prompt and evaluation-metric catalogs;
 - promoted recipe entities or recipe export;
 - authentication, authorization, multi-user isolation, or production deployment hardening;
-- frontend automated tests;
+- end-to-end frontend automated tests (focused slice-population rendering tests exist);
 - automated integration tests against live PostgreSQL, Qdrant, Docling, Voyage, or OpenAI services.
 
 ## Verification Baseline
 
-The repository currently contains 95 Python test functions; all 95 passed in the verification run
+The repository currently collects 123 Python test cases; all 123 passed in the verification run
 for this update. API tests use an in-memory SQLite database and fake runtime adapters where external
 systems are involved. The supported checks are:
 
@@ -104,6 +104,7 @@ systems are involved. The supported checks are:
 python -m pytest
 Set-Location ui
 npm ci
+node tests/slicePopulation.test.cjs
 npm run build
 ```
 

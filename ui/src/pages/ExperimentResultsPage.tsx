@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { getSavedExperiment, Project, SavedExperiment } from "../api/client";
+import { SliceMetricSummary, SliceMetricValue, SlicePopulation } from "../components/SlicePopulation";
 
 type ExperimentResultsPageProps = {
   currentProject: Project | null;
@@ -10,16 +11,9 @@ type ExperimentResultsPageProps = {
 type EvaluationSummary = {
   evaluation?: Record<string, unknown>;
   metric_averages?: Record<string, unknown>;
+  metric_question_counts?: Record<string, number>;
   questions?: Array<Record<string, unknown>>;
   slice_metrics?: Record<string, SliceMetricSummary>;
-};
-
-type SliceMetricSummary = {
-  filter?: Record<string, unknown>;
-  label?: string;
-  metric_averages?: Record<string, unknown>;
-  question_count?: number;
-  warnings?: string[];
 };
 
 export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageProps) {
@@ -123,6 +117,9 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
               <h2>Performance by question slice</h2>
               <SliceMetricsTable
                 metricAverages={metricAverages}
+                metricQuestionCounts={summary.metric_question_counts}
+                completedQuestionCount={numericValue(evaluation.completed_question_count)}
+                errorCount={numericValue(evaluation.error_count)}
                 questionCount={numericValue(evaluation.question_count)}
                 slices={sliceMetrics}
               />
@@ -211,10 +208,16 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
 
 function SliceMetricsTable({
   metricAverages,
+  metricQuestionCounts,
+  completedQuestionCount,
+  errorCount,
   questionCount,
   slices,
 }: {
   metricAverages: Record<string, unknown>;
+  metricQuestionCounts?: Record<string, number>;
+  completedQuestionCount: number | null;
+  errorCount: number | null;
   questionCount: number | null;
   slices: Record<string, SliceMetricSummary>;
 }) {
@@ -222,8 +225,9 @@ function SliceMetricsTable({
     ...Object.keys(metricAverages),
     ...Object.values(slices).flatMap((slice) => Object.keys(slice.metric_averages ?? {})),
   ])).sort();
-  const rows = [
-    { id: "all", label: "All questions", metric_averages: metricAverages, question_count: questionCount, warnings: [] },
+  const rows: Array<SliceMetricSummary & { id: string }> = [
+    { id: "all", label: "All questions", metric_averages: metricAverages, question_count: questionCount,
+      completed_question_count: completedQuestionCount, error_count: errorCount, metric_question_counts: metricQuestionCounts },
     ...Object.entries(slices).map(([id, slice]) => ({ id, ...slice })),
   ];
   return (
@@ -232,7 +236,7 @@ function SliceMetricsTable({
         <thead>
           <tr>
             <th>Slice</th>
-            <th>Questions</th>
+            <th>Completed / Total</th>
             {metricKeys.map((key) => <th key={key}>{formatMetricName(key)}</th>)}
           </tr>
         </thead>
@@ -241,12 +245,11 @@ function SliceMetricsTable({
             <tr key={row.id}>
               <th>
                 {row.label ?? row.id}
-                {row.warnings?.length ? <small className="slice-warning">{row.warnings.join(" ")}</small> : null}
               </th>
-              <td>{typeof row.question_count === "number" ? row.question_count : "-"}</td>
+              <td><SlicePopulation slice={row} /></td>
               {metricKeys.map((key) => {
                 const value = row.metric_averages?.[key];
-                return <td key={key}>{typeof value === "number" ? formatMetricValue(value) : "-"}</td>;
+                return <td key={key}><SliceMetricValue value={value} count={row.metric_question_counts?.[key]} /></td>;
               })}
             </tr>
           ))}

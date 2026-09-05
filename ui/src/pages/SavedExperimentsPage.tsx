@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { SliceMetricSummary, SliceMetricValue, SlicePopulation } from "../components/SlicePopulation";
 
 import {
   deleteSavedExperiment,
@@ -17,13 +18,6 @@ type EvaluationSummary = {
   evaluation?: Record<string, unknown>;
   metric_averages?: Record<string, unknown>;
   slice_metrics?: Record<string, SliceMetricSummary>;
-};
-
-type SliceMetricSummary = {
-  filter?: Record<string, unknown>;
-  label?: string;
-  metric_averages?: Record<string, unknown>;
-  question_count?: number;
 };
 
 type ComparisonRow = {
@@ -302,7 +296,7 @@ function SliceComparisonSections({ experiments }: { experiments: SavedExperiment
                 {!comparable ? <span className="comparison-warning">Not comparable: filter definitions differ.</span> : null}
               </th>
             </tr>
-            <SliceComparisonRow comparable={comparable} experiments={experiments} label="Questions" sliceId={sliceId} valueKey="question_count" />
+            <SliceComparisonRow comparable={comparable} experiments={experiments} label="Completed / Total" sliceId={sliceId} valueKey="question_count" />
             {metricKeys.map((metricKey) => (
               <SliceComparisonRow
                 comparable={comparable}
@@ -346,8 +340,13 @@ function SliceComparisonRow({
         if (!comparable) {
           return <td key={experiment.id}>Not comparable</td>;
         }
-        const value = valueKey ? slice[valueKey] : slice.metric_averages?.[String(metricKey)];
-        return <td key={experiment.id}>{typeof value === "number" ? value.toFixed(valueKey ? 0 : 3) : "-"}</td>;
+        return (
+          <td key={experiment.id}>
+            {valueKey ? <SlicePopulation slice={slice} /> : (
+              <SliceMetricValue value={slice.metric_averages?.[String(metricKey)]} count={slice.metric_question_counts?.[String(metricKey)]} />
+            )}
+          </td>
+        );
       })}
     </tr>
   );

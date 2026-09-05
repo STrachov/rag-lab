@@ -141,7 +141,7 @@ def evaluate_ground_truth_questions(
     finished_at = datetime.now(UTC)
     first_error = failed_rows[0].get("error_json") if failed_rows else None
     usage_totals = _aggregate_usage(rows)
-    metric_averages = aggregate_metrics(rows)
+    metric_averages, metric_question_counts = _aggregate_metrics_with_counts(rows)
     reranking_usage = usage_totals.get("reranking", {})
     logger.info(
         "gt evaluation finished saved_experiment_id=%s ground_truth_set_id=%s index_cache_id=%s "
@@ -187,6 +187,7 @@ def evaluate_ground_truth_questions(
             "warning_count": warnings_count,
         },
         "metric_averages": metric_averages,
+        "metric_question_counts": metric_question_counts,
         "questions": rows,
     }
     evaluation_slices = canonical.get("evaluation_slices") or []
@@ -197,6 +198,13 @@ def evaluate_ground_truth_questions(
 
 def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     """Average every numeric per-question metric using one shared overall/slice path."""
+    return _aggregate_metrics_with_counts(rows)[0]
+
+
+def _aggregate_metrics_with_counts(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, float], dict[str, int]]:
+    """Count exactly the completed rows contributing to each numeric metric."""
     metric_values: dict[str, list[float]] = {}
     for row in rows:
         if row.get("status") != "completed" or not isinstance(row.get("metrics"), dict):
@@ -204,11 +212,12 @@ def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         for name, value in row["metrics"].items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 metric_values.setdefault(str(name), []).append(float(value))
-    return {
+    averages = {
         name: sum(values) / len(values)
         for name, values in sorted(metric_values.items())
         if values
     }
+    return averages, {name: len(metric_values[name]) for name in averages}
 
 
 def build_slice_metrics(
@@ -219,11 +228,21 @@ def build_slice_metrics(
     for definition in evaluation_slices:
         filter_definition = dict(definition.get("filter") or {})
         selected = [row for row in rows if question_metadata_matches(row, filter_definition)]
+        completed_count = sum(row.get("status") == "completed" for row in selected)
+        error_count = sum(row.get("status") == "failed" for row in selected)
+        averages, counts = _aggregate_metrics_with_counts(selected)
         warnings = [] if selected else ["Evaluation slice matched no questions."]
+        if completed_count == 0:
+            warnings.append("No questions completed successfully; metrics use completed rows only, so no metrics are available.")
+        elif completed_count < len(selected):
+            warnings.append("Incomplete evaluation: metrics are computed only over completed rows.")
         slice_metrics[str(definition["id"])] = {
+            "completed_question_count": completed_count,
+            "error_count": error_count,
             "filter": filter_definition,
             "label": str(definition["label"]),
-            "metric_averages": aggregate_metrics(selected),
+            "metric_averages": averages,
+            "metric_question_counts": counts,
             "question_count": len(selected),
             "warnings": warnings,
         }
