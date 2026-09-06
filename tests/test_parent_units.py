@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 from app.services.chunking import ChunkingParams, chunk_prepared_asset
 from app.services.hashing import stable_json_dumps
@@ -44,6 +45,7 @@ def test_page_and_chapter_recursive_chunk_from_parent_jsonl(tmp_path) -> None:
         (files_dir / stored_name).write_bytes(item["content"])
         manifest_files.append(
             {
+                "sha256": hashlib.sha256(item["content"]).hexdigest(),
                 "content_type": item["content_type"],
                 "original_name": item["original_name"],
                 "role": item["role"],

@@ -10,6 +10,7 @@ import fitz
 import httpx
 
 from app.core.config import get_settings
+from app.services.hashing import read_verified_bytes
 from app.services.parent_units import build_docling_parent_unit_files
 
 
@@ -114,9 +115,11 @@ def prepare_pymupdf_text(
         source_path = Path(source_storage_path) / stored_path
 
         if file_type == "pdf" or original_name.lower().endswith(".pdf"):
-            markdown = _pdf_to_markdown(source_path, original_name, page_breaks=page_breaks)
+            content = read_verified_bytes(source_path, file_entry.get("sha256"), "Source input")
+            markdown = _pdf_to_markdown(content, original_name, page_breaks=page_breaks)
         elif file_type in {"markdown", "text"} or original_name.lower().endswith((".md", ".txt")):
-            markdown = _text_file_to_markdown(source_path, original_name)
+            content = read_verified_bytes(source_path, file_entry.get("sha256"), "Source input")
+            markdown = _text_file_to_markdown(content, original_name)
         else:
             continue
 
@@ -162,13 +165,12 @@ def prepare_docling(
 
             original_name = str(file_entry.get("original_name") or "source")
             source_path = Path(source_storage_path) / stored_path
-            if not source_path.exists():
-                raise ValueError(f"Source file is missing from storage: {original_name}")
+            content = read_verified_bytes(source_path, file_entry.get("sha256"), "Source input")
 
             document = _convert_with_docling_async(
                 client=client,
                 base_url=service_base_url,
-                path=source_path,
+                content=content,
                 original_name=original_name,
                 do_ocr=do_ocr,
                 force_ocr=force_ocr,
@@ -226,7 +228,7 @@ def _convert_with_docling_async(
     *,
     client: httpx.Client,
     base_url: str,
-    path: Path,
+    content: bytes,
     original_name: str,
     do_ocr: bool,
     force_ocr: bool,
@@ -242,7 +244,7 @@ def _convert_with_docling_async(
         },
         "sources": [
             {
-                "base64_string": base64.b64encode(path.read_bytes()).decode("ascii"),
+                "base64_string": base64.b64encode(content).decode("ascii"),
                 "filename": original_name,
                 "kind": "file",
             }
@@ -359,8 +361,8 @@ def _docling_v1_url(base_url: str) -> str:
     return f"{normalized}/v1"
 
 
-def _pdf_to_markdown(path: Path, original_name: str, *, page_breaks: bool) -> str:
-    doc = fitz.open(path)
+def _pdf_to_markdown(content: bytes, original_name: str, *, page_breaks: bool) -> str:
+    doc = fitz.open(stream=content, filetype="pdf")
     try:
         if doc.is_encrypted:
             raise ValueError(f"{original_name} is encrypted and cannot be prepared")
@@ -383,8 +385,8 @@ def _pdf_to_markdown(path: Path, original_name: str, *, page_breaks: bool) -> st
         doc.close()
 
 
-def _text_file_to_markdown(path: Path, original_name: str) -> str:
-    text = path.read_text(encoding="utf-8", errors="replace").strip()
+def _text_file_to_markdown(content: bytes, original_name: str) -> str:
+    text = content.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n").strip()
     if original_name.lower().endswith(".md"):
         return text + "\n"
     return f"# {original_name}\n\n{text}\n"

@@ -389,10 +389,8 @@ class CrossEncoderReranker:
             init_kwargs["default_prompt_name"] = "raglab"
         try:
             self.model = CrossEncoder(spec.model_name, **init_kwargs)
-        except TypeError:
-            init_kwargs.pop("prompts", None)
-            init_kwargs.pop("default_prompt_name", None)
-            self.model = CrossEncoder(spec.model_name, **init_kwargs)
+        except TypeError as exc:
+            raise ValueError("Reranker backend cannot execute the resolved configuration") from exc
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:

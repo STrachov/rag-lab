@@ -1964,6 +1964,7 @@ def test_prepare_docling_uses_async_endpoint(monkeypatch, tmp_path) -> None:
                 {
                     "original_name": "policy.pdf",
                     "stored_path": "files/f_000001.pdf",
+                    "sha256": hashlib.sha256(b"synthetic pdf").hexdigest(),
                 }
             ]
         },

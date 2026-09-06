@@ -72,6 +72,24 @@ source lineage in their applied preparation provenance to be used in this workfl
 No source/prepared/chunk text, vectors, BM25 vocabulary or retrieved traces are stored in this
 snapshot. Results retain the existing aggregate and compact per-question/slice metric structure.
 
+## Verified production inputs
+
+Preparation reads each selected source input once as bytes and verifies its SHA-256 against
+its source manifest entry. PyMuPDF opens the verified PDF buffer, text conversion decodes the
+verified buffer, and Docling receives base64 of that same buffer. Missing or mismatched inputs fail
+before conversion; the path is never reopened for processing.
+
+Materialization resolves the manifest matching the selected prepared asset's manifest hash.
+Only input files selected by the chunking strategy are required: Markdown/text or the selected
+page/chapter JSONL roles. Each required input is read once, verified against its manifest entry,
+and decoded from that same buffer. Missing inputs and hash mismatches fail without creating a
+ready chunks cache. Unused sidecars are not required. Existing universal-newline decoding behavior
+is preserved. These checks do not retain files or redesign storage.
+
+Embedding numeric catalog bounds are validated before snapshot/hash creation. Voyage executes
+the saved batch size without a second runtime clamp. A reranker backend that rejects the saved
+prompt configuration fails explicitly; initialization never retries with the prompt removed.
+
 ## Hash meanings
 
 - File SHA-256 identifies bytes. Source/prepared manifest hashes retain their existing manifest-JSON
@@ -97,7 +115,9 @@ snapshot. Results retain the existing aggregate and compact per-question/slice m
 New chunk materializations use distinct locations. Index builds use a physical collection named
 from their fresh cache/build ID, independently of the requested logical name. Ready builds are never
 upserted by another build. Existing physical collections are rejected by the creation adapter.
-Deleting a cache does not make its old physical collection eligible for reuse.
+Deleting a cache does not make its old physical collection eligible for reuse. This isolation is
+guaranteed by application build paths; it does not prevent arbitrary external Qdrant modifications.
+Evaluation uses the currently configured Qdrant server; URL snapshotting is outside this contract.
 
 ## Evaluation attempt
 
@@ -137,14 +157,16 @@ behavior changes comparability. Unsupported saved semantics are rejected, not si
 
 ## Execution code
 
-The backend captures the code actually executing the evaluation into the existing `code_commit`
+The backend captures best-effort execution code provenance into the existing `code_commit`
 column, using `RAG_LAB_CODE_COMMIT` first, bounded Git SHA detection second, or null otherwise.
 `metrics_summary_json.evaluation.code` stores `commit`, `commit_source` (`environment`, `git`,
 `unavailable`) and `dirty` (true/false/null). Environment-supplied revisions have unknown dirty state.
 Git absence cannot prevent evaluation. Provenance is retained on failed attempts too. The backend
 sets `pipeline_version`; creation does not claim to know the future evaluation's code commit.
 
-No package fingerprints, producer commits or model/vector-weight hashes are captured by this task.
+Environment/Git provenance is not proof of the code already loaded by a running process after
+checkout changes. No package fingerprints, producer commits or model/vector-weight hashes are captured
+by this task.
 
 ## Controlled series and storage boundary
 
@@ -193,3 +215,19 @@ connections to a file-backed SQLite database. Live PostgreSQL/Qdrant/provider in
 Windows sandbox ACLs blocked pytest temporary-directory access on initial attempts; final pytest
 commands ran with approved filesystem access. UI rendering tests ran directly in Node because the
 sandbox blocked child-process spawning by `node --test`.
+
+
+### Review fixes verification
+
+The follow-up closes source/prepared input verification, removes the Qwen prompt fallback, and
+validates embedding numeric bounds before snapshot creation. Eighteen regression cases cover
+missing/mutated required inputs, no ready cache on failure, exact materialization output hashes,
+single-buffer text/PDF/Docling processing after file removal, unused sidecars, prompt rejection,
+and effective Voyage parameters. Existing synthetic manifest fixtures now include content hashes.
+
+- Focused: `.venv/Scripts/python.exe -m pytest tests/test_reproducibility.py tests/test_parent_units.py -q --tb=short -p no:cacheprovider --basetemp=.pytest_tmp_reviewfix4`: **72 passed**, 14.01 seconds.
+- Full: `.venv/Scripts/python.exe -m pytest -q --tb=short -p no:cacheprovider --basetemp=.pytest_tmp_reviewfix_full`: **192 passed**, 18.54 seconds.
+- `git diff --check`: **passed**.
+- Frontend files were unchanged; UI tests/build were not rerun for this follow-up.
+- The initial sandboxed pytest attempt hit Windows temporary-directory ACL errors; final runs used approved access.
+- No live Qdrant, Docling or model-provider integration was run. No commit was created.

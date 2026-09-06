@@ -475,3 +475,152 @@ def test_concurrent_evaluate_claim(monkeypatch, tmp_path):
     finally:
         app.dependency_overrides.clear()
         engine.dispose()
+
+
+@pytest.mark.parametrize("operation", ["mutate", "remove"])
+def test_prepared_input_drift_cannot_create_ready_chunks(pipeline, operation):
+    p = pipeline
+    snapshot = p.create()["params_snapshot_json"]
+    path = Path(p.prepared["storage_path"]) / snapshot["data"]["prepared"]["files"][0]["stored_path"]
+    before = p.client.get(p.base + "/derived-cache").json()
+    if operation == "mutate":
+        path.write_bytes(b"different prepared input")
+    else:
+        path.unlink()
+    response = p.client.post(p.base + "/chunks/materialize", json={
+        "data_asset_id": p.prepared["id"], "chunking": {"strategy": "recursive"}})
+    assert response.status_code == 400
+    assert p.client.get(p.base + "/derived-cache").json() == before
+
+
+def test_materialization_consumes_one_verified_buffer(pipeline):
+    p = pipeline
+    snapshot = p.create()["params_snapshot_json"]
+    path = Path(p.prepared["storage_path"]) / snapshot["data"]["prepared"]["files"][0]["stored_path"]
+    read = Path.read_bytes
+    reads = []
+    def capture(file):
+        content = read(file)
+        if file == path:
+            reads.append(content)
+            file.unlink()
+        return content
+    p.monkeypatch.setattr(Path, "read_bytes", capture)
+    chunks, index = p.build()
+    assert len(reads) == 1
+    assert chunks["metadata_json"]["chunks_file_sha256"] == hashlib.sha256(read(Path(chunks["metadata_json"]["chunks_path"]))).hexdigest()
+    assert index["metadata_json"]["input_chunks_sha256"] == chunks["metadata_json"]["chunks_file_sha256"]
+
+
+@pytest.mark.parametrize("method", ["pymupdf_text", "docling"])
+@pytest.mark.parametrize("operation", ["mutate", "remove"])
+def test_source_drift_fails_before_conversion(pipeline, method, operation):
+    from app.services import preparation
+    p = pipeline
+    snapshot = p.create()["params_snapshot_json"]
+    path = Path(p.source["storage_path"]) / snapshot["data"]["source"]["files"][0]["stored_path"]
+    if operation == "mutate": path.write_bytes(b"different source")
+    else: path.unlink()
+    p.monkeypatch.setattr(preparation, "_text_file_to_markdown", lambda *a, **kw: pytest.fail("Unverified input processed"))
+    p.monkeypatch.setattr(preparation, "_convert_with_docling_async", lambda **kw: pytest.fail("Unverified input submitted"))
+    response = p.client.post(p.base + f"/data-assets/{p.source['id']}/prepare", json={"method_id": method, "params": {"base_url": "http://synthetic"}})
+    assert response.status_code == 400
+    assert "Source input" in response.text
+
+
+@pytest.mark.parametrize("instruction", ["Use this instruction", ""])
+def test_reranker_never_drops_requested_prompt(monkeypatch, instruction):
+    from app.services import rerankers
+    snapshot = runtime_cache.build_reranking_snapshot("qwen3_reranker_0_6b", {"instruction": instruction})["reranking"]
+    calls = []
+    def backend(model, **kwargs):
+        calls.append(kwargs)
+        if "prompts" in kwargs: raise TypeError("Unsupported prompts")
+        return object()
+    monkeypatch.setitem(__import__("sys").modules, "sentence_transformers", SimpleNamespace(CrossEncoder=backend))
+    monkeypatch.setattr(rerankers, "_LOCAL_RERANKER_CACHE", {})
+    if instruction:
+        with pytest.raises(ValueError, match="resolved configuration"):
+            rerankers.create_reranker_from_snapshot(snapshot)
+    else:
+        rerankers.create_reranker_from_snapshot(snapshot)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("params", [{"batch_size": 1001}, {"batch_size": 0}, {"timeout_seconds": 601}, {"timeout_seconds": 0}])
+def test_embedding_resolution_rejects_out_of_range_before_snapshot(params):
+    with pytest.raises(ValueError):
+        runtime_cache.build_embedding_snapshot("voyage_4_lite", params)
+
+
+def test_voyage_executes_saved_batch_size(monkeypatch):
+    from app.services import embeddings
+    snapshot = runtime_cache.build_embedding_snapshot("voyage_4_lite", {"batch_size": 1000})["embedding"]
+    monkeypatch.setattr(embeddings, "get_settings", lambda: SimpleNamespace(voyage_api_key="synthetic"))
+    adapter = embeddings.create_embedder_from_snapshot(snapshot)
+    observed = []
+    def batches(texts, **kwargs):
+        observed.append(kwargs["batch_size"])
+        return []
+    monkeypatch.setattr(embeddings, "_voyage_batches", batches)
+    adapter.embed_passages(["synthetic"])
+    assert observed == [snapshot["params"]["batch_size"]] == [1000]
+
+
+@pytest.mark.parametrize("kind", ["text", "pdf", "docling"])
+def test_preparation_consumes_verified_buffer_after_source_removed(tmp_path, monkeypatch, kind):
+    from app.services import preparation
+    import base64
+    if kind == "pdf":
+        import fitz
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Verified source text")
+        content = doc.tobytes()
+        doc.close()
+    else:
+        content = b"Verified source text\r\n"
+    filename = "source.pdf" if kind == "pdf" else "source.txt"
+    path = tmp_path / filename
+    path.write_bytes(content)
+    manifest = {"files": [{"stored_path": filename, "original_name": filename,
+                            "sha256": hashlib.sha256(content).hexdigest()}]}
+    read = Path.read_bytes
+    calls = []
+    def once(file):
+        result = read(file)
+        if file == path:
+            calls.append(result)
+            file.unlink()
+        return result
+    monkeypatch.setattr(Path, "read_bytes", once)
+    if kind == "docling":
+        class Client:
+            def __init__(self, **kw): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def post(self, url, json):
+                assert base64.b64decode(json["sources"][0]["base64_string"]) == content
+                return SimpleNamespace(raise_for_status=lambda: None,
+                    json=lambda: {"document": {"md_content": "Verified source text"}})
+        monkeypatch.setattr(preparation.httpx, "Client", Client)
+        output = preparation.prepare_docling(source_storage_path=str(tmp_path), source_manifest=manifest)
+    else:
+        output = preparation.prepare_pymupdf_text(source_storage_path=str(tmp_path), source_manifest=manifest)
+    assert calls == [content]
+    assert b"Verified source text" in output[0]["content"]
+
+
+def test_chunking_verifies_only_selected_strategy_inputs(tmp_path):
+    from app.services.chunking import ChunkingParams, chunk_prepared_asset
+    path = tmp_path / "document.md"
+    content = b"Selected Markdown input"
+    path.write_bytes(content)
+    manifest = {"files": [
+        {"stored_path": path.name, "original_name": path.name, "sha256": hashlib.sha256(content).hexdigest()},
+        {"stored_path": "missing.pages.jsonl", "original_name": "missing.pages.jsonl", "role": "prepared_parent_pages"},
+        {"stored_path": "missing.json", "original_name": "missing.json", "role": "docling_document_json"},
+    ]}
+    result = chunk_prepared_asset(storage_path=str(tmp_path), manifest_json=manifest,
+                                 chunking=ChunkingParams(strategy="recursive"))
+    assert result["chunks"][0]["text"] == content.decode()
