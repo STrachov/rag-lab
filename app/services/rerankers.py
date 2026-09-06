@@ -851,11 +851,29 @@ def create_reranker(model_id: str, params: dict[str, Any] | None = None) -> Cros
     raise ValueError(f"Unsupported reranker provider: {spec.provider}")
 
 
+def create_reranker_from_snapshot(snapshot: dict[str, Any]) -> Any:
+    """Instantiate the saved model and params; never acquire new catalog defaults."""
+    spec = RerankerModelSpec(
+        id=snapshot["model_id"], label=snapshot["model"], description="",
+        provider=snapshot["provider"], model_name=snapshot["model"],
+        backend=snapshot["backend"], fields=[],
+    )
+    params = dict(snapshot["params"])
+    if spec.provider == "sentence_transformers":
+        return _cached_cross_encoder_reranker(spec, params)
+    if spec.provider == "voyage":
+        return VoyageReranker(spec, params)
+    if spec.provider == "openai":
+        return OpenAILLMReranker(spec, params)
+    raise ValueError(f"Unsupported reranker provider: {spec.provider}")
+
+
 def _cached_cross_encoder_reranker(
     spec: RerankerModelSpec,
     params: dict[str, Any],
 ) -> CrossEncoderReranker:
-    cache_key = _model_cache_key(spec.id, params)
+    cache_key = stable_json_dumps({"model": spec.model_name, "backend": spec.backend,
+        "provider": spec.provider, "configuration": _model_cache_key(spec.id, params)})
     with _LOCAL_RERANKER_CACHE_LOCK:
         cached = _LOCAL_RERANKER_CACHE.get(cache_key)
         if cached is not None:
@@ -906,8 +924,9 @@ def rerank_chunks_with_usage(
     model_id: str,
     params: dict[str, Any] | None,
     text_by_chunk_id: dict[str, str],
+    resolved_reranker: Any = None,
 ) -> dict[str, Any]:
-    reranker = create_reranker(model_id, params)
+    reranker = resolved_reranker if resolved_reranker is not None else create_reranker(model_id, params)
     passages = [
         text_by_chunk_id.get(str(chunk.get("chunk_id") or ""), str(chunk.get("text_preview") or ""))
         for chunk in chunks

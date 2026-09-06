@@ -462,44 +462,22 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     if (!experimentName) {
       return;
     }
-    const snapshot = {
-      ground_truth: {
-        ground_truth_set_id: selectedGroundTruthSetId,
-        question_count: groundTruthQuestions.length,
-      },
-      index_cache_id: selectedIndexCache.id,
-      index_cache_key: selectedIndexCache.cache_key,
-      retrieval: {
-        candidate_k: candidateK,
-        mode: retrievalMode,
-        parent_score: parentScore,
-        strategy: retrievalStrategy,
-        top_k: topK,
-      },
-      reranking:
-        evaluateWithReranking && selectedRerankerModel
-          ? {
-              enabled: true,
-              model_id: selectedRerankerModel.id,
-              params: rerankerParams,
-            }
-          : null,
-    };
     setIsEvaluating(true);
     try {
-      const paramsHash = `sha256:${await sha256Hex(stableStringify(snapshot))}`;
       const experiment = await createSavedExperiment(currentProject.id, {
-        data_asset_id: dataAssetId,
-        debug_level: "summary",
+        index_cache_id: selectedIndexCache.id,
         ground_truth_set_id: selectedGroundTruthSetId,
         name: experimentName,
-        params_hash: paramsHash,
-        params_snapshot_json: snapshot,
-        pipeline_version: "runtime-v1",
+        debug_level: "summary",
+        retrieval: {
+          candidate_k: candidateK, mode: retrievalMode, parent_score: parentScore,
+          strategy: retrievalStrategy, top_k: topK,
+        },
+        reranking: evaluateWithReranking && selectedRerankerModel
+          ? { enabled: true, model_id: selectedRerankerModel.id, params: rerankerParams }
+          : null,
       });
-      const evaluated = await evaluateSavedExperiment(currentProject.id, experiment.id, {
-        index_cache_id: selectedIndexCache.id,
-      });
+      const evaluated = await evaluateSavedExperiment(currentProject.id, experiment.id);
       setEvaluationExperiment(evaluated);
       setError(null);
     } catch (err) {

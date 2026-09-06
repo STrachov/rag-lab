@@ -1,3 +1,4 @@
+import { ExperimentProvenance } from "../components/ExperimentProvenance";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
@@ -82,6 +83,7 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
 
       {experiment ? (
         <div className="stage-details">
+          <ExperimentProvenance experiment={experiment} />
           <div className="parameter-section">
             <h2>Summary</h2>
             <div className="asset-mini-summary">

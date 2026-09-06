@@ -13,11 +13,10 @@ from fastapi import UploadFile
 
 from app.core.config import get_settings
 from app.db import models
-from app.services.hashing import stable_json_dumps, stable_sha256
+from app.services.hashing import stable_json_dumps, stable_sha256, bytes_sha256, read_verified_bytes
 
 
 GT_SCHEMA_VERSION = "raglab.ground_truth.v1"
-LEGACY_GT_SCHEMA_VERSION = "raglab.chunk_qrels.v1"
 GT_SET_SCHEMA_VERSION = "raglab.ground_truth_set.v1"
 GT_TYPE_CHUNK_QRELS = "chunk_level_qrels"
 GT_TYPE_PAGE_QRELS = "page_level_qrels"
@@ -56,6 +55,16 @@ def score_ground_truth_ranking(
     retrieved_chunks: list[dict[str, Any]],
 ) -> dict[str, Any]:
     canonical = read_canonical_ground_truth(ground_truth_set)
+    return score_canonical_ranking(
+        canonical=canonical, k=k, question_id=question_id,
+        retrieved_chunks=retrieved_chunks, warnings=_ranking_warnings(canonical, index_cache),
+    )
+
+
+def score_canonical_ranking(
+    *, canonical: dict[str, Any], k: int, question_id: str,
+    retrieved_chunks: list[dict[str, Any]], warnings: list[str],
+) -> dict[str, Any]:
     question = next(
         (item for item in canonical["questions"] if item["question_id"] == question_id),
         None,
@@ -64,7 +73,6 @@ def score_ground_truth_ranking(
         raise ValueError("Ground truth question not found")
 
     ground_truth_type = _ground_truth_type(canonical)
-    warnings = _ranking_warnings(canonical, index_cache)
     top_chunks = retrieved_chunks[:k]
     if question["expected_answer_type"] == "not_found":
         top_score = _top_score(top_chunks)
@@ -120,21 +128,23 @@ def score_ground_truth_ranking(
     }
 
 
-def read_canonical_ground_truth(ground_truth_set: models.GroundTruthSet) -> dict[str, Any]:
+def read_canonical_ground_truth(
+    ground_truth_set: models.GroundTruthSet, *, expected_hash: str | None = None,
+) -> dict[str, Any]:
     if ground_truth_set.storage_path is None:
         raise ValueError("Ground truth set has no storage path")
-    path = Path(ground_truth_set.storage_path)
-    if not path.exists():
-        raise ValueError("Ground truth canonical file is missing")
+    recorded_hash = ground_truth_set.metadata_json.get("canonical_sha256")
+    if expected_hash is not None and recorded_hash != expected_hash:
+        raise ValueError("Ground truth identity differs from the saved snapshot")
+    content = read_verified_bytes(ground_truth_set.storage_path, recorded_hash, "Canonical GT")
     try:
-        canonical = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        canonical = json.loads(content)
+    except (ValueError, UnicodeError) as exc:
         raise ValueError("Ground truth canonical file is invalid") from exc
-    if canonical.get("schema_version") not in {
-        GT_SCHEMA_VERSION,
-        LEGACY_GT_SCHEMA_VERSION,
-    } or not isinstance(canonical.get("questions"), list):
+    if not isinstance(canonical, dict) or canonical.get("schema_version") != GT_SCHEMA_VERSION:
         raise ValueError("Ground truth canonical file has an unsupported format")
+    _canonicalize_ground_truth(canonical)
+    _validate_ground_truth(canonical)
     return canonical
 
 
@@ -162,10 +172,8 @@ def store_uploaded_ground_truth_set(
         canonical = _canonicalize_ground_truth(parsed)
         validation = _validate_ground_truth(canonical)
         canonical_path = base_dir / "ground_truth.json"
-        canonical_path.write_text(
-            json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        canonical_bytes = json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        canonical_path.write_bytes(canonical_bytes)
         manifest = _build_manifest(
             canonical=canonical,
             content=content,
@@ -177,6 +185,7 @@ def store_uploaded_ground_truth_set(
             project_id=project_id,
             validation=validation,
         )
+        manifest["canonical_sha256"] = bytes_sha256(canonical_bytes)
         manifest_hash = stable_sha256(manifest)
         manifest["manifest_hash"] = manifest_hash
         (base_dir / "manifest.json").write_text(
@@ -657,6 +666,7 @@ def _build_manifest(
 def _metadata_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         "canonical_format": manifest["canonical_format"],
+        "canonical_sha256": manifest["canonical_sha256"],
         "chunks_file_sha256": manifest.get("chunks_file_sha256"),
         "found_count": manifest["found_count"],
         "evaluation_slice_count": manifest.get("evaluation_slice_count", 0),

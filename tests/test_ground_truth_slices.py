@@ -248,18 +248,12 @@ def test_canonical_page_level_ground_truth_can_be_uploaded_again() -> None:
     assert canonical["questions"][0]["relevant_pages"] == [{"page_index": 2, "pdf_sha1": "abc"}]
 
 
-def test_old_saved_experiment_payload_without_slice_metrics_is_accepted() -> None:
-    payload = SavedExperimentCreate.model_validate(
-        {
-            "data_asset_id": "data-1",
-            "name": "Old experiment",
-            "params_hash": "sha256:old",
-            "params_snapshot_json": {},
-            "metrics_summary_json": {"metric_averages": {"recall_at_k": 0.5}},
-        }
-    )
-
-    assert "slice_metrics" not in payload.metrics_summary_json
+def test_saved_experiment_rejects_caller_snapshot() -> None:
+    with pytest.raises(ValueError):
+        SavedExperimentCreate.model_validate({
+            "name": "Forged experiment", "index_cache_id": "index", "ground_truth_set_id": "gt",
+            "params_snapshot_json": {}, "params_hash": "sha256:forged",
+        })
 
 
 def test_authoring_pack_schema_allows_question_metadata() -> None:

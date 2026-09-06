@@ -17,11 +17,9 @@ Project
 -> metrics
 ```
 
-This diagram includes the target self-contained experiment-snapshot invariant. The current UI
-snapshot still depends on data-asset and index-cache metadata for earlier pipeline lineage; see
-`CURRENT_STATE.md`.
-
-Source data assets hold uploaded source files. Prepared data assets are RAG-ready versions linked to source data assets. File changes create `DataAssetManifest` snapshots; saved experiments snapshot the prepared data manifest hash used for the run.
+The backend generates self-contained pipeline metadata through historical index/chunks/data lineage;
+see [REPRODUCIBILITY.md](REPRODUCIBILITY.md). Source/prepared contents remain in DataAsset storage.
+Saved experiments use the manifest identified by the index, not a later current DataAsset manifest.
 
 The runtime pipeline may create chunks, embeddings, Qdrant indexes, retrieval traces, prompts, and
 answers. These are derived cache/debug outputs, not product-facing results. Saved experiment results
@@ -84,8 +82,7 @@ Responsibilities:
 - rerank retrieval preview candidates from full materialized chunk text;
 - save and delete categorized reusable parameter sets;
 - save optional ground truth set references;
-- save experiments with submitted parameter snapshots and evolve them to self-contained full
-  lineage snapshots;
+- save experiments with backend-generated historical lineage and effective configuration snapshots;
 - run saved experiment evaluation over linked ground truth questions;
 - store metrics-only results;
 - track derived cache entries;
@@ -141,7 +138,7 @@ prepared data assets from source assets.
 Docling preparation may materialize parent-unit sidecars (`*.pages.jsonl` and `*.chapters.jsonl`).
 The `page_recursive` and `chapter_recursive` chunking strategies use those sidecars to create child
 chunks with parent metadata. Parent retrieval strategies then retrieve child chunks, aggregate by
-parent id, and return full parent page or chapter context.
+parent id, and return parent page or chapter previews clipped to 1,200 characters (also the current parent reranking input).
 
 The Chunking UI owns chunking preview, reusable chunking `ParameterSet` creation, materialized chunk
 caches, GT authoring-pack download, and routing selected chunks into Retrieval. The Retrieval UI

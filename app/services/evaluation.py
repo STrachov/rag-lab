@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
 from app.db import models
 from app.services.ground_truth import (
-    list_ground_truth_questions,
     read_canonical_ground_truth,
-    score_ground_truth_ranking,
+    score_canonical_ranking,
 )
-from app.services.runtime_cache import build_reranking_snapshot, retrieve_from_qdrant
+from app.services.runtime_cache import load_evaluation_inputs, retrieve_from_qdrant
+from app.services.semantics import SNAPSHOT_VERSION, RETRIEVAL_VERSION, EVALUATION_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +23,19 @@ def evaluate_ground_truth_questions(
     saved_experiment: models.SavedExperiment,
     vector_store: Any,
 ) -> dict[str, Any]:
-    snapshot = dict(saved_experiment.params_snapshot_json or {})
-    retrieval = _retrieval_params(snapshot)
-    reranking_snapshot = _reranking_snapshot(snapshot)
-    canonical = read_canonical_ground_truth(ground_truth_set)
-    questions = list_ground_truth_questions(ground_truth_set)
+    snapshot = deepcopy(saved_experiment.params_snapshot_json)
+    if snapshot["schema_version"] != SNAPSHOT_VERSION or snapshot["semantics"] != {
+        "retrieval_version": RETRIEVAL_VERSION, "evaluation_version": EVALUATION_VERSION,
+    }:
+        raise ValueError("Unsupported experiment semantics; create a new experiment")
+    retrieval = snapshot["retrieval"]
+    reranking_snapshot = {"reranking": snapshot["reranking"]} if snapshot["reranking"] else None
+    canonical = read_canonical_ground_truth(ground_truth_set, expected_hash=snapshot["ground_truth"]["canonical_sha256"])
+    questions = canonical["questions"]
+    inputs = load_evaluation_inputs(snapshot, index_cache)
+    declared_chunks_hash = canonical.get("metadata", {}).get("chunks_file_sha256")
+    if declared_chunks_hash and declared_chunks_hash != snapshot["chunking"]["chunks_file_sha256"]:
+        raise ValueError("GT chunks_file_sha256 does not match the indexed chunks")
     canonical_questions = {
         str(question["question_id"]): question
         for question in canonical.get("questions", [])
@@ -63,11 +72,12 @@ def evaluate_ground_truth_questions(
                 strategy=retrieval["strategy"],
                 top_k=retrieval["top_k"],
                 vector_store=vector_store,
+                inputs=inputs,
             )
             failed_stage = "score_ground_truth"
-            score = score_ground_truth_ranking(
-                ground_truth_set=ground_truth_set,
-                index_cache=index_cache,
+            score = score_canonical_ranking(
+                canonical=canonical,
+                warnings=[],
                 k=retrieval["top_k"],
                 question_id=str(question["question_id"]),
                 retrieved_chunks=list(result["retrieved_chunks"]),
@@ -171,7 +181,11 @@ def evaluate_ground_truth_questions(
             "duration_seconds": round((finished_at - started_at).total_seconds(), 3),
             "error_count": len(failed_rows),
             "ground_truth_set_id": ground_truth_set.id,
-            "ground_truth_manifest_hash": ground_truth_set.manifest_hash,
+            "ground_truth_manifest_hash": snapshot["ground_truth"]["manifest_hash"],
+            "canonical_sha256": snapshot["ground_truth"]["canonical_sha256"],
+            "input_chunks_sha256": snapshot["index"]["input_chunks_sha256"],
+            "semantics": snapshot["semantics"],
+            "code": saved_experiment.metrics_summary_json["evaluation"]["code"],
             "ground_truth_schema_version": canonical.get("schema_version"),
             "ground_truth_annotation_schema_version": canonical.get("metadata", {}).get(
                 "annotation_schema_version"
@@ -263,30 +277,6 @@ def question_metadata_matches(row: dict[str, Any], filter_definition: dict[str, 
         elif actual not in allowed_values:
             return False
     return True
-
-
-def _retrieval_params(snapshot: dict[str, Any]) -> dict[str, Any]:
-    retrieval = dict(snapshot.get("retrieval") or {})
-    return {
-        "candidate_k": _optional_int(retrieval.get("candidate_k")),
-        "mode": str(retrieval.get("mode") or "hybrid"),
-        "parent_score": str(retrieval.get("parent_score") or "max"),
-        "strategy": str(retrieval.get("strategy") or "chunk_retrieval"),
-        "top_k": max(1, int(retrieval.get("top_k") or 5)),
-    }
-
-
-def _reranking_snapshot(snapshot: dict[str, Any]) -> dict[str, Any] | None:
-    reranking = snapshot.get("reranking")
-    if not isinstance(reranking, dict) or not bool(reranking.get("enabled")):
-        return None
-    return build_reranking_snapshot(str(reranking["model_id"]), dict(reranking.get("params") or {}))
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
 
 
 def _top_result(chunks: list[dict[str, Any]]) -> dict[str, Any] | None:

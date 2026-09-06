@@ -454,18 +454,20 @@ export type SavedExperiment = {
 };
 
 export type SavedExperimentCreate = {
-  code_commit?: string | null;
-  data_asset_id: string;
-  debug_level?: "none" | "summary" | "full";
-  ground_truth_set_id?: string | null;
-  metrics_summary_json?: Record<string, unknown>;
+  index_cache_id: string;
+  ground_truth_set_id: string;
   name: string;
+  retrieval: {
+    mode: string;
+    strategy: string;
+    top_k: number;
+    candidate_k: number | null;
+    parent_score: string;
+  };
+  reranking: { enabled: boolean; model_id: string; params: Record<string, unknown> } | null;
   notes?: string | null;
   parameter_set_id?: string | null;
-  params_hash: string;
-  params_snapshot_json: Record<string, unknown>;
-  pipeline_version?: string | null;
-  status?: string;
+  debug_level?: "none" | "summary" | "full";
 };
 
 export type SavedExperimentDeleteResponse = {
@@ -855,10 +857,9 @@ export async function createSavedExperiment(
 export async function evaluateSavedExperiment(
   projectId: string,
   savedExperimentId: string,
-  payload: { index_cache_id?: string | null } = {},
 ): Promise<SavedExperiment> {
   return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}/evaluate`, {
-    body: JSON.stringify(payload),
+    body: JSON.stringify({}),
     method: "POST",
   });
 }

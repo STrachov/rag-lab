@@ -1,3 +1,4 @@
+import { ProvenanceComparison } from "../components/ExperimentProvenance";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { SliceMetricSummary, SliceMetricValue, SlicePopulation } from "../components/SlicePopulation";
@@ -237,6 +238,7 @@ export function SavedExperimentsPage({ currentProject }: SavedExperimentsPagePro
                     </tr>
                   </thead>
                   <tbody>
+                    <ProvenanceComparison experiments={selectedExperiments} />
                     <ComparisonSection
                       experiments={selectedExperiments}
                       rows={aggregateMetricRows}

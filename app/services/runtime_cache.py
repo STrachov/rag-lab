@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
+from dataclasses import dataclass
 import uuid
 from pathlib import Path
 from typing import Any
@@ -10,11 +12,12 @@ from app.db import models
 from app.services.chunking import ChunkingParams, chunk_prepared_asset
 from app.services.embeddings import (
     create_embedder,
+    create_embedder_from_snapshot,
     effective_vector_size,
     get_embedding_model,
     normalize_embedding_params,
 )
-from app.services.hashing import short_hash, stable_json_dumps, stable_sha256
+from app.services.hashing import short_hash, stable_json_dumps, stable_sha256, bytes_sha256, read_verified_bytes
 from app.services.sparse import (
     build_bm25_stats,
     encode_bm25_document,
@@ -23,6 +26,7 @@ from app.services.sparse import (
     normalize_sparse_params,
 )
 from app.services.rerankers import (
+    create_reranker_from_snapshot,
     get_reranker_model,
     normalize_reranker_params,
     rerank_chunks_with_usage,
@@ -47,6 +51,8 @@ def build_embedding_snapshot(model_id: str, params: dict[str, Any] | None = None
             "params": normalized,
             "provider": spec.provider,
             "vector_size": effective_vector_size(spec, normalized),
+            "passage_prefix": spec.passage_prefix,
+            "query_prefix": spec.query_prefix,
         }
     }
 
@@ -69,10 +75,11 @@ def build_reranking_snapshot(model_id: str, params: dict[str, Any] | None = None
     return {
         "reranking": {
             "backend": spec.backend,
-            "model": spec.model_name,
+            "model": normalized["model"] if spec.provider == "openai" else spec.model_name,
             "model_id": spec.id,
             "params": normalized,
             "provider": spec.provider,
+            "enabled": True,
         }
     }
 
@@ -95,6 +102,7 @@ def materialize_chunks(
         manifest_hash=str(data_asset.manifest_hash),
         params_hash=params_hash,
     )
+    cache_key = f"{cache_key}_{uuid.uuid4().hex}"
     cache_dir = _cache_root() / "chunks" / cache_key
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -104,10 +112,14 @@ def materialize_chunks(
         chunking=ChunkingParams(strategy=chunking["strategy"], params=chunking["params"]),
     )
     chunks = [_normalize_chunk(chunk) for chunk in materialized["chunks"]]
+    chunks_bytes = "".join(f"{stable_json_dumps(chunk)}\n" for chunk in chunks).encode("utf-8")
     sidecars = _sidecar_files(manifest_json)
     manifest = {
         "cache_key": cache_key,
         "chunking": chunking,
+        "chunks_file_sha256": bytes_sha256(chunks_bytes),
+        "chunk_count": len(chunks),
+        "size_unit": "characters" if chunking["strategy"].startswith("langchain_") else "approx_whitespace_tokens",
         "data_asset_id": data_asset.id,
         "data_asset_manifest_hash": data_asset.manifest_hash,
         "params_hash": params_hash,
@@ -118,10 +130,7 @@ def materialize_chunks(
         "warnings": materialized["warnings"],
     }
 
-    (cache_dir / "chunks.jsonl").write_text(
-        "".join(f"{stable_json_dumps(chunk)}\n" for chunk in chunks),
-        encoding="utf-8",
-    )
+    (cache_dir / "chunks.jsonl").write_bytes(chunks_bytes)
     (cache_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -142,7 +151,7 @@ def read_chunks_cache(cache: models.DerivedCache) -> tuple[dict[str, Any], list[
     chunks_path = Path(str(metadata["chunks_path"]))
     chunks = [
         json.loads(line)
-        for line in chunks_path.read_text(encoding="utf-8").splitlines()
+        for line in read_verified_bytes(chunks_path, metadata.get("chunks_file_sha256"), "Chunks").decode("utf-8").splitlines()
         if line.strip()
     ]
     return metadata, chunks
@@ -157,6 +166,7 @@ def index_chunks_in_qdrant(
     collection_name: str | None,
     distance: str,
     vector_store: Any,
+    build_id: str,
 ) -> dict[str, Any]:
     chunks_metadata, chunks = read_chunks_cache(chunks_cache)
     embedding = embedding_snapshot["embedding"]
@@ -168,18 +178,19 @@ def index_chunks_in_qdrant(
         index_mode=index_mode,
         sparse=sparse_snapshot["sparse"] if sparse_snapshot else None,
     )
-    cache_key = build_qdrant_index_cache_key(params_hash)
-    collection = collection_name or f"raglab_{cache_key}"
+    cache_key = build_qdrant_index_cache_key(params_hash, build_id)
+    collection = f"raglab_{build_id}"
     embedder = create_embedder(embedding["model_id"], embedding["params"])
     texts = [str(chunk["text"]) for chunk in chunks]
     vectors = embedder.embed_passages(texts) if texts else []
     sparse_stats: dict[str, Any] | None = None
     sparse_stats_path: Path | None = None
+    sparse_stats_hash: str | None = None
     if index_mode in {"sparse", "hybrid"}:
         if sparse_snapshot is None:
             raise ValueError("Sparse settings are required for sparse or hybrid indexes")
         sparse_stats = build_bm25_stats(texts, sparse_snapshot["sparse"]["params"])
-        sparse_stats_path = _write_sparse_stats(cache_key, sparse_stats)
+        sparse_stats_path, sparse_stats_hash = _write_sparse_stats(build_id, sparse_stats)
 
     vector_store.ensure_collection(
         collection_name=collection,
@@ -209,6 +220,9 @@ def index_chunks_in_qdrant(
         "chunks_cache_id": chunks_cache.id,
         "chunks_cache_key": chunks_cache.cache_key,
         "collection_name": collection,
+        "requested_collection_name": collection_name,
+        "build_id": build_id,
+        "input_chunks_sha256": chunks_metadata["chunks_file_sha256"],
         "data_asset_id": chunks_cache.data_asset_id,
         "data_asset_manifest_hash": chunks_metadata.get("data_asset_manifest_hash"),
         "distance": distance,
@@ -220,6 +234,7 @@ def index_chunks_in_qdrant(
         "schema_version": "raglab.qdrant_index.v1",
         "sparse": sparse_snapshot["sparse"] if sparse_snapshot else None,
         "sparse_stats_path": str(sparse_stats_path) if sparse_stats_path else None,
+        "sparse_stats_sha256": sparse_stats_hash,
     }
     return {"cache_key": cache_key, "metadata_json": metadata, "params_hash": params_hash}
 
@@ -246,8 +261,54 @@ def build_qdrant_index_params_hash(
     )
 
 
-def build_qdrant_index_cache_key(params_hash: str) -> str:
-    return f"qdrant_{short_hash(params_hash, 20)}"
+def build_qdrant_index_cache_key(params_hash: str, build_id: str) -> str:
+    return f"qdrant_{short_hash(params_hash, 20)}_{build_id}"
+
+
+@dataclass(frozen=True)
+class EvaluationInputs:
+    metadata: dict[str, Any]
+    chunks: dict[str, dict[str, Any]]
+    sparse_stats: dict[str, Any] | None
+    embedder: Any
+    reranker: Any
+    retrieval: dict[str, Any]
+
+
+def load_evaluation_inputs(snapshot: dict, index_cache: models.DerivedCache) -> EvaluationInputs:
+    """Read/verify once. Runtime configuration comes exclusively from the saved snapshot."""
+    index = snapshot["index"]
+    live = index_cache.metadata_json
+    expected = {
+        "collection_name": index["collection_name"], "input_chunks_sha256": index["input_chunks_sha256"],
+        "chunks_cache_key": snapshot["chunking"]["cache_key"], "chunks_cache_id": snapshot["chunking"]["cache_id"],
+        "embedding": snapshot["embedding"], "index_mode": index["mode"], "distance": index["distance"],
+    }
+    if (index_cache.id != index["cache_id"] or index_cache.cache_key != index["cache_key"]
+            or index_cache.status != "ready" or index_cache.cache_type != "qdrant_index"
+            or any(live.get(key) != value for key, value in expected.items())):
+        raise ValueError("Index no longer matches the immutable experiment snapshot")
+    chunks_hash = snapshot["chunking"]["chunks_file_sha256"]
+    if chunks_hash != index["input_chunks_sha256"]:
+        raise ValueError("Index input chunks hash differs from materialization hash")
+    chunks_path = _cache_root() / "chunks" / snapshot["chunking"]["cache_key"] / "chunks.jsonl"
+    chunks_bytes = read_verified_bytes(chunks_path, chunks_hash, "Chunks")
+    chunks_list = [json.loads(line) for line in chunks_bytes.decode("utf-8").splitlines() if line.strip()]
+    chunks = {str(chunk["chunk_id"]): chunk for chunk in chunks_list}
+    if len(chunks) != snapshot["chunking"]["chunk_count"] or len(chunks) != len(chunks_list):
+        raise ValueError("Chunks count or identities differ from the snapshot")
+    stats = None
+    if snapshot["retrieval"]["mode"] in {"sparse", "hybrid"}:
+        sparse = snapshot["sparse"]
+        if not sparse or live.get("sparse_stats_sha256") != sparse["stats_file_sha256"]:
+            raise ValueError("Sparse statistics identity differs from the snapshot")
+        stats = json.loads(read_verified_bytes(live["sparse_stats_path"], sparse["stats_file_sha256"], "BM25 statistics"))
+    return EvaluationInputs(
+        metadata=deepcopy(expected), chunks=chunks, sparse_stats=stats,
+        embedder=create_embedder_from_snapshot(snapshot["embedding"]),
+        reranker=create_reranker_from_snapshot(snapshot["reranking"]) if snapshot["reranking"] else None,
+        retrieval=deepcopy(snapshot["retrieval"]),
+    )
 
 
 def retrieve_from_qdrant(
@@ -261,17 +322,20 @@ def retrieve_from_qdrant(
     strategy: str = "chunk_retrieval",
     top_k: int,
     vector_store: Any,
+    inputs: EvaluationInputs | None = None,
 ) -> dict[str, Any]:
-    metadata = index_cache.metadata_json
+    metadata = inputs.metadata if inputs is not None else index_cache.metadata_json
     embedding = metadata["embedding"]
     index_mode = str(metadata.get("index_mode") or "dense")
     if mode in {"sparse", "hybrid"} and index_mode == "dense":
         raise ValueError("Selected index does not include sparse vectors")
-    embedder = create_embedder(embedding["model_id"], embedding["params"])
+    embedder = inputs.embedder if inputs is not None else create_embedder(embedding["model_id"], embedding["params"])
     query_vector = embedder.embed_query(query)
     collection_name = str(metadata["collection_name"])
     base_candidate_k = candidate_k or (top_k * 5 if mode == "hybrid" else top_k)
     effective_candidate_k = min(100, max(top_k, base_candidate_k))
+    if inputs is not None:
+        effective_candidate_k = inputs.retrieval["effective_candidate_k"]
     if mode == "dense":
         retrieved = _format_results(
             vector_store.search_dense(
@@ -282,7 +346,7 @@ def retrieve_from_qdrant(
             score_key="dense_score",
         )
     elif mode == "sparse":
-        sparse_query = _encode_sparse_query(query, metadata)
+        sparse_query = encode_bm25_query(query, inputs.sparse_stats) if inputs is not None else _encode_sparse_query(query, metadata)
         retrieved = _format_results(
             vector_store.search_sparse(
                 collection_name=collection_name,
@@ -292,7 +356,7 @@ def retrieve_from_qdrant(
             score_key="sparse_score",
         )
     else:
-        sparse_query = _encode_sparse_query(query, metadata)
+        sparse_query = encode_bm25_query(query, inputs.sparse_stats) if inputs is not None else _encode_sparse_query(query, metadata)
         dense_results = vector_store.search_dense(
             collection_name=collection_name,
             query_vector=query_vector,
@@ -303,7 +367,7 @@ def retrieve_from_qdrant(
             query_vector=sparse_query,
             top_k=effective_candidate_k,
         )
-        retrieved = _rrf_merge(dense_results, sparse_results)
+        retrieved = _rrf_merge(dense_results, sparse_results, rrf_k=inputs.retrieval["rrf_k"] if inputs is not None else 60)
     candidate_chunks = retrieved
     if strategy in {"parent_page_retrieval", "parent_chapter_retrieval"}:
         parent_type = "page" if strategy == "parent_page_retrieval" else "chapter"
@@ -312,16 +376,28 @@ def retrieve_from_qdrant(
             index_metadata=metadata,
             parent_score=parent_score,
             parent_type=parent_type,
+            full_chunks=inputs.chunks if inputs is not None else None,
         )
         candidate_chunks = retrieved
     if reranking_snapshot is not None:
         reranking = reranking_snapshot["reranking"]
+        texts = _full_text_by_chunk_id(metadata) if inputs is None else {
+            key: str(chunk["text"]) for key, chunk in inputs.chunks.items()
+        }
+        if inputs is not None:
+            if strategy == "chunk_retrieval":
+                if any(str(chunk["chunk_id"]) not in texts for chunk in retrieved):
+                    raise ValueError("Required full reranking chunk text is missing")
+            else:
+                # Preserve the existing parent-preview policy, explicitly snapshotted.
+                texts = {str(chunk["chunk_id"]): str(chunk["text_preview"]) for chunk in retrieved}
         rerank_result = rerank_chunks_with_usage(
             chunks=retrieved,
             model_id=reranking["model_id"],
             params=reranking["params"],
             query=query,
-            text_by_chunk_id=_full_text_by_chunk_id(metadata),
+            text_by_chunk_id=texts,
+            **({"resolved_reranker": inputs.reranker} if inputs is not None else {}),
         )
         retrieved = rerank_result["chunks"]
         usage = {"reranking": rerank_result["usage"]} if rerank_result.get("usage") else None
@@ -414,12 +490,13 @@ def _cache_root() -> Path:
     return get_settings().data_dir / "cache"
 
 
-def _write_sparse_stats(cache_key: str, sparse_stats: dict[str, Any]) -> Path:
+def _write_sparse_stats(cache_key: str, sparse_stats: dict[str, Any]) -> tuple[Path, str]:
     cache_dir = _cache_root() / "sparse" / cache_key
     cache_dir.mkdir(parents=True, exist_ok=True)
     stats_path = cache_dir / "bm25_stats.json"
-    stats_path.write_text(json.dumps(sparse_stats, indent=2, sort_keys=True), encoding="utf-8")
-    return stats_path
+    content = json.dumps(sparse_stats, indent=2, sort_keys=True).encode("utf-8")
+    stats_path.write_bytes(content)
+    return stats_path, bytes_sha256(content)
 
 
 def _chunk_cache_key(
@@ -542,8 +619,12 @@ def _parent_retrieval_results(
     index_metadata: dict[str, Any],
     parent_score: str,
     parent_type: str,
+    full_chunks: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    full_chunks = _chunks_by_id(index_metadata)
+    if full_chunks is None:
+        full_chunks = _chunks_by_id(index_metadata)
+    elif any(str(chunk.get("chunk_id")) not in full_chunks for chunk in chunks):
+        raise ValueError("Required parent restoration chunk is missing")
     groups: dict[str, dict[str, Any]] = {}
     for rank, retrieved in enumerate(chunks, start=1):
         chunk_id = str(retrieved.get("chunk_id") or "")

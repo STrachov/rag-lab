@@ -479,11 +479,29 @@ def create_embedder(
     raise ValueError(f"Unsupported embedding provider: {spec.provider}")
 
 
+def create_embedder_from_snapshot(snapshot: dict[str, Any]) -> SentenceTransformerEmbedder | VoyageEmbedder:
+    """Execute already resolved configuration without consulting catalog defaults."""
+    spec = EmbeddingModelSpec(
+        id=snapshot["model_id"], label=snapshot["model"], description="",
+        provider=snapshot["provider"], model_name=snapshot["model"],
+        vector_size=snapshot["vector_size"], fields=[],
+        passage_prefix=snapshot["passage_prefix"], query_prefix=snapshot["query_prefix"],
+    )
+    params = dict(snapshot["params"])
+    if spec.provider == "sentence_transformers":
+        return _cached_sentence_transformer_embedder(spec, params)
+    if spec.provider == "voyage":
+        return VoyageEmbedder(spec, params)
+    raise ValueError(f"Unsupported embedding provider: {spec.provider}")
+
+
 def _cached_sentence_transformer_embedder(
     spec: EmbeddingModelSpec,
     params: dict[str, Any],
 ) -> SentenceTransformerEmbedder:
-    cache_key = _model_cache_key(spec.id, params)
+    cache_key = stable_json_dumps({"model": spec.model_name, "provider": spec.provider,
+        "passage_prefix": spec.passage_prefix, "query_prefix": spec.query_prefix,
+        "configuration": _model_cache_key(spec.id, params)})
     with _LOCAL_EMBEDDER_CACHE_LOCK:
         cached = _LOCAL_EMBEDDER_CACHE.get(cache_key)
         if cached is not None:

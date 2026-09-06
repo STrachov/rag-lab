@@ -156,20 +156,6 @@ def materialize_project_chunks(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    existing_cache = _find_cache(
-        db,
-        project_id=project_id,
-        cache_type="chunks",
-        cache_key=materialized["cache_key"],
-    )
-    if existing_cache is not None:
-        existing_cache.last_used_at = datetime.now(UTC)
-        existing_cache.metadata_json = materialized["metadata_json"]
-        existing_cache.params_hash = materialized["params_hash"]
-        db.commit()
-        db.refresh(existing_cache)
-        return existing_cache
-
     cache = models.DerivedCache(
         project_id=project_id,
         data_asset_id=data_asset.id,
@@ -255,29 +241,10 @@ def create_project_qdrant_index(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    params_hash = build_qdrant_index_params_hash(
-        chunks_cache_key=chunks_cache.cache_key,
-        collection_name=payload.collection_name,
-        distance=payload.distance,
-        embedding=embedding_snapshot["embedding"],
-        index_mode=payload.index_mode,
-        sparse=sparse_snapshot["sparse"] if sparse_snapshot else None,
-    )
-    cache_key = build_qdrant_index_cache_key(params_hash)
-    existing_cache = _find_cache(
-        db,
-        project_id=project_id,
-        cache_type="qdrant_index",
-        cache_key=cache_key,
-    )
-    if existing_cache is not None and existing_cache.status == "ready":
-        existing_cache.last_used_at = datetime.now(UTC)
-        db.commit()
-        db.refresh(existing_cache)
-        return existing_cache
-
+    build_id = models.new_id()
     try:
         indexed = index_chunks_in_qdrant(
+            build_id=build_id,
             chunks_cache=chunks_cache,
             collection_name=payload.collection_name,
             distance=payload.distance,
@@ -289,7 +256,7 @@ def create_project_qdrant_index(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        failed_cache = _save_failed_qdrant_index_cache(
+        _save_failed_qdrant_index_cache(
             db,
             project_id=project_id,
             chunks_cache=chunks_cache,
@@ -299,28 +266,15 @@ def create_project_qdrant_index(
             index_mode=payload.index_mode,
             sparse_snapshot=sparse_snapshot,
             error=exc,
+            build_id=build_id,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to create Qdrant index: {exc}",
         ) from exc
 
-    existing_cache = _find_cache(
-        db,
-        project_id=project_id,
-        cache_type="qdrant_index",
-        cache_key=indexed["cache_key"],
-    )
-    if existing_cache is not None:
-        existing_cache.last_used_at = datetime.now(UTC)
-        existing_cache.metadata_json = indexed["metadata_json"]
-        existing_cache.params_hash = indexed["params_hash"]
-        existing_cache.status = "ready"
-        db.commit()
-        db.refresh(existing_cache)
-        return existing_cache
-
     cache = models.DerivedCache(
+        id=build_id,
         project_id=project_id,
         data_asset_id=chunks_cache.data_asset_id,
         params_hash=indexed["params_hash"],
@@ -493,6 +447,7 @@ def _save_failed_qdrant_index_cache(
     index_mode: str,
     sparse_snapshot: dict | None,
     error: Exception,
+    build_id: str,
 ) -> models.DerivedCache:
     params_hash = build_qdrant_index_params_hash(
         chunks_cache_key=chunks_cache.cache_key,
@@ -502,13 +457,15 @@ def _save_failed_qdrant_index_cache(
         index_mode=index_mode,
         sparse=sparse_snapshot["sparse"] if sparse_snapshot else None,
     )
-    cache_key = build_qdrant_index_cache_key(params_hash)
-    collection = collection_name or f"raglab_{cache_key}"
+    cache_key = build_qdrant_index_cache_key(params_hash, build_id)
+    collection = f"raglab_{build_id}"
     metadata_json = {
         "cache_key": cache_key,
         "chunks_cache_id": chunks_cache.id,
         "chunks_cache_key": chunks_cache.cache_key,
         "collection_name": collection,
+        "requested_collection_name": collection_name,
+        "build_id": build_id,
         "data_asset_id": chunks_cache.data_asset_id,
         "distance": distance,
         "embedding": embedding_snapshot["embedding"],
@@ -523,22 +480,8 @@ def _save_failed_qdrant_index_cache(
         "schema_version": "raglab.qdrant_index.v1",
         "sparse": sparse_snapshot["sparse"] if sparse_snapshot else None,
     }
-    existing_cache = _find_cache(
-        db,
-        project_id=project_id,
-        cache_type="qdrant_index",
-        cache_key=cache_key,
-    )
-    if existing_cache is not None:
-        existing_cache.last_used_at = datetime.now(UTC)
-        existing_cache.metadata_json = metadata_json
-        existing_cache.params_hash = params_hash
-        existing_cache.status = "failed"
-        db.commit()
-        db.refresh(existing_cache)
-        return existing_cache
-
     failed_cache = models.DerivedCache(
+        id=build_id,
         project_id=project_id,
         data_asset_id=chunks_cache.data_asset_id,
         params_hash=params_hash,

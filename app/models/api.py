@@ -456,31 +456,48 @@ class GroundTruthRankingScoreResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ExperimentRetrievalParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["dense", "sparse", "hybrid"] = "hybrid"
+    strategy: Literal["chunk_retrieval", "parent_page_retrieval", "parent_chapter_retrieval"] = "chunk_retrieval"
+    parent_score: Literal["max", "mean", "sum"] = "max"
+    top_k: int = Field(default=5, ge=1, le=50)
+    candidate_k: int | None = Field(default=None, ge=1)
+
+
 class SavedExperimentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=255)
+    index_cache_id: str
+    ground_truth_set_id: str
+    retrieval: ExperimentRetrievalParams = Field(default_factory=ExperimentRetrievalParams)
+    reranking: RerankingParams | None = None
+    parameter_set_id: str | None = None
+    notes: str | None = None
+    debug_level: Literal["none", "summary", "full"] = "none"
+
+
+class SavedExperimentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    project_id: str
     name: str
     data_asset_id: str
-    data_asset_manifest_hash: str | None = None
-    ground_truth_set_id: str | None = None
+    data_asset_manifest_hash: str
+    ground_truth_set_id: str
     parameter_set_id: str | None = None
     params_snapshot_json: JsonObject
     params_hash: str
-    metrics_summary_json: JsonObject = Field(default_factory=dict)
-    status: str = "created"
+    metrics_summary_json: JsonObject
+    status: str
     notes: str | None = None
-    debug_level: Literal["none", "summary", "full"] = "none"
+    debug_level: str
     code_commit: str | None = None
     pipeline_version: str | None = None
     error_json: JsonObject | None = None
-
-
-class SavedExperimentResponse(SavedExperimentCreate):
-    id: str
-    project_id: str
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class SavedExperimentListResponse(BaseModel):
@@ -488,7 +505,7 @@ class SavedExperimentListResponse(BaseModel):
 
 
 class SavedExperimentEvaluateRequest(BaseModel):
-    index_cache_id: str | None = None
+    model_config = ConfigDict(extra="forbid")
 
 
 class SavedExperimentDeleteResponse(BaseModel):

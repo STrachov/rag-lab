@@ -173,7 +173,10 @@ Deleting a cache with dependent runtime caches returns HTTP 409 unless
 `retrieval_temp`; `embeddings` and `answer_temp` are reserved schema values.
 
 `chunks/materialize` accepts a prepared data asset and canonical chunking snapshot, writes
-`raglab.chunks.v1` JSONL, and creates or reuses `DerivedCache(cache_type="chunks")`.
+`raglab.chunks.v1` JSONL to a fresh materialization location, and creates `DerivedCache(cache_type="chunks")`
+with exact `chunks_file_sha256`, chunk count and effective size unit. Each index build gets a distinct
+physical collection based on its cache ID and stores verified `input_chunks_sha256` plus sparse statistics
+hash when applicable. Requested collection names do not select shared physical collections.
 
 Qdrant index request:
 
@@ -274,7 +277,8 @@ DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
 ```
 
 Ground truth upload accepts JSON or JSONL plus an optional prepared `data_asset_id`. Upload validates
-shape and canonicalizes the file. Chunk-id compatibility is checked later against the selected
+shape, canonicalizes the file and records exact canonical UTF-8 byte SHA-256 as `canonical_sha256` in
+manifest/metadata. Readers verify this hash; GT without it must be re-imported. Chunk-id compatibility is checked later against the selected
 chunks cache during retrieval/reranking evaluation.
 
 `raglab.ground_truth.v1` remains backward compatible. A question may include optional metadata, and
@@ -340,45 +344,35 @@ DELETE /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
 POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate
 ```
 
-Saved experiment creation snapshots the current prepared data asset manifest hash and stores the
-submitted `params_snapshot_json`. The target invariant is a self-contained full parameter snapshot,
-but the current UI submits the index-cache id/key plus retrieval, reranking, and GT settings; earlier
-pipeline lineage remains indirect through data-asset/cache metadata. The current evaluation endpoint runs synchronously; background execution
-should be added later when evaluations may call slow models, build caches, or score large
-ground-truth sets.
+SavedExperiment is one backend-generated immutable pipeline snapshot and one evaluation attempt.
+The backend resolves historical source/prepared manifests through the selected ready Qdrant index
+and chunks cache. Creation rejects unverified inputs; old development records/caches/GT must be recreated.
+See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for the complete snapshot and hash contract.
 
-Create saved experiment request:
+Create request:
 
 ```json
 {
-  "name": "Hybrid e5 bm25 qwen strict",
-  "data_asset_id": "prepared-data-uuid",
-  "ground_truth_set_id": "ground-truth-uuid",
-  "params_snapshot_json": {
-    "index_cache_id": "qdrant-index-cache-uuid",
-    "index_cache_key": "qdrant_index_...",
-    "retrieval": {
-      "mode": "hybrid",
-      "strategy": "chunk_retrieval",
-      "top_k": 5,
-      "candidate_k": 30,
-      "parent_score": "max"
-    },
-    "reranking": null,
-    "ground_truth": {
-      "ground_truth_set_id": "ground-truth-uuid",
-      "question_count": 20
-    }
+  "name": "Wheeler 300/50",
+  "index_cache_id": "qdrant-index-cache-id",
+  "ground_truth_set_id": "ground-truth-id",
+  "retrieval": {
+    "mode": "hybrid",
+    "strategy": "chunk_retrieval",
+    "top_k": 5,
+    "candidate_k": 30,
+    "parent_score": "max"
   },
-  "params_hash": "sha256:...",
-  "debug_level": "summary",
-  "notes": "",
-  "pipeline_version": "runtime-v1"
+  "reranking": null,
+  "debug_level": "summary"
 }
 ```
 
-`params_hash` is required and is currently calculated by the client from the submitted snapshot.
-`code_commit` is optional in the schema and is not populated by the current UI.
+Optional user fields are `notes` and `parameter_set_id`. Enabled reranking accepts `enabled`,
+`model_id`, and `params`. Authoritative snapshot/hash/data-manifest/code/result fields are not accepted;
+extra create fields return HTTP 422. The response retains the SavedExperiment fields, including the
+backend-generated `params_snapshot_json` (`raglab.saved_experiment.v1`) and configuration-only `params_hash`.
+`code_commit` is populated by the backend at evaluation start, not supplied by the UI.
 
 Evaluate response:
 
@@ -408,14 +402,11 @@ Evaluate response:
 }
 ```
 
-Evaluation request body is optional. If supplied, `index_cache_id` overrides the index cache stored
-in `params_snapshot_json`:
-
-```json
-{
-  "index_cache_id": "uuid"
-}
-```
+Evaluation accepts no settings: omit the body or send `{}`. Supplying `index_cache_id` returns
+HTTP 422; the saved `snapshot.index.cache_id` is always used. Only `created` may be claimed, atomically
+at database level. Any already-running or terminal experiment returns HTTP 409. Failed attempts are
+consumed and require a new experiment to retry. Required missing/hash-mismatched inputs are recorded
+as failed evaluations. GT, chunks and required sparse statistics are loaded/verified once per attempt.
 
 Metrics are currently returned in:
 
@@ -427,8 +418,8 @@ SavedExperiment.metrics_summary_json
 evaluation does not populate separate metric rows.
 
 The current implementation of `POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate`
-runs synchronously. It reads `index_cache_id`, retrieval params, and optional enabled reranking params
-from `SavedExperiment.params_snapshot_json`, loops over every question in the linked ground truth set,
+runs synchronously. It executes the resolved index/retrieval/reranking configuration
+from `SavedExperiment.params_snapshot_json`, loops over the single verified in-memory canonical GT,
 retrieves/reranks candidates, scores them with the existing single-question scorer, and stores:
 
 ```text

@@ -53,12 +53,14 @@ python -m pytest
 ```
 
 The backend tests use an in-memory SQLite database and fake adapters for Qdrant/remote providers;
-they are not live-service integration tests. The UI currently has no automated test suite. Verify
+they are not live-service integration tests. The UI includes focused component rendering tests. Verify
 the production frontend build separately:
 
 ```bash
 cd ui
 npm ci
+node tests/slicePopulation.test.cjs
+node tests/experimentProvenance.test.cjs
 npm run build
 ```
 
@@ -181,14 +183,17 @@ reranker params in the UI and are saved in experiment snapshots.
 11. Run retrieval preview with manual questions or one GT question
 12. Rerank the retrieval cache with different models or params
 13. Register optional ground truth set
-14. Save experiment with the current evaluation snapshot and prepared data manifest hash
+14. Create experiment from selected verified index, GT and retrieval/reranking choices
 15. Run GT evaluation over all selected GT questions
 16. Open the saved experiment detail page to inspect aggregate metrics, per-question summaries, and failures
 17. Compare saved experiments
 ```
 
-The current manual product workflow ends at comparison. Self-contained cache/data/code lineage,
-background evaluation, generation, and recipe promotion/export are follow-up implementation work.
+The current manual product workflow ends at comparison. Self-contained cache/data/code lineage is
+implemented; background evaluation, generation and recipe promotion/export remain follow-up work.
+Recreate old development experiments/caches and re-import GT before using the new contract. No
+database migration is required. Evaluation is a single consumed attempt, including failures; create
+a new SavedExperiment to retry. See [REPRODUCIBILITY.md](REPRODUCIBILITY.md).
 
 ## Test Coverage Guide
 
