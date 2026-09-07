@@ -458,3 +458,31 @@ table inline.
 
 After implementation, endpoint renames, required-field changes, response-shape changes, and
 error-shape changes are breaking changes.
+
+
+### Hybrid preview diagnostics
+
+`POST /v1/projects/{project_id}/retrieve/preview` automatically includes a `diagnostics`
+object for `mode=hybrid`. Inspect the JSON response (for example in the browser Network panel);
+no additional UI controls or retrieval requests are needed. Dense/sparse previews have no diagnostic data.
+
+- `fusion`, `rrf_k`: `rrf`, `60`.
+- `dense_candidates` / `sparse_candidates`: first 30 actual results in each input list,
+  with chunk ID, page, original rank (1-based) and original score.
+- `fused_candidates`: first 30 actual merged results, with both input ranks (null when absent),
+  each `1 / (rrf_k + rank)` contribution (zero when absent), and actual fused score/rank.
+- `candidate_counts`: full list sizes before display truncation. Ranks/contributions use full
+  input lists even when the corresponding candidate is outside the displayed first 30.
+- `parent_page_aggregation`: `applied`, retrieval strategy, parent score method and up to
+  `min(5, top_k)` final pages before reranking. Each page includes its actual aggregate score
+  and all actual `evidence_chunks` as `child_chunks` (chunk ID, fused rank and score).
+  With `max`, `max_child_chunk_ids` includes every child tied for the maximum; it does not
+  invent a tie-breaking winner. Other aggregation methods return an empty max-child list.
+
+`page_recursive` is a chunking strategy, not a retrieval aggregation setting. Aggregation
+is reported only when retrieval strategy is `parent_page_retrieval`; otherwise `applied=false`
+and `pages=[]`. No artificial page aggregation is performed for diagnostic purposes.
+
+Diagnostics observe existing search/merge/aggregation results without changing them. They are
+response-only preview data: not added to retrieval cache payloads, SavedExperiment snapshots,
+evaluation metrics or rerank-preview responses. No extra searches or chunk-file reads are performed.

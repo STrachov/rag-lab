@@ -308,6 +308,7 @@ def preview_project_retrieval(
         )
     try:
         result = retrieve_from_qdrant(
+            include_diagnostics=payload.mode == "hybrid",
             candidate_k=payload.candidate_k,
             index_cache=index_cache,
             mode=payload.mode,

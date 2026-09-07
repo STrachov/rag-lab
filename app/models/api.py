@@ -401,6 +401,7 @@ class RetrievalPreviewResponse(BaseModel):
     candidate_k: int | None = None
     reranking: JsonObject | None = None
     retrieved_chunks: list[RetrievedChunk]
+    diagnostics: JsonObject | None = None
     usage: JsonObject | None = None
 
 

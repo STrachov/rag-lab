@@ -1,3 +1,4 @@
+import { HybridDiagnosticsPanel } from "../components/HybridDiagnosticsPanel";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -913,7 +914,10 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                   </>
                 ) : null}
                 {retrievalMetrics ? <RankingMetrics score={retrievalMetrics} title="Retrieval Metrics" /> : null}
-                {retrievalResult ? <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" /> : null}
+                {retrievalResult ? <>
+                  <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" />
+                  <HybridDiagnosticsPanel retrieval={retrievalResult} />
+                </> : null}
               </>
             ) : (
               <div className="nested-empty">Create a Qdrant index before retrieval preview.</div>

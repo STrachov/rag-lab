@@ -17,6 +17,7 @@ from app.services.embeddings import (
     get_embedding_model,
     normalize_embedding_params,
 )
+from app.services.retrieval_diagnostics import hybrid_diagnostics, parent_page_diagnostics
 from app.services.hashing import short_hash, stable_json_dumps, stable_sha256, bytes_sha256, read_verified_bytes
 from app.services.sparse import (
     build_bm25_stats,
@@ -323,6 +324,7 @@ def retrieve_from_qdrant(
     top_k: int,
     vector_store: Any,
     inputs: EvaluationInputs | None = None,
+    include_diagnostics: bool = False,
 ) -> dict[str, Any]:
     metadata = inputs.metadata if inputs is not None else index_cache.metadata_json
     embedding = metadata["embedding"]
@@ -336,6 +338,7 @@ def retrieve_from_qdrant(
     effective_candidate_k = min(100, max(top_k, base_candidate_k))
     if inputs is not None:
         effective_candidate_k = inputs.retrieval["effective_candidate_k"]
+    diagnostics = None
     if mode == "dense":
         retrieved = _format_results(
             vector_store.search_dense(
@@ -368,6 +371,9 @@ def retrieve_from_qdrant(
             top_k=effective_candidate_k,
         )
         retrieved = _rrf_merge(dense_results, sparse_results, rrf_k=inputs.retrieval["rrf_k"] if inputs is not None else 60)
+        if include_diagnostics:
+            diagnostics = hybrid_diagnostics(dense_results, sparse_results, retrieved,
+                rrf_k=inputs.retrieval["rrf_k"] if inputs is not None else 60)
     candidate_chunks = retrieved
     if strategy in {"parent_page_retrieval", "parent_chapter_retrieval"}:
         parent_type = "page" if strategy == "parent_page_retrieval" else "chapter"
@@ -379,6 +385,9 @@ def retrieve_from_qdrant(
             full_chunks=inputs.chunks if inputs is not None else None,
         )
         candidate_chunks = retrieved
+    if diagnostics is not None:
+        diagnostics["parent_page_aggregation"] = parent_page_diagnostics(
+            retrieved, strategy=strategy, parent_score=parent_score, top_k=top_k)
     if reranking_snapshot is not None:
         reranking = reranking_snapshot["reranking"]
         texts = _full_text_by_chunk_id(metadata) if inputs is None else {
@@ -413,6 +422,7 @@ def retrieve_from_qdrant(
         "retrieved_chunks": retrieved[:top_k],
         "strategy": strategy,
         "top_k": top_k,
+        **({"diagnostics": diagnostics} if diagnostics is not None else {}),
         **({"usage": usage} if usage else {}),
     }
 
