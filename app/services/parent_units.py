@@ -81,29 +81,42 @@ def read_parent_units_from_prepared_asset(
 
 
 def _ordered_docling_elements(docling_document: dict[str, Any]) -> list[dict[str, Any]]:
-    texts = docling_document.get("texts")
-    tables = docling_document.get("tables")
+    # Body references define reading order. Groups are containers, not content to skip.
     by_ref: dict[str, dict[str, Any]] = {}
-    if isinstance(texts, list):
-        for item in texts:
+    for collection, items in docling_document.items():
+        if not isinstance(items, list):
+            continue
+        for item in items:
             if isinstance(item, dict) and item.get("self_ref"):
-                by_ref[str(item["self_ref"])] = {"kind": "text", **item}
-    if isinstance(tables, list):
-        for item in tables:
-            if isinstance(item, dict) and item.get("self_ref"):
-                by_ref[str(item["self_ref"])] = {"kind": "table", **item}
+                by_ref[str(item["self_ref"])] = {
+                    **item, "kind": "table" if collection == "tables" else "text",
+                }
 
     ordered: list[dict[str, Any]] = []
-    for child in (docling_document.get("body") or {}).get("children", []):
-        if not isinstance(child, dict):
-            continue
-        ref = str(child.get("$ref") or "")
+    visited: set[str] = set()
+
+    def visit(reference: dict[str, Any]) -> None:
+        ref = str(reference.get("$ref") or "")
+        if ref in visited:
+            return
         item = by_ref.get(ref)
-        if item is not None:
+        if item is None:
+            raise ValueError(f"Docling body references an unavailable item: {ref}")
+        visited.add(ref)
+        if _element_text(item):
+            if _page_no(item) is None:
+                raise ValueError(f"Docling textual item has no page provenance: {ref}")
             ordered.append(item)
-    if ordered:
-        return ordered
-    return list(by_ref.values())
+        for child in item.get("children", []):
+            visit(child)
+        # Captions may be linked by the owning item rather than directly by the body.
+        for caption in item.get("captions", []):
+            visit(caption)
+
+    body = docling_document.get("body") or {}
+    for child in body.get("children", []):
+        visit(child)
+    return ordered
 
 
 def _build_page_units(*, elements: list[dict[str, Any]], source_name: str) -> list[dict[str, Any]]:
@@ -286,10 +299,11 @@ def _block_metadata(element: dict[str, Any], text: str) -> dict[str, Any]:
 
 def _page_no(element: dict[str, Any]) -> int | None:
     prov = element.get("prov")
-    if isinstance(prov, list) and prov:
-        page_no = prov[0].get("page_no") if isinstance(prov[0], dict) else None
-        if isinstance(page_no, int):
-            return page_no
+    if isinstance(prov, list):
+        for entry in prov:
+            page_no = entry.get("page_no") if isinstance(entry, dict) else None
+            if isinstance(page_no, int) and not isinstance(page_no, bool) and page_no > 0:
+                return page_no
     return None
 
 
