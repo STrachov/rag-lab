@@ -1,4 +1,4 @@
-"""Read-only explanations of already computed hybrid preview results."""
+"""Read-only explanations of already computed retrieval preview results."""
 from typing import Any
 
 
@@ -50,3 +50,29 @@ def parent_page_diagnostics(results: list[dict[str, Any]], *, strategy: str,
             })
     return {"applied": applied, "strategy": strategy, "parent_score": parent_score,
             "page_display_limit": 5, "pages": pages}
+
+
+def dense_diagnostics(results: list[dict]) -> dict:
+    return {
+        "fusion": None, "rrf_k": None, "candidate_display_limit": 30,
+        "candidate_counts": {"dense": len(results)},
+        "dense_candidates": [{"chunk_id": item["chunk_id"], "page": item.get("page"),
+            "parent_id": item.get("parent_id"), "dense_rank": rank,
+            "dense_score": item["score"]} for rank, item in enumerate(results[:30], 1)],
+        "sparse_candidates": [], "fused_candidates": [],
+    }
+
+
+def reranking_diagnostics(results: list[dict], *, top_k: int) -> list[dict]:
+    rows = []
+    for rank, item in enumerate(results[:min(5, top_k)], 1):
+        child_id = item.get("rerank_child_id")
+        if child_id is None:
+            continue
+        child = next(child for child in item["evidence_chunks"] if child["chunk_id"] == child_id)
+        rows.append({"page": item.get("page"), "parent_id": item.get("parent_id"),
+            "rerank_child_id": child_id, "selected_child_rank": child["rank"],
+            "selected_child_score": child["score"], "original_parent_score": item["original_score"],
+            "pre_rerank_parent_rank": item["original_rank"],
+            "rerank_score": item["rerank_score"], "final_parent_rank": rank})
+    return rows

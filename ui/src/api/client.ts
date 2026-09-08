@@ -377,9 +377,12 @@ export type RetrievedChunk = {
   text_preview?: string | null;
 };
 
-export type HybridDiagnostics = {
-  fusion: string; rrf_k: number;
-  dense_candidates: Array<{ chunk_id: string; page: number | null; dense_rank: number; dense_score: number | null }>;
+export type RetrievalDiagnostics = {
+  reranking?: Array<{ page: number | null; parent_id: string; rerank_child_id: string;
+    selected_child_rank: number; selected_child_score: number; original_parent_score: number;
+    pre_rerank_parent_rank: number; rerank_score: number; final_parent_rank: number }>;
+  fusion: string | null; rrf_k: number | null;
+  dense_candidates: Array<{ chunk_id: string; page: number | null; parent_id?: string | null; dense_rank: number; dense_score: number | null }>;
   sparse_candidates: Array<{ chunk_id: string; page: number | null; sparse_rank: number; sparse_score: number | null }>;
   fused_candidates: Array<{ chunk_id: string; page: number | null; fused_rank: number;
     dense_rank: number | null; sparse_rank: number | null; dense_contribution: number;
@@ -400,7 +403,7 @@ export type RetrievalPreviewResponse = {
   candidate_k?: number | null;
   reranking?: Record<string, unknown> | null;
   retrieved_chunks: RetrievedChunk[];
-  diagnostics?: HybridDiagnostics | null;
+  diagnostics?: RetrievalDiagnostics | null;
   usage?: Record<string, unknown> | null;
 };
 

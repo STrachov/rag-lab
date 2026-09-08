@@ -308,7 +308,7 @@ def preview_project_retrieval(
         )
     try:
         result = retrieve_from_qdrant(
-            include_diagnostics=payload.mode == "hybrid",
+            include_diagnostics=payload.mode in {"dense", "hybrid"},
             candidate_k=payload.candidate_k,
             index_cache=index_cache,
             mode=payload.mode,
@@ -505,6 +505,7 @@ def _save_retrieval_temp_cache(
     result: dict,
 ) -> models.DerivedCache:
     payload = build_retrieval_temp_payload(
+        diagnostics=result.get("diagnostics"),
         candidate_chunks=list(result.get("candidate_chunks") or result["retrieved_chunks"]),
         candidate_k=int(result["candidate_k"]),
         index_cache=index_cache,

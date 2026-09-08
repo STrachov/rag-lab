@@ -5,7 +5,7 @@ const test = require("node:test");
 const ts = require("typescript");
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
-const source = fs.readFileSync(path.join(__dirname, "../src/components/HybridDiagnosticsPanel.tsx"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "../src/components/RetrievalDiagnosticsPanel.tsx"), "utf8");
 const compiled = ts.transpileModule(source, {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
 }).outputText;
@@ -23,24 +23,26 @@ function fixture() {
                        { chunk_id: "tied-child", rank: 2, score: 1 / 61 }] }] },
   } };
 }
-const render = retrieval => renderToStaticMarkup(React.createElement(components.HybridDiagnosticsPanel, { retrieval }));
+const render = retrieval => renderToStaticMarkup(React.createElement(components.RetrievalDiagnosticsPanel, { retrieval }));
 
 test("hybrid diagnostics are collapsed, read-only and preserve backend scores and max ties", () => {
   const html = render(fixture());
-  for (const text of ["Hybrid diagnostics", "Dense top candidates", "Sparse top candidates", "RRF candidates",
+  for (const text of ["Retrieval diagnostics", "Dense top candidates", "Sparse top candidates", "RRF candidates",
     "dense-child", "sparse-child", "dense_rank", "sparse_contribution", "fused_score", "Parent aggregation (max)"])
     assert.ok(html.includes(text), text);
   assert.ok(html.includes(`title="${1 / 61}"`));
   assert.ok(html.includes("<td>—</td>"));
   assert.equal((html.match(/· max/g) || []).length, 2);
-  assert.match(html, /<details[^>]*><summary>Hybrid diagnostics/);
+  assert.ok(html.includes("only the top 5 parents"));
+  assert.ok(html.includes("Reranking uses all parent candidates"));
+  assert.match(html, /<details[^>]*><summary>Retrieval diagnostics/);
   assert.doesNotMatch(html, /<details[^>]*\bopen\b|<input|<select|<button/);
 });
 
 test("panel is absent without hybrid response diagnostics", () => {
   assert.equal(render({ mode: "hybrid" }), "");
   assert.equal(render({ mode: "hybrid", diagnostics: null }), "");
-  for (const mode of ["dense", "sparse"]) assert.equal(render({ ...fixture(), mode }), "");
+  for (const mode of ["sparse"]) assert.equal(render({ ...fixture(), mode }), "");
 });
 
 test("unapplied aggregation and empty candidates are explicit", () => {
@@ -61,4 +63,18 @@ test("display limits do not reorder candidates or compute new results", () => {
   assert.ok(html.includes("unique-dense-29"));
   assert.ok(!html.includes("unique-dense-30"));
   assert.ok(html.indexOf("unique-dense-0") < html.indexOf("unique-dense-29"));
+});
+
+for (const mode of ["dense", "hybrid"]) test(`${mode} shows selected child and final parent reranking diagnostics`, () => {
+  const value = fixture();
+  value.mode = mode;
+  if (mode === "dense") { value.diagnostics.fusion = null; value.diagnostics.rrf_k = null; }
+  value.diagnostics.reranking = [{ page: 7, parent_id: "p7", rerank_child_id: "selected-child",
+    selected_child_rank: 23, selected_child_score: .55, original_parent_score: .8,
+    pre_rerank_parent_rank: 12, rerank_score: .99, final_parent_rank: 1 }];
+  const html = render(value);
+  for (const text of ["Retrieval diagnostics", "Parent reranking", "Pre-rerank parent rank", "<td>12</td>", "selected-child", "23", "0.5500000", "0.9900000"])
+    assert.ok(html.includes(text), text);
+  assert.equal(html.includes("RRF candidates"), mode === "hybrid");
+  assert.equal(html.includes("Sparse top candidates"), mode === "hybrid");
 });

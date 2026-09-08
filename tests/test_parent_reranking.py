@@ -74,7 +74,8 @@ def test_chunk_retrieval_keeps_full_chunk_input():
     assert "rerank_child_id" not in result["chunks"][0]
 
 
-def test_preview_and_evaluation_use_same_pairs_scores_and_top_k(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["dense", "hybrid"])
+def test_preview_and_evaluation_use_same_pairs_scores_and_top_k(tmp_path, monkeypatch, mode):
     rows = [{"chunk_id": key, "text": text, "parent_id": parent, "parent_type": "page",
              "page": page, "parent_text": "prefix " * 300 + text}
             for key, text, parent, page in [("a", "other", "p1", 1), ("b", "evidence", "p2", 2)]]
@@ -83,28 +84,42 @@ def test_preview_and_evaluation_use_same_pairs_scores_and_top_k(tmp_path, monkey
     directory.mkdir(parents=True)
     (directory / "chunks.jsonl").write_bytes(content)
     monkeypatch.setattr(runtime_cache, "_cache_root", lambda: tmp_path)
-    metadata = {"embedding": {}, "index_mode": "dense", "collection_name": "collection",
+    metadata = {"embedding": {}, "index_mode": mode, "collection_name": "collection",
                 "chunks_cache_key": "key", "input_chunks_sha256": bytes_sha256(content)}
     index = SimpleNamespace(id="index", metadata_json=metadata)
     adapter = RecordingReranker()
     inputs = runtime_cache.EvaluationInputs(metadata=metadata, chunks={r["chunk_id"]: r for r in rows},
         sparse_stats=None, embedder=SimpleNamespace(embed_query=lambda q: [1]), reranker=adapter,
-        retrieval={"effective_candidate_k": 30})
+        retrieval={"effective_candidate_k": 30, "rrf_k": 60})
     store = SimpleNamespace(search_dense=lambda **kw: [
         {"payload": {k: v for k, v in r.items() if k not in {"text", "parent_text"}}, "score": score}
         for r, score in zip(rows, [.8, .7])])
-    evaluated = runtime_cache.retrieve_from_qdrant(index_cache=index, inputs=inputs, mode="dense", query="q",
+    store.search_sparse = store.search_dense
+    monkeypatch.setattr(runtime_cache, "encode_bm25_query", lambda *args: {})
+    evaluated = runtime_cache.retrieve_from_qdrant(index_cache=index, inputs=inputs, mode=mode, query="q",
         strategy="parent_page_retrieval", parent_score="max", candidate_k=30, top_k=1,
-        vector_store=store, reranking_snapshot={"reranking": config("parent_page_retrieval")})
+        include_diagnostics=True, vector_store=store, reranking_snapshot={"reranking": config("parent_page_retrieval")})
     expected_pairs = list(adapter.pairs)
     adapter.pairs.clear()
     monkeypatch.setattr(rerankers, "create_reranker", lambda *args: adapter)
     cache = SimpleNamespace(id="preview", metadata_json={"query": "q", "strategy": "parent_page_retrieval",
-        "candidate_k": 30, "mode": "dense", "index_cache_id": "index",
+        "candidate_k": 30, "mode": mode, "index_cache_id": "index",
+        "diagnostics": {k: v for k, v in evaluated["diagnostics"].items() if k != "reranking"},
         "retrieved_chunks": evaluated["candidate_chunks"]})
     preview = runtime_cache.rerank_retrieval_candidates(index_cache=index, retrieval_cache=cache,
         reranking_snapshot={"reranking": config("parent_page_retrieval")}, top_k=1)
     assert adapter.pairs == expected_pairs == [("q", "other"), ("q", "evidence")]
+    assert preview["diagnostics"] == evaluated["diagnostics"]
+    assert "reranking" not in cache.metadata_json["diagnostics"]
+    row = preview["diagnostics"]["reranking"][0]
+    actual = preview["retrieved_chunks"][0]
+    assert row["rerank_child_id"] == actual["rerank_child_id"]
+    assert row["selected_child_rank"] == 2
+    assert row["selected_child_score"] == (.7 if mode == "dense" else 2 / 62)
+    assert row["original_parent_score"] == (.7 if mode == "dense" else 2 / 62)
+    assert row["rerank_score"] == actual["rerank_score"]
+    assert row["pre_rerank_parent_rank"] == actual["original_rank"] == 2
+    assert row["final_parent_rank"] == 1
     assert preview["retrieved_chunks"] == evaluated["retrieved_chunks"]
     assert preview["retrieved_chunks"][0]["parent_id"] == "p2"
     assert "parent_text" not in cache.metadata_json["retrieved_chunks"][0]

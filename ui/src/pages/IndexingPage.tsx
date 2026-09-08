@@ -1,4 +1,4 @@
-import { HybridDiagnosticsPanel } from "../components/HybridDiagnosticsPanel";
+import { RetrievalDiagnosticsPanel } from "../components/RetrievalDiagnosticsPanel";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -916,7 +916,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 {retrievalMetrics ? <RankingMetrics score={retrievalMetrics} title="Retrieval Metrics" /> : null}
                 {retrievalResult ? <>
                   <RetrievalResult retrieval={retrievalResult} title="Retrieved Chunks" />
-                  <HybridDiagnosticsPanel retrieval={retrievalResult} />
+                  <RetrievalDiagnosticsPanel retrieval={rerankResult ?? retrievalResult} />
                 </> : null}
               </>
             ) : (

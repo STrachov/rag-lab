@@ -18,7 +18,7 @@ from app.services.embeddings import (
     normalize_embedding_params,
 )
 from app.services.reranking_inputs import rerank_candidates, reranking_input_policy
-from app.services.retrieval_diagnostics import hybrid_diagnostics, parent_page_diagnostics
+from app.services.retrieval_diagnostics import hybrid_diagnostics, parent_page_diagnostics, dense_diagnostics, reranking_diagnostics
 from app.services.hashing import short_hash, stable_json_dumps, stable_sha256, bytes_sha256, read_verified_bytes
 from app.services.sparse import (
     build_bm25_stats,
@@ -374,6 +374,8 @@ def retrieve_from_qdrant(
         if include_diagnostics:
             diagnostics = hybrid_diagnostics(dense_results, sparse_results, retrieved,
                 rrf_k=inputs.retrieval["rrf_k"] if inputs is not None else 60)
+    if include_diagnostics and mode == "dense" and strategy == "parent_page_retrieval":
+        diagnostics = dense_diagnostics(retrieved)
     candidate_chunks = retrieved
     if strategy in {"parent_page_retrieval", "parent_chapter_retrieval"}:
         parent_type = "page" if strategy == "parent_page_retrieval" else "chapter"
@@ -398,6 +400,8 @@ def retrieve_from_qdrant(
             resolved_reranker=inputs.reranker if inputs is not None else None,
         )
         retrieved = rerank_result["chunks"]
+        if diagnostics is not None:
+            diagnostics["reranking"] = reranking_diagnostics(retrieved, top_k=top_k)
         usage = {"reranking": rerank_result["usage"]} if rerank_result.get("usage") else None
     else:
         usage = None
@@ -424,6 +428,7 @@ def build_retrieval_temp_payload(
     candidate_k: int,
     candidate_chunks: list[dict[str, Any]],
     strategy: str = "chunk_retrieval",
+    diagnostics: dict | None = None,
 ) -> dict[str, Any]:
     params_hash = stable_sha256(
         {
@@ -451,6 +456,8 @@ def build_retrieval_temp_payload(
         "schema_version": "raglab.retrieval_temp.v1",
         "strategy": strategy,
     }
+    if diagnostics is not None:
+        metadata["diagnostics"] = diagnostics
     return {"cache_key": cache_key, "metadata_json": metadata, "params_hash": params_hash}
 
 
@@ -470,7 +477,11 @@ def rerank_retrieval_candidates(
         candidates=candidate_chunks, chunks_by_id=_verified_index_chunks(index_cache.metadata_json),
         strategy=strategy, query=str(metadata["query"]), reranking=reranking,
     )
+    diagnostics = metadata.get("diagnostics")
+    if diagnostics is not None:
+        diagnostics = {**diagnostics, "reranking": reranking_diagnostics(rerank_result["chunks"], top_k=top_k)}
     return {
+        **({"diagnostics": diagnostics} if diagnostics is not None else {}),
         "candidate_k": int(metadata.get("candidate_k") or len(candidate_chunks)),
         "index_cache_id": str(metadata["index_cache_id"]),
         "mode": str(metadata["mode"]),

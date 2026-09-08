@@ -7,8 +7,9 @@ from app.services import runtime_cache
 from app.services.retrieval_diagnostics import hybrid_diagnostics, parent_page_diagnostics
 
 
+@pytest.mark.parametrize("mode", ["dense", "hybrid"])
 @pytest.mark.parametrize("parent_score", ["max", "sum", "mean"])
-def test_preview_diagnostics_explain_actual_results_without_extra_search(monkeypatch, parent_score):
+def test_preview_diagnostics_explain_actual_results_without_extra_search(monkeypatch, parent_score, mode):
     def hit(chunk_id, page, score):
         return {"payload": {"chunk_id": chunk_id, "page": page,
                 "parent_id": f"page_{page}", "parent_type": "page"}, "score": score}
@@ -30,15 +31,27 @@ def test_preview_diagnostics_explain_actual_results_without_extra_search(monkeyp
         key: {"text": key, "parent_text": key} for key in "abcd"})
     kwargs = dict(index_cache=SimpleNamespace(id="index", metadata_json={
         "embedding": {"model_id": "synthetic", "params": {}}, "index_mode": "hybrid", "collection_name": "collection"}),
-        mode="hybrid", query="synthetic", strategy="parent_page_retrieval", parent_score=parent_score,
+        mode=mode, query="synthetic", strategy="parent_page_retrieval", parent_score=parent_score,
         candidate_k=30, top_k=5, vector_store=Store())
     baseline = runtime_cache.retrieve_from_qdrant(**kwargs)
     calls.clear()
     result = runtime_cache.retrieve_from_qdrant(**kwargs, include_diagnostics=True)
-    assert calls == ["dense", "sparse"]
+    assert calls == (["dense", "sparse"] if mode == "hybrid" else ["dense"])
     assert (dense, sparse) == originals
     diagnostic = result.pop("diagnostics")
     assert result == baseline
+    if mode == "dense":
+        assert diagnostic["fusion"] is None
+        assert [(r["chunk_id"], r["dense_rank"], r["dense_score"], r["parent_id"])
+                for r in diagnostic["dense_candidates"]] == [
+            ("a", 1, .9, "page_2"), ("b", 2, .8, "page_1"), ("d", 3, .7, "page_1")]
+        for page, actual in zip(diagnostic["parent_page_aggregation"]["pages"], result["retrieved_chunks"], strict=True):
+            assert page["page_score"] == actual["score"]
+            assert page["child_chunks"] == actual["evidence_chunks"]
+        page1 = next(p for p in diagnostic["parent_page_aggregation"]["pages"] if p["page"] == 1)
+        assert page1["page_score"] == pytest.approx({"max": .8, "sum": 1.5, "mean": .75}[parent_score])
+        assert page1["max_child_chunk_ids"] == (["b"] if parent_score == "max" else [])
+        return
     assert diagnostic["rrf_k"] == 60
     assert [(r["chunk_id"], r["dense_rank"], r["dense_score"]) for r in diagnostic["dense_candidates"]] == [
         ("a", 1, .9), ("b", 2, .8), ("d", 3, .7)]
@@ -98,3 +111,23 @@ def test_page_diagnostics_limit_and_max_ties():
     assert diagnostic["pages"][0]["max_child_chunk_ids"] == ["1a", "1b"]
     assert len(parent_page_diagnostics(results, strategy="parent_page_retrieval",
                                       parent_score="max", top_k=2)["pages"]) == 2
+
+
+def test_dense_preview_api_keeps_diagnostics_in_temp_cache(client, monkeypatch, tmp_path):
+    from test_reproducibility import Pipeline
+    from app.api import runtime
+    captured = []
+    original = runtime.build_retrieval_temp_payload
+    def capture(**kwargs):
+        result = original(**kwargs)
+        captured.append(result)
+        return result
+    monkeypatch.setattr(runtime, "build_retrieval_temp_payload", capture)
+    pipeline = Pipeline(client, monkeypatch, tmp_path)
+    response = client.post(pipeline.base + "/retrieve/preview", json={
+        "index_cache_id": pipeline.index["id"], "query": "synthetic", "mode": "dense",
+        "strategy": "parent_page_retrieval"})
+    assert response.status_code == 200, response.text
+    diagnostic = response.json()["diagnostics"]
+    assert diagnostic["fusion"] is None
+    assert captured[0]["metadata_json"]["diagnostics"] == diagnostic
