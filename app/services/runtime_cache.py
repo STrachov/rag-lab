@@ -17,6 +17,7 @@ from app.services.embeddings import (
     get_embedding_model,
     normalize_embedding_params,
 )
+from app.services.reranking_inputs import rerank_candidates, reranking_input_policy
 from app.services.retrieval_diagnostics import hybrid_diagnostics, parent_page_diagnostics
 from app.services.hashing import short_hash, stable_json_dumps, stable_sha256, bytes_sha256, read_verified_bytes
 from app.services.sparse import (
@@ -30,7 +31,6 @@ from app.services.rerankers import (
     create_reranker_from_snapshot,
     get_reranker_model,
     normalize_reranker_params,
-    rerank_chunks_with_usage,
 )
 
 PIPELINE_VERSION = "runtime-v1"
@@ -390,23 +390,12 @@ def retrieve_from_qdrant(
             retrieved, strategy=strategy, parent_score=parent_score, top_k=top_k)
     if reranking_snapshot is not None:
         reranking = reranking_snapshot["reranking"]
-        texts = _full_text_by_chunk_id(metadata) if inputs is None else {
-            key: str(chunk["text"]) for key, chunk in inputs.chunks.items()
-        }
-        if inputs is not None:
-            if strategy == "chunk_retrieval":
-                if any(str(chunk["chunk_id"]) not in texts for chunk in retrieved):
-                    raise ValueError("Required full reranking chunk text is missing")
-            else:
-                # Preserve the existing parent-preview policy, explicitly snapshotted.
-                texts = {str(chunk["chunk_id"]): str(chunk["text_preview"]) for chunk in retrieved}
-        rerank_result = rerank_chunks_with_usage(
-            chunks=retrieved,
-            model_id=reranking["model_id"],
-            params=reranking["params"],
-            query=query,
-            text_by_chunk_id=texts,
-            **({"resolved_reranker": inputs.reranker} if inputs is not None else {}),
+        if inputs is None:
+            reranking = {**reranking, "text_input": reranking_input_policy(strategy)}
+        rerank_result = rerank_candidates(
+            candidates=retrieved, chunks_by_id=inputs.chunks if inputs is not None else _verified_index_chunks(metadata),
+            strategy=strategy, query=query, reranking=reranking,
+            resolved_reranker=inputs.reranker if inputs is not None else None,
         )
         retrieved = rerank_result["chunks"]
         usage = {"reranking": rerank_result["usage"]} if rerank_result.get("usage") else None
@@ -475,12 +464,11 @@ def rerank_retrieval_candidates(
     metadata = retrieval_cache.metadata_json
     reranking = reranking_snapshot["reranking"]
     candidate_chunks = list(metadata.get("retrieved_chunks") or [])
-    rerank_result = rerank_chunks_with_usage(
-        chunks=candidate_chunks,
-        model_id=reranking["model_id"],
-        params=reranking["params"],
-        query=str(metadata["query"]),
-        text_by_chunk_id=_full_text_by_chunk_id(index_cache.metadata_json),
+    strategy = str(metadata.get("strategy") or "chunk_retrieval")
+    reranking = {**reranking, "text_input": reranking_input_policy(strategy)}
+    rerank_result = rerank_candidates(
+        candidates=candidate_chunks, chunks_by_id=_verified_index_chunks(index_cache.metadata_json),
+        strategy=strategy, query=str(metadata["query"]), reranking=reranking,
     )
     return {
         "candidate_k": int(metadata.get("candidate_k") or len(candidate_chunks)),
@@ -494,6 +482,16 @@ def rerank_retrieval_candidates(
         "top_k": top_k,
         **({"usage": {"reranking": rerank_result["usage"]}} if rerank_result.get("usage") else {}),
     }
+
+
+def _verified_index_chunks(metadata: dict) -> dict[str, dict]:
+    path = _cache_root() / "chunks" / metadata["chunks_cache_key"] / "chunks.jsonl"
+    content = read_verified_bytes(path, metadata.get("input_chunks_sha256"), "Index chunks")
+    rows = [json.loads(line) for line in content.decode("utf-8").splitlines() if line.strip()]
+    chunks = {str(row["chunk_id"]): row for row in rows}
+    if len(chunks) != len(rows):
+        raise ValueError("Duplicate chunk identities")
+    return chunks
 
 
 def _cache_root() -> Path:

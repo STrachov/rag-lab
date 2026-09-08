@@ -67,7 +67,7 @@ source lineage in their applied preparation provenance to be used in this workfl
 | `retrieval` | Strategy/mode, top-k, requested candidate-k, effective candidate-k, parent aggregation/restoration, fusion and RRF constant |
 | `reranking` | Null or resolved enabled/provider/backend/model/params/text-input configuration |
 | `ground_truth` | GT ID, manifest hash, `canonical_sha256`, canonical/type/annotation versions, question count and declared slice definitions |
-| `semantics` | `retrieval_version: raglab.retrieval.v1`, `evaluation_version: raglab.gt_eval.v1` |
+| `semantics` | `retrieval_version: raglab.retrieval.v2`, `evaluation_version: raglab.gt_eval.v1` |
 
 No source/prepared/chunk text, vectors, BM25 vocabulary or retrieved traces are stored in this
 snapshot. Results retain the existing aggregate and compact per-question/slice metric structure.
@@ -146,8 +146,36 @@ Effective candidates are `min(100, max(top_k, candidate_k or default))`, where t
 are saved. Native chunkers use approximate whitespace tokens; LangChain character splitters use
 characters. The tokenizer label does not change the native counting algorithm.
 
-Parent retrieval behavior is unchanged: restore parent text from chunks and clip the returned parent
-preview to 1,200 characters; parent reranking uses that preview. This policy is explicitly saved.
+Parent candidate generation and aggregation are unchanged. The displayed parent preview remains
+clipped to 1,200 characters, but is never used as parent reranker input. Preview and evaluation share
+one input implementation: select one retrieved child per parent by descending retrieval score,
+ascending retrieval rank, then ascending chunk ID. In hybrid mode the selection uses fused scores.
+The selected child's full `chunks.text` is passed to the adapter, without character clipping.
+The backend model's resolved token-length/truncation settings still apply. Cross-encoder score
+replaces the parent's final score; the original aggregate score is retained as `original_score`.
+All evidence child references remain available, alongside `rerank_child_id` and full `parent_text`
+in the runtime result. Full parent text is not copied into SavedExperiment metrics or retrieval
+candidate caches. Missing child/full-parent inputs fail explicitly. Chapter parents use the same
+selection policy; chunk retrieval continues using full chunk text directly.
+
+The resolved `reranking.text_input` for parents is:
+
+```json
+{
+  "policy": "best_retrieved_child.v1",
+  "text_source": "chunks.text",
+  "children_per_parent": 1,
+  "selection": "retrieval_score_desc",
+  "tie_break": ["retrieval_rank_asc", "chunk_id_asc"],
+  "character_clip": null,
+  "token_truncation": "backend_pair_max_length",
+  "parent_score_assignment": "selected_child_rerank_score"
+}
+```
+
+This policy participates in `params_hash`. Retrieval semantics is now `raglab.retrieval.v2`;
+old prefix-based results are not silently reinterpreted. GT scoring semantics is unchanged.
+This change cannot recover parents absent from the retrieval candidate pool.
 Page scoring remains single-document page-index matching; no document-aware matching was added.
 Failed questions are excluded from metric averages, and each metric records its own contributing
 question count. Overall and declared slices share that aggregation path.

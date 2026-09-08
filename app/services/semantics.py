@@ -1,4 +1,4 @@
 """Bump when retrieval/scoring/aggregation behavior changes comparability."""
-RETRIEVAL_VERSION = "raglab.retrieval.v1"
+RETRIEVAL_VERSION = "raglab.retrieval.v2"
 EVALUATION_VERSION = "raglab.gt_eval.v1"
 SNAPSHOT_VERSION = "raglab.saved_experiment.v1"

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import models
 from app.models.api import SavedExperimentCreate
+from app.services.reranking_inputs import reranking_input_policy
 from app.services.ground_truth import read_canonical_ground_truth
 from app.services.hashing import read_verified_bytes, stable_sha256
 from app.services.runtime_cache import build_reranking_snapshot, read_chunks_cache
@@ -119,7 +120,7 @@ def build_experiment_snapshot(db: Session, project_id: str, request: SavedExperi
     reranking = None
     if request.reranking and request.reranking.enabled:
         reranking = build_reranking_snapshot(request.reranking.model_id, request.reranking.params)["reranking"]
-        reranking["text_input"] = "full_chunk_text" if retrieval["strategy"] == "chunk_retrieval" else "parent_preview_1200_chars"
+        reranking["text_input"] = reranking_input_policy(retrieval["strategy"])
     required(im["embedding"], "provider", "model_id", "model", "params", "vector_size", "passage_prefix", "query_prefix")
     metadata = canonical.get("metadata", {})
     return {
