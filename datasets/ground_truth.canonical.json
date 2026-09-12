@@ -1,0 +1,356 @@
+{
+  "metadata": {
+    "ground_truth_type": "page_level_qrels",
+    "source_format": "rag_challenge_answers"
+  },
+  "questions": [
+    {
+      "expected_answer": 30758000,
+      "expected_answer_brief": "30758000",
+      "expected_answer_type": "found",
+      "question": "According to the annual report, what is the Cash flow from operations (in USD) for Wheeler Real Estate Investment Trust, Inc.  (within the last period or at the end of the last period)? If data is not available, return 'N/A'.",
+      "question_id": "q000001",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for the Cash flow from operations for Wheeler Real Estate Investment Trust, Inc., specifically the figure for the last period or at the end of the last period. This metric is typically found in the Consolidated Statements of Cash Flows under operating activities. 2. We reviewed the provided context and identified multiple pages that contain information about cash flows, particularly pages 21 and 40. 3. On these pages, the report states that for the year ended December 31, 2022, the net cash provided by operating activities was reported as 30,758 (in thousands). 4. Recognizing that the values are expressed in thousands, we convert this to full USD by multiplying 30,758 by 1,000, resulting in USD 30,758,000. 5. The value directly corresponds to the last period’s cash flow from operations, matching the concept required by the question with no additional calculations or ambiguous interpretations needed.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 20,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 39,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": true,
+      "expected_answer_brief": "True",
+      "expected_answer_type": "found",
+      "question": "Did Wheeler Real Estate Investment Trust, Inc. report any changes to its capital structure? If there is no mention, return False.",
+      "question_id": "q000002",
+      "question_type": "boolean",
+      "reasoning_process": "1. The question asks whether Wheeler Real Estate Investment Trust, Inc. reported any changes to its capital structure. This involves examining whether there were any modifications in the composition or rights associated with the company's equity or debt, such as amendments to the terms of preferred stock or the issuance/redemption of securities. 2. We started by scanning the provided context, noting various detailed disclosures related to convertible notes, rights offerings, and other financial instruments. 3. While several pages discussed debt instruments and operating activities, one notable point stood out on page 62. 4. On November 3, 2021, the common stockholders voted to amend the Company’s Charter to remove the cumulative dividend rights of the Series A Preferred and Series B Preferred. This change effectively modifies the rights associated with these preferred stocks, which is a fundamental change in the capital structure. 5. Therefore, the annual report does report a change to its capital structure through this amendment, meaning the answer to the question is affirmative.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 61,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 52,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": [
+        "Chief Executive Officer",
+        "President"
+      ],
+      "expected_answer_brief": "['Chief Executive Officer', 'President']",
+      "expected_answer_type": "found",
+      "question": "Which leadership positions changed at Wheeler Real Estate Investment Trust, Inc. in the reporting period? If data is not available, return 'N/A'. Give me the title of the position.",
+      "question_id": "q000003",
+      "question_type": "names",
+      "reasoning_process": "1. The question asks about which leadership positions changed during the reporting period at Wheeler Real Estate Investment Trust, Inc., and specifically requests the titles of those positions. 2. I reviewed the context and identified a key segment on page 62 that discusses the resignation of Daniel Khoshaba. In that segment, it is noted that Daniel Khoshaba resigned as the President and Chief Executive Officer, which constitutes a leadership change. 3. I further analyzed the context on page 6, where it states that Andrew Franklin was appointed as Chief Executive Officer and President. This confirms that there was a transition in these key roles during the reporting period. 4. Since the question focuses on leadership positions and asks for the title of the positions that changed, the appropriate response is to list the titles associated with these changes, which are 'Chief Executive Officer' and 'President'. 5. No other leadership positions are indicated as changed in the provided context, so the focus remains solely on these two roles. 6. Finally, I compiled the information, ensuring that only the exact position titles are listed, in line with the instructions provided.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 61,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 5,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": true,
+      "expected_answer_brief": "True",
+      "expected_answer_type": "found",
+      "question": "Did Wheeler Real Estate Investment Trust, Inc. mention any mergers or acquisitions in the annual report? If there is no mention, return False.",
+      "question_id": "q000004",
+      "question_type": "boolean",
+      "reasoning_process": "1. The question asks whether the annual report mentions mergers or acquisitions. 2. On page_index 5, the report states that on August 22, 2022 the Company completed a merger transaction with Cedar Realty Trust, Inc. and acquired all outstanding shares of Cedar common stock. 3. On page_index 15, the report describes the same transaction as the Cedar Acquisition and states that Cedar became a subsidiary of the REIT. 4. Because the report explicitly discusses this merger/acquisition transaction, the correct boolean value is True.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 5,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 15,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 76645000,
+      "expected_answer_brief": "76645000",
+      "expected_answer_type": "found",
+      "question": "According to the annual report, what is the Total revenue (in USD) for Wheeler Real Estate Investment Trust, Inc.  (within the last period or at the end of the last period)? If data is not available, return 'N/A'.",
+      "question_id": "q000005",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for total revenue for the latest period in USD. 2. On page_index 24, the results of operations table reports Total Revenue of 76,645 for 2022 and states that financial data are in thousands. 3. On page_index 37, the Consolidated Statements of Operations also report Total Revenue of 76,645 for 2022, with values in thousands. 4. Multiplying 76,645 by 1,000 gives 76,645,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 24,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 37,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 684536000,
+      "expected_answer_brief": "684536000",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of Total assets on balance sheet at year-end at the end of the period listed in annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000006",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for total assets on the balance sheet at year-end. 2. On page_index 36, the Consolidated Balance Sheets report Total Assets of 684,536 as of December 31, 2022 and state that amounts are in thousands. 3. Multiplying 684,536 by 1,000 gives 684,536,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 36,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 8511000,
+      "expected_answer_brief": "8511000",
+      "expected_answer_type": "found",
+      "question": "What was the Capital expenditures (in USD) for Wheeler Real Estate Investment Trust, Inc. according to the annual report (within the last period or at the end of the last period)? If data is not available, return 'N/A'.",
+      "question_id": "q000007",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for capital expenditures for the latest period in USD. 2. On page_index 39, the Consolidated Statements of Cash Flows list Capital expenditures of (8,511) for 2022 in the investing activities section, with amounts in thousands. 3. The parentheses indicate a cash outflow; the spending amount is therefore 8,511 thousand. 4. Multiplying 8,511 by 1,000 gives 8,511,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 39,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 8172527,
+      "expected_answer_brief": "8172527",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of Aggregate gross leasable area at period end at the end of the period listed in annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000008",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for the aggregate gross leasable area at period end. 2. On page_index 24, the property data table reports Aggregate gross leasable area at period end of 8,172,527 for 2022. 3. Page_index 11 also shows the combined portfolio total with Total Leasable Square Feet of 8,172,527. 4. No unit conversion is needed because the metric is a count of square feet.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 11,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 24,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 92.9,
+      "expected_answer_brief": "92.9",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of Ending leased rate at period end according to the annual report (within the last period or at the end of the last period)? If data is not available, return 'N/A'.",
+      "question_id": "q000009",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for the ending leased rate at period end. 2. On page_index 5, the portfolio discussion states that the operating portfolio totaled 8,172,527 leasable square feet and was 92.9% leased as of December 31, 2022. 3. On page_index 24, the property data table also reports Ending leased rate at period end of 92.9% for 2022. 4. The requested numeric percentage value is therefore 92.9.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 5,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 24,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 75,
+      "expected_answer_brief": "75",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of Number of properties owned and leased at period end at the end of the period listed in annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000010",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for the number of properties owned and leased at period end, matching the property data table line item rather than the broader count that includes undeveloped parcels. 2. On page_index 14, the company overview states that the portfolio is comprised of seventy-five retail shopping centers and four undeveloped land parcels. 3. On page_index 24, the property data table reports Number of properties owned and leased at period end of 75 for 2022, with a footnote that undeveloped land parcels are excluded. 4. The exact value for this metric is 75.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 14,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 24,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 47,
+      "expected_answer_brief": "47",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of End-of-year total headcount at the end of the period listed in annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000011",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for end-of-year total headcount. 2. On page_index 6, under Our Team and Talent, the report states that as of December 31, 2022 the Company had 47 full-time employees. 3. This directly provides the requested headcount value.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 6,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": true,
+      "expected_answer_brief": "True",
+      "expected_answer_type": "found",
+      "question": "Did Wheeler Real Estate Investment Trust, Inc. mention any ongoing litigation or regulatory inquiries? If there is no mention, return False.",
+      "question_id": "q000012",
+      "question_type": "boolean",
+      "reasoning_process": "1. The question asks whether the annual report mentions ongoing litigation or regulatory inquiries. 2. On page_index 63, the report states that the Company is involved in various legal proceedings arising in the ordinary course of business and introduces legal proceedings that are in process. 3. Page_index 64 continues with specific cases, including Cedar preferred shareholder litigation and other class action matters, with some outcomes described as uncertain. 4. Because the report explicitly mentions legal proceedings in process, the correct boolean answer is True.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 63,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 64,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 482447000,
+      "expected_answer_brief": "482447000",
+      "expected_answer_type": "found",
+      "question": "According to the annual report, what is the Total debt (in USD) for Wheeler Real Estate Investment Trust, Inc. at year-end? If data is not available, return 'N/A'.",
+      "question_id": "q000013",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for total debt at year-end in USD. 2. On page_index 21, the report presents debt balances excluding unamortized debt issuance costs and lists Total debt of 482,447 as of December 31, 2022, with amounts in thousands. 3. Multiplying 482,447 by 1,000 gives 482,447,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 21,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 9226000,
+      "expected_answer_brief": "9226000",
+      "expected_answer_type": "found",
+      "question": "According to the annual report, what is the Funds from operations (FFO) (in USD) for Wheeler Real Estate Investment Trust, Inc. for the latest period? If data is not available, return 'N/A'.",
+      "question_id": "q000014",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for FFO for the latest period in USD. 2. On page_index 28, the FFO table reports total FFO of 9,226 for 2022 and states that values are in thousands. 3. Multiplying 9,226 by 1,000 gives 9,226,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 28,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 7904000,
+      "expected_answer_brief": "7904000",
+      "expected_answer_type": "found",
+      "question": "According to the annual report, what is the Adjusted funds from operations (AFFO) (in USD) for Wheeler Real Estate Investment Trust, Inc. for the latest period? If data is not available, return 'N/A'.",
+      "question_id": "q000015",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for AFFO for the latest period in USD. 2. On page_index 28, the AFFO table reports AFFO of 7,904 for 2022 and states that values are in thousands. 3. Multiplying 7,904 by 1,000 gives 7,904,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 28,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 34630000,
+      "expected_answer_brief": "34630000",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of accumulated undeclared dividends for Series D Preferred Stock at year-end according to the annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000016",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for accumulated undeclared dividends for Series D Preferred Stock at year-end. 2. On page_index 17, the report states that at December 31, 2022 the Company had accumulated undeclared dividends of 34.63 million dollars to holders of Series D Preferred. 3. On page_index 61, the notes also state that total cumulative dividends in arrears for Series D Preferred as of December 31, 2022 were 34.63 million dollars. 4. The requested value in full USD is 34,630,000.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 17,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        },
+        {
+          "page_index": 61,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 560980000,
+      "expected_answer_brief": "560980000",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of investment properties, net at year-end according to the annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000017",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for the year-end value of investment properties, net. 2. On page_index 36, the Consolidated Balance Sheets report Investment properties, net of 560,980 as of December 31, 2022, with amounts in thousands. 3. Multiplying 560,980 by 1,000 gives 560,980,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 36,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 73240000,
+      "expected_answer_brief": "73240000",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the value of Total annualized base rent (in USD) at the end of the period listed in annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000018",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for total annualized base rent at the end of the period. 2. On page_index 11, the portfolio table reports COMBINED TOTAL annualized base rent of 73,240 and identifies the column as in thousands. 3. Multiplying 73,240 by 1,000 gives 73,240,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 11,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    },
+    {
+      "expected_answer": 16991000,
+      "expected_answer_brief": "16991000",
+      "expected_answer_type": "found",
+      "question": "For Wheeler Real Estate Investment Trust, Inc., what was the annualized base rent of the ten largest tenants (in USD) at the end of the period listed in annual report? If data is not available, return 'N/A'.",
+      "question_id": "q000019",
+      "question_type": "number",
+      "reasoning_process": "1. The question asks for the annualized base rent of the ten largest tenants. 2. On page_index 12, the Major Tenants table lists the ten largest tenants and shows a total annualized base rent of 16,991, with the column stated in thousands. 3. Multiplying 16,991 by 1,000 gives 16,991,000 USD.",
+      "relevant_chunks": [],
+      "relevant_pages": [
+        {
+          "page_index": 12,
+          "pdf_sha1": "b947c33b370d8a3251ef9c36ce7d71e8d16f4f8e"
+        }
+      ]
+    }
+  ],
+  "schema_version": "raglab.ground_truth.v1"
+}
