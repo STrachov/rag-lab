@@ -175,141 +175,21 @@ Canonical preparation snapshot:
 
 ## Parameter Snapshots
 
-Every experiment must be reproducible from:
+SavedExperiment is one immutable pipeline snapshot plus one evaluation attempt. The backend resolves
+historical data lineage through the selected index and creates `raglab.saved_experiment.v1` with
+copied effective configuration and separate content hashes. Creation accepts user choices only.
+Evaluation reads verified canonical GT/chunks/sparse inputs once, executes resolved configuration,
+and captures its code revision. Another attempt requires another SavedExperiment.
 
-```text
-prepared data asset reference
-prepared data manifest hash
-full parameter snapshot
-code commit
-pipeline version
-```
+[REPRODUCIBILITY.md](REPRODUCIBILITY.md) specifies the implemented snapshot, parameter/content hash
+semantics, API, index isolation and controlled-series workflow. Current preparation provenance is
+copied from the historical prepared manifest; it is not re-edited in Retrieval. Stage ParameterSets
+remain reusable intent, not the source of truth for an existing experiment.
 
-This is the required product invariant, not yet the complete behavior of UI-created experiments.
-The current snapshot contains the index-cache id/key, retrieval settings, optional reranking settings,
-and GT reference. Preparation, chunking, embedding, and sparse lineage is still resolved indirectly
-through the referenced data asset and `DerivedCache` metadata, and `code_commit` is not populated by
-the UI. The implementation must copy that lineage into the saved snapshot before the record can be
-called independently reproducible after cache deletion.
-
-The full snapshot may include:
-
-```text
-preparation
-chunking
-embedding
-sparse
-indexing
-retrieval
-reranking
-generation
-evaluation
-```
-
-Reusable `ParameterSet` records are category-scoped presets. `preparation` is a first-class
-category: it describes the reusable intent for converting source data into RAG-ready data.
-Applying a preparation ParameterSet to a source `DataAsset` creates a prepared `DataAsset`.
-
-The prepared `DataAsset` stores an immutable applied snapshot in `preparation_params_json`, so it
-remains reproducible even if the reusable ParameterSet is later renamed, changed, or deleted.
-
-Parent-unit chunking strategies read prepared parent JSONL sidecars rather than raw Markdown:
-
-```text
-page_recursive -> *.pages.jsonl
-chapter_recursive -> *.chapters.jsonl
-```
-
-They produce child chunks with `parent_id`, `parent_type`, page range, and parent text metadata.
-Parent-aware retrieval strategies retrieve child chunks first, group them by parent id, aggregate
-scores, and return full parent page or chapter contexts:
-
-```text
-parent_page_retrieval
-parent_chapter_retrieval
-```
-
-LLM reranking is a separate implemented reranking catalog item, not part of the parent-retrieval
-strategies. The current `openai_llm_reranker` scores candidates pointwise and can blend its relevance
-score with the normalized retrieval score.
-
-Target full snapshot example (generation/evaluation catalog fields shown here are still planned):
-
-```json
-{
-  "preparation": {
-    "method_id": "docling",
-    "params": {
-      "do_ocr": true,
-      "image_export_mode": "placeholder"
-    }
-  },
-  "chunking": {
-    "strategy": "heading_recursive",
-    "params": {
-      "chunk_size": 900,
-      "chunk_overlap": 120
-    }
-  },
-  "parent_chunking": {
-    "strategy": "page_recursive",
-    "params": {
-      "chunk_size": 300,
-      "chunk_overlap": 50
-    }
-  },
-  "indexing": {
-    "index_mode": "hybrid",
-    "embedding": {
-      "model_id": "intfloat_multilingual_e5_small",
-      "params": {
-        "device": "cpu"
-      }
-    },
-    "sparse": {
-      "model_id": "bm25_local",
-      "params": {
-        "k1": 1.2,
-        "b": 0.75
-      }
-    }
-  },
-  "retrieval": {
-    "strategy": "parent_page_retrieval",
-    "mode": "hybrid",
-    "top_k": 8,
-    "candidate_k": 30,
-    "fusion": "rrf",
-    "rrf_k": 60,
-    "parent_score": "max"
-  },
-  "reranking": {
-    "enabled": true,
-    "model_id": "qwen3_reranker_0_6b",
-    "params": {
-      "device": "cpu",
-      "batch_size": 8,
-      "max_length": 512,
-      "normalize_scores": true
-    }
-  },
-  "generation": {
-    "prompt_template_id": "grounded_answer_v1",
-    "model": "gpt-4.1-mini",
-    "temperature": 0,
-    "not_found_policy": "strict"
-  },
-  "evaluation": {
-    "metrics": [
-      "hit@k",
-      "mrr",
-      "answer_correctness",
-      "citation_precision",
-      "not_found_accuracy"
-    ]
-  }
-}
-```
+Parent strategies retain their current behavior: restore from materialized chunks, clip returned
+parent previews to 1,200 characters and use that preview for parent reranking. Native chunkers use
+approximate whitespace-token units; LangChain character splitters use characters. Those semantics
+are explicit in saved snapshots.
 
 ## Ground Truth And Evaluation
 
@@ -439,8 +319,8 @@ The detail page includes dynamic metadata filters and slice metrics. Comparison 
 slice definitions and warns when the same slice id has a different filter across experiments.
 Comparison is an inline derived Saved Experiments view, not a separate domain entity: selected saved
 experiments become columns, and the first comparison view lists question count, Hit, MRR, Recall,
-operational summaries, and each experiment's submitted parameter snapshot. Until the known snapshot
-lineage gap is closed, that submitted JSON is not independently self-contained.
+operational summaries, and each experiment's backend-generated parameter snapshot. The backend snapshot preserves historical lineage and effective configuration. Compare flags
+differences in controlled variables alongside aggregate and slice metrics.
 
 ## Citations And Generation
 
@@ -497,7 +377,7 @@ Completed
 4. Saved-experiment GT evaluation and inline comparison
 
 Next
-5. Make saved experiment snapshots self-contained and populate code provenance
+5. Self-contained experiment snapshots, verified inputs, single evaluation attempts, code provenance (completed)
 6. Add background evaluation execution and progress/cancellation
 7. Add generation, citations, versioned prompts, and not-found behavior
 8. Add recipe promotion/export after generation and evaluation metrics are stable

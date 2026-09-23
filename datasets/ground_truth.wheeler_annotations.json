@@ -1,0 +1,315 @@
+{
+  "annotation_schema_version": "raglab.gt_annotations.v1",
+  "ground_truth_file": "ground_truth.canonical.json",
+  "benchmark": "Wheeler REIT annual-report retrieval benchmark",
+  "annotation_version": "2026-09-04",
+  "notes": [
+    "q000001-q000003 are original ERC2 challenge questions, per user-provided provenance.",
+    "q000004-q000019 are ChatGPT-generated questions added later, per user-provided provenance.",
+    "Difficulty and retrieval tags are working analytical labels for sliced evaluation.",
+    "No original question, expected answer, reasoning text, relevant page, or PDF hash was modified."
+  ],
+  "slices": {
+    "full_19": [
+      "q000001",
+      "q000002",
+      "q000003",
+      "q000004",
+      "q000005",
+      "q000006",
+      "q000007",
+      "q000008",
+      "q000009",
+      "q000010",
+      "q000011",
+      "q000012",
+      "q000013",
+      "q000014",
+      "q000015",
+      "q000016",
+      "q000017",
+      "q000018",
+      "q000019"
+    ],
+    "erc2_original_3": [
+      "q000001",
+      "q000002",
+      "q000003"
+    ],
+    "synthetic_chatgpt_16": [
+      "q000004",
+      "q000005",
+      "q000006",
+      "q000007",
+      "q000008",
+      "q000009",
+      "q000010",
+      "q000011",
+      "q000012",
+      "q000013",
+      "q000014",
+      "q000015",
+      "q000016",
+      "q000017",
+      "q000018",
+      "q000019"
+    ],
+    "difficulty_hard": [
+      "q000001",
+      "q000002",
+      "q000003"
+    ],
+    "difficulty_medium": [
+      "q000004",
+      "q000007",
+      "q000010",
+      "q000012",
+      "q000013",
+      "q000016"
+    ],
+    "difficulty_direct_lookup": [
+      "q000005",
+      "q000006",
+      "q000008",
+      "q000009",
+      "q000011",
+      "q000014",
+      "q000015",
+      "q000017",
+      "q000018",
+      "q000019"
+    ]
+  },
+  "questions": {
+    "q000001": {
+      "source": "erc2_original",
+      "difficulty": "hard",
+      "retrieval_tags": [
+        "semantic_mapping",
+        "numeric",
+        "unit_conversion",
+        "financial_statement",
+        "multi_page"
+      ],
+      "difficulty_note": "Question wording does not exactly match the statement line item; retrieval must map 'Cash flow from operations' to net cash provided by operating activities and preserve units."
+    },
+    "q000002": {
+      "source": "erc2_original",
+      "difficulty": "hard",
+      "retrieval_tags": [
+        "semantic_mapping",
+        "event_detection",
+        "boolean",
+        "capital_structure",
+        "multi_page",
+        "interpretation"
+      ],
+      "difficulty_note": "The relevant evidence is an amendment to preferred-stock rights rather than a literal line saying 'capital structure changed'."
+    },
+    "q000003": {
+      "source": "erc2_original",
+      "difficulty": "hard",
+      "retrieval_tags": [
+        "event_detection",
+        "entity_role",
+        "names",
+        "multi_page",
+        "cross_reference"
+      ],
+      "difficulty_note": "Requires identifying a leadership transition and returning position titles, with supporting evidence on more than one page."
+    },
+    "q000004": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "medium",
+      "retrieval_tags": [
+        "boolean",
+        "event_detection",
+        "merger_acquisition",
+        "multi_page",
+        "direct_keyword"
+      ],
+      "difficulty_note": "The event is explicitly described, but evidence can appear under both merger and acquisition terminology."
+    },
+    "q000005": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "unit_conversion",
+        "multi_page"
+      ],
+      "difficulty_note": "Direct table/statement lookup with a thousands-to-USD conversion."
+    },
+    "q000006": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "unit_conversion",
+        "balance_sheet"
+      ],
+      "difficulty_note": "Direct balance-sheet line-item lookup with a thousands-to-USD conversion."
+    },
+    "q000007": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "medium",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "unit_conversion",
+        "cash_flow_statement",
+        "sign_normalization"
+      ],
+      "difficulty_note": "The line item is explicit, but parentheses represent an outflow and the requested answer is the expenditure amount in full USD."
+    },
+    "q000008": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "portfolio_metric",
+        "multi_page"
+      ],
+      "difficulty_note": "Direct portfolio metric with redundant evidence on two pages."
+    },
+    "q000009": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "numeric",
+        "percentage",
+        "exact_metric",
+        "portfolio_metric",
+        "multi_page"
+      ],
+      "difficulty_note": "Direct percentage lookup with the same value stated in narrative and tabular form."
+    },
+    "q000010": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "medium",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "scope_disambiguation",
+        "near_distractor",
+        "footnote",
+        "portfolio_metric",
+        "multi_page"
+      ],
+      "difficulty_note": "A nearby broader count includes four undeveloped land parcels; the target metric explicitly excludes them."
+    },
+    "q000011": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "numeric",
+        "narrative",
+        "exact_metric",
+        "headcount"
+      ],
+      "difficulty_note": "Direct narrative lookup of the year-end full-time employee count."
+    },
+    "q000012": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "medium",
+      "retrieval_tags": [
+        "boolean",
+        "legal_event",
+        "semantic_mapping",
+        "multi_page"
+      ],
+      "difficulty_note": "The question uses litigation/regulatory-inquiry language while the report discusses legal proceedings and specific cases."
+    },
+    "q000013": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "medium",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "debt",
+        "definition_scope",
+        "unit_conversion"
+      ],
+      "difficulty_note": "The target is explicit, but debt presentation includes a scope qualifier excluding unamortized debt issuance costs."
+    },
+    "q000014": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "non_gaap",
+        "unit_conversion"
+      ],
+      "difficulty_note": "Direct lookup of FFO in a dedicated table, followed by unit conversion."
+    },
+    "q000015": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "non_gaap",
+        "unit_conversion"
+      ],
+      "difficulty_note": "Direct lookup of AFFO in a dedicated table, followed by unit conversion."
+    },
+    "q000016": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "medium",
+      "retrieval_tags": [
+        "numeric",
+        "preferred_stock",
+        "semantic_equivalence",
+        "unit_conversion",
+        "multi_page"
+      ],
+      "difficulty_note": "Equivalent evidence is expressed as both accumulated undeclared dividends and cumulative dividends in arrears."
+    },
+    "q000017": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "balance_sheet",
+        "unit_conversion"
+      ],
+      "difficulty_note": "Direct balance-sheet line-item lookup with a thousands-to-USD conversion."
+    },
+    "q000018": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "exact_metric",
+        "portfolio_metric",
+        "unit_conversion"
+      ],
+      "difficulty_note": "Direct total-row lookup in a portfolio table with a thousands-to-USD conversion."
+    },
+    "q000019": {
+      "source": "synthetic_chatgpt",
+      "difficulty": "direct_lookup",
+      "retrieval_tags": [
+        "table",
+        "numeric",
+        "aggregation",
+        "top_tenants",
+        "unit_conversion"
+      ],
+      "difficulty_note": "The requested value is a total for the ten largest tenants and is explicitly provided in the table."
+    }
+  }
+}

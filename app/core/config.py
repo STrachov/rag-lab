@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "RAG Lab"
+    code_commit: str | None = None
     api_prefix: str = "/v1"
     data_dir: Path = Field(default=Path("data"))
     docling_async_max_wait_seconds: float = 1800.0

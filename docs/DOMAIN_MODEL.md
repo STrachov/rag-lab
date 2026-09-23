@@ -59,7 +59,7 @@ Data assets may be edited by adding or deleting files. Each edit creates a new `
 
 `raw` assets are source data, not necessarily PDFs. They may be PDFs, Markdown, text, DOCX, HTML, or mixed files. Markdown is not automatically prepared data; a prepared asset is an explicitly RAG-ready version with preparation provenance.
 
-`raw` assets should not have `parent_id`. `prepared` assets may reference a raw parent asset. Saved experiments should use prepared data assets and snapshot the current data asset manifest hash.
+`raw` assets should not have `parent_id`. `prepared` assets may reference a raw parent asset. Saved experiments use prepared data assets and snapshot the historical manifest identified by their index lineage.
 
 Uploaded files are stored under generated safe names. Original filenames are kept in manifest JSON.
 
@@ -211,7 +211,8 @@ not separate product entities or database tables.
 
 A persisted experiment record. Do not model a separate `ExperimentRun` as a main product concept.
 
-Saved experiments snapshot the current prepared data manifest via `data_asset_manifest_hash` when they are created. Later edits to the data asset do not change existing experiment records.
+Saved experiments resolve `data_asset_manifest_hash` from the selected index/chunks historical lineage.
+Later edits to the current prepared or source DataAsset do not change the experiment snapshot.
 
 Saved experiments are the product-facing unit of evaluation. They may be created before metrics are
 available and then evaluated against a linked ground truth set. The current API evaluates
@@ -242,15 +243,16 @@ finished_at
 error_json
 ```
 
-`params_snapshot_json` is the source of truth for the evaluated pipeline. It may be assembled from
-multiple category-specific `ParameterSet` records, live stage selections, and read-only preparation
-provenance from the prepared data asset.
+`params_snapshot_json` is the backend-generated source of truth, using only
+`raglab.saved_experiment.v1`. It copies historical source/prepared file references, preparation,
+chunking, embedding/sparse/index configuration, effective retrieval/reranking, canonical GT identity,
+and semantics versions. `params_hash` identifies effective parameter choices, not provenance/content.
+See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for the exact contract.
 
-The current Retrieval UI does not yet assemble that full lineage. It stores the selected index-cache
-id/key, retrieval settings, optional reranking settings, and GT reference. Chunking, embedding,
-sparse, and preparation details remain indirect through the referenced asset/cache metadata, and
-`code_commit` is not populated by the UI. This is a known implementation gap against the
-self-contained snapshot invariant.
+One SavedExperiment represents one evaluation attempt. Only `created` can atomically transition to
+`running`; every terminal status, including `failed`, requires a new record to retry. Code revision
+is captured by the backend at execution. Required local inputs are read/verified once and then reused
+in memory. There is no evaluation-history entity or legacy-data compatibility path.
 
 Current GT evaluation stores a structured summary in `metrics_summary_json`:
 

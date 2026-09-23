@@ -1,6 +1,6 @@
 # Current State
 
-Last verified against the tracked codebase: 2026-09-04.
+Last verified against the tracked codebase: 2026-09-06.
 
 This document is the source of truth for what is implemented now. `PRODUCT_SPEC.md` describes the
 target product, `ARCHITECTURE.md` describes the design boundaries, and `API_CONTRACTS.md` describes
@@ -55,15 +55,18 @@ metadata snapshot stored at evaluation time.
 Retrieval metrics are stored in `SavedExperiment.metrics_summary_json`; `MetricValue` rows are not
 populated by the current evaluation path.
 
-## Partial Or Reserved
-
 ### Experiment Reproducibility
 
-The product invariant is a self-contained full parameter snapshot. The current UI-created snapshot
-stores the index-cache id/key plus retrieval, reranking, and GT settings. Chunking, embedding, sparse,
-and preparation lineage remain indirect through the referenced data asset and `DerivedCache`
-metadata. `code_commit` is not populated by the UI. Do not call the current record independently
-reproducible after its referenced caches are removed.
+Implemented: backend-generated `raglab.saved_experiment.v1` snapshots resolve historical index/chunks/
+data lineage, persist configuration separately from content hashes, freeze GT/chunks/sparse inputs,
+and capture execution code provenance. One SavedExperiment permits exactly one atomically claimed
+evaluation attempt. Detail/Compare expose provenance and differing controlled variables.
+
+Old development experiments and runtime caches must be recreated; GT must be re-imported. No legacy
+schema readers or migration-on-read are present. No database migration is required. See
+[REPRODUCIBILITY.md](REPRODUCIBILITY.md) for API, hash, execution and storage boundaries.
+
+## Partial Or Reserved
 
 ### Evaluation Execution
 
@@ -91,12 +94,12 @@ The API schema reserves `embeddings` and `answer_temp`; current runtime creation
 - generation/prompt and evaluation-metric catalogs;
 - promoted recipe entities or recipe export;
 - authentication, authorization, multi-user isolation, or production deployment hardening;
-- frontend automated tests;
+- end-to-end frontend automated tests (focused slice-population rendering tests exist);
 - automated integration tests against live PostgreSQL, Qdrant, Docling, Voyage, or OpenAI services.
 
 ## Verification Baseline
 
-The repository currently contains 95 Python test functions; all 95 passed in the verification run
+The repository currently collects 174 Python test cases; all 174 passed in the verification run
 for this update. API tests use an in-memory SQLite database and fake runtime adapters where external
 systems are involved. The supported checks are:
 
@@ -104,6 +107,8 @@ systems are involved. The supported checks are:
 python -m pytest
 Set-Location ui
 npm ci
+node tests/slicePopulation.test.cjs
+node tests/experimentProvenance.test.cjs
 npm run build
 ```
 

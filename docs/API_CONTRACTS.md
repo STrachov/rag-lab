@@ -173,7 +173,10 @@ Deleting a cache with dependent runtime caches returns HTTP 409 unless
 `retrieval_temp`; `embeddings` and `answer_temp` are reserved schema values.
 
 `chunks/materialize` accepts a prepared data asset and canonical chunking snapshot, writes
-`raglab.chunks.v1` JSONL, and creates or reuses `DerivedCache(cache_type="chunks")`.
+`raglab.chunks.v1` JSONL to a fresh materialization location, and creates `DerivedCache(cache_type="chunks")`
+with exact `chunks_file_sha256`, chunk count and effective size unit. Each index build gets a distinct
+physical collection based on its cache ID and stores verified `input_chunks_sha256` plus sparse statistics
+hash when applicable. Requested collection names do not select shared physical collections.
 
 Qdrant index request:
 
@@ -274,7 +277,8 @@ DELETE /v1/projects/{project_id}/ground-truth-sets/{ground_truth_set_id}
 ```
 
 Ground truth upload accepts JSON or JSONL plus an optional prepared `data_asset_id`. Upload validates
-shape and canonicalizes the file. Chunk-id compatibility is checked later against the selected
+shape, canonicalizes the file and records exact canonical UTF-8 byte SHA-256 as `canonical_sha256` in
+manifest/metadata. Readers verify this hash; GT without it must be re-imported. Chunk-id compatibility is checked later against the selected
 chunks cache during retrieval/reranking evaluation.
 
 `raglab.ground_truth.v1` remains backward compatible. A question may include optional metadata, and
@@ -307,6 +311,20 @@ the canonical object may declare optional evaluation slices:
 `source` and `difficulty` accept a string or null; `tags` accepts an array of strings. Values are
 benchmark-defined, not backend enums. Slice filter values are string arrays. Different keys are
 ANDed, values within a key are ORed, and `tags` matches when any question tag is allowed.
+Duplicate allowed values are removed in first-occurrence order. Empty filters and empty allowed-value
+arrays are rejected.
+
+Qrels `relevant_pages` and `relevant_chunks`, when supplied, must be arrays of valid judgment objects;
+null, other collection types, and malformed entries are rejected, never silently discarded. Omitted
+collections default to empty arrays. Found page-level questions require pages and cannot include
+chunk judgments; found chunk-level questions require chunks and cannot include page judgments.
+Not-found questions cannot include relevance judgments. Authoring `expected_chunks` and raw page
+`references` collections use the same strict array/object checks.
+
+Authoring records use `metadata.difficulty`. Legacy top-level `difficulty` remains accepted and is
+imported into that same metadata field. If both fields are supplied, they must agree (including null)
+or upload is rejected. New authoring templates expose only `metadata.difficulty`; the legacy schema
+property is marked deprecated. Other question metadata is preserved.
 
 Ground truth question list responses include optional `expected_answer` and
 `expected_answer_brief` fields when the uploaded ground truth provides an answer value. These fields
@@ -326,45 +344,35 @@ DELETE /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}
 POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate
 ```
 
-Saved experiment creation snapshots the current prepared data asset manifest hash and stores the
-submitted `params_snapshot_json`. The target invariant is a self-contained full parameter snapshot,
-but the current UI submits the index-cache id/key plus retrieval, reranking, and GT settings; earlier
-pipeline lineage remains indirect through data-asset/cache metadata. The current evaluation endpoint runs synchronously; background execution
-should be added later when evaluations may call slow models, build caches, or score large
-ground-truth sets.
+SavedExperiment is one backend-generated immutable pipeline snapshot and one evaluation attempt.
+The backend resolves historical source/prepared manifests through the selected ready Qdrant index
+and chunks cache. Creation rejects unverified inputs; old development records/caches/GT must be recreated.
+See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for the complete snapshot and hash contract.
 
-Create saved experiment request:
+Create request:
 
 ```json
 {
-  "name": "Hybrid e5 bm25 qwen strict",
-  "data_asset_id": "prepared-data-uuid",
-  "ground_truth_set_id": "ground-truth-uuid",
-  "params_snapshot_json": {
-    "index_cache_id": "qdrant-index-cache-uuid",
-    "index_cache_key": "qdrant_index_...",
-    "retrieval": {
-      "mode": "hybrid",
-      "strategy": "chunk_retrieval",
-      "top_k": 5,
-      "candidate_k": 30,
-      "parent_score": "max"
-    },
-    "reranking": null,
-    "ground_truth": {
-      "ground_truth_set_id": "ground-truth-uuid",
-      "question_count": 20
-    }
+  "name": "Wheeler 300/50",
+  "index_cache_id": "qdrant-index-cache-id",
+  "ground_truth_set_id": "ground-truth-id",
+  "retrieval": {
+    "mode": "hybrid",
+    "strategy": "chunk_retrieval",
+    "top_k": 5,
+    "candidate_k": 30,
+    "parent_score": "max"
   },
-  "params_hash": "sha256:...",
-  "debug_level": "summary",
-  "notes": "",
-  "pipeline_version": "runtime-v1"
+  "reranking": null,
+  "debug_level": "summary"
 }
 ```
 
-`params_hash` is required and is currently calculated by the client from the submitted snapshot.
-`code_commit` is optional in the schema and is not populated by the current UI.
+Optional user fields are `notes` and `parameter_set_id`. Enabled reranking accepts `enabled`,
+`model_id`, and `params`. Authoritative snapshot/hash/data-manifest/code/result fields are not accepted;
+extra create fields return HTTP 422. The response retains the SavedExperiment fields, including the
+backend-generated `params_snapshot_json` (`raglab.saved_experiment.v1`) and configuration-only `params_hash`.
+`code_commit` is populated by the backend at evaluation start, not supplied by the UI.
 
 Evaluate response:
 
@@ -382,7 +390,10 @@ Evaluate response:
         "label": "Hard",
         "filter": {"difficulty": ["hard"]},
         "question_count": 3,
+        "completed_question_count": 3,
+        "error_count": 0,
         "metric_averages": {"page_recall_at_k": 0.5},
+        "metric_question_counts": {"page_recall_at_k": 3},
         "warnings": []
       }
     },
@@ -391,14 +402,11 @@ Evaluate response:
 }
 ```
 
-Evaluation request body is optional. If supplied, `index_cache_id` overrides the index cache stored
-in `params_snapshot_json`:
-
-```json
-{
-  "index_cache_id": "uuid"
-}
-```
+Evaluation accepts no settings: omit the body or send `{}`. Supplying `index_cache_id` returns
+HTTP 422; the saved `snapshot.index.cache_id` is always used. Only `created` may be claimed, atomically
+at database level. Any already-running or terminal experiment returns HTTP 409. Failed attempts are
+consumed and require a new experiment to retry. Required missing/hash-mismatched inputs are recorded
+as failed evaluations. GT, chunks and required sparse statistics are loaded/verified once per attempt.
 
 Metrics are currently returned in:
 
@@ -410,13 +418,14 @@ SavedExperiment.metrics_summary_json
 evaluation does not populate separate metric rows.
 
 The current implementation of `POST /v1/projects/{project_id}/saved-experiments/{saved_experiment_id}/evaluate`
-runs synchronously. It reads `index_cache_id`, retrieval params, and optional enabled reranking params
-from `SavedExperiment.params_snapshot_json`, loops over every question in the linked ground truth set,
+runs synchronously. It executes the resolved index/retrieval/reranking configuration
+from `SavedExperiment.params_snapshot_json`, loops over the single verified in-memory canonical GT,
 retrieves/reranks candidates, scores them with the existing single-question scorer, and stores:
 
 ```text
 metrics_summary_json.evaluation
 metrics_summary_json.metric_averages
+metrics_summary_json.metric_question_counts
 metrics_summary_json.slice_metrics (optional)
 metrics_summary_json.questions
 ```
@@ -432,6 +441,15 @@ page-oriented metrics such as `page_hit_at_k`, `page_mrr_at_k`, and `page_recall
 Experiments list displays compact aggregate values and falls back from chunk-level keys to page-level
 keys when needed. Declared slices are aggregated from those already-computed rows with the same metric
 averager; an empty slice has `question_count: 0`, empty metric averages, and a warning. The saved
+slice also records `completed_question_count`, `error_count`, and `metric_question_counts`: the
+actual number of completed rows contributing a numeric value to each metric average. Failed rows
+are excluded, never counted as retrieval metric zero. Different metric keys may have different
+denominators (for example found versus not-found questions). Overall averages expose their counts
+in the sibling `metric_question_counts` object using the same aggregation implementation.
+Incomplete slices warn that metrics use completed rows only; slices with zero successful completions
+have empty averages/count maps and an explicit no-successful-completions warning. Detail and Compare
+show completed/total counts, errors, incomplete warnings, and each recorded metric denominator (`n`).
+Old results lacking completion fields are labeled as not recorded, rather than assumed complete. The saved
 experiment detail page is the canonical result view. Retrieval preview may
 launch evaluation and link to the saved result, but should not duplicate the full per-question result
 table inline.
@@ -440,3 +458,31 @@ table inline.
 
 After implementation, endpoint renames, required-field changes, response-shape changes, and
 error-shape changes are breaking changes.
+
+
+### Hybrid preview diagnostics
+
+`POST /v1/projects/{project_id}/retrieve/preview` automatically includes a `diagnostics`
+object for `mode=hybrid`. Inspect the JSON response (for example in the browser Network panel);
+no additional UI controls or retrieval requests are needed. Dense/sparse previews have no diagnostic data.
+
+- `fusion`, `rrf_k`: `rrf`, `60`.
+- `dense_candidates` / `sparse_candidates`: first 30 actual results in each input list,
+  with chunk ID, page, original rank (1-based) and original score.
+- `fused_candidates`: first 30 actual merged results, with both input ranks (null when absent),
+  each `1 / (rrf_k + rank)` contribution (zero when absent), and actual fused score/rank.
+- `candidate_counts`: full list sizes before display truncation. Ranks/contributions use full
+  input lists even when the corresponding candidate is outside the displayed first 30.
+- `parent_page_aggregation`: `applied`, retrieval strategy, parent score method and up to
+  `min(5, top_k)` final pages before reranking. Each page includes its actual aggregate score
+  and all actual `evidence_chunks` as `child_chunks` (chunk ID, fused rank and score).
+  With `max`, `max_child_chunk_ids` includes every child tied for the maximum; it does not
+  invent a tie-breaking winner. Other aggregation methods return an empty max-child list.
+
+`page_recursive` is a chunking strategy, not a retrieval aggregation setting. Aggregation
+is reported only when retrieval strategy is `parent_page_retrieval`; otherwise `applied=false`
+and `pages=[]`. No artificial page aggregation is performed for diagnostic purposes.
+
+Diagnostics observe existing search/merge/aggregation results without changing them. They are
+response-only preview data: not added to retrieval cache payloads, SavedExperiment snapshots,
+evaluation metrics or rerank-preview responses. No extra searches or chunk-file reads are performed.

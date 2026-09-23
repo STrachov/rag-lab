@@ -21,7 +21,7 @@ class QdrantVectorStore:
     ) -> None:
         existing = httpx.get(f"{self.url}/collections/{collection_name}", timeout=30.0)
         if existing.status_code == 200:
-            return
+            raise ValueError("Physical index collection already exists; create a new index build")
         if existing.status_code != 404:
             existing.raise_for_status()
 

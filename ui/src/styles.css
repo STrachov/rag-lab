@@ -1390,3 +1390,19 @@ details.experiment-result-table > .json-preview {
     min-width: 240px;
   }
 }
+
+.provenance-fields { display: grid; gap: .5rem; margin: 0; }
+.provenance-fields > div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 1rem; }
+.provenance-fields dt { font-weight: 600; }
+.provenance-fields dd { margin: 0; overflow-wrap: anywhere; font-size: .85rem; }
+.provenance-difference { background: #fff3d6; }
+.provenance-difference th { color: #754500; }
+.provenance-difference td { overflow-wrap: anywhere; }
+
+.hybrid-diagnostics { margin-top: 12px; font-size: 12px; }
+.hybrid-diagnostics > summary { cursor: pointer; font-weight: 600; }
+.hybrid-diagnostic-table h4 { margin: 12px 0 6px; }
+.hybrid-diagnostic-scroll { max-height: 320px; overflow: auto; }
+.hybrid-diagnostic-scroll table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.hybrid-diagnostic-scroll th, .hybrid-diagnostic-scroll td { padding: 4px 8px; text-align: left; vertical-align: top; white-space: nowrap; }
+.hybrid-diagnostic-children { margin: 0; padding-left: 16px; }

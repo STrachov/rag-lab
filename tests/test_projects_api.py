@@ -889,6 +889,7 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     fake_qdrant = FakeQdrantStore()
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
 
     index_response = client.post(
         f"/v1/projects/{project_id}/indexes/qdrant",
@@ -904,7 +905,7 @@ def test_qdrant_index_and_retrieval_preview_use_cache_contract(
     assert index_response.status_code == 201
     index_cache = index_response.json()
     assert index_cache["cache_type"] == "qdrant_index"
-    assert index_cache["metadata_json"]["collection_name"].startswith("raglab_qdrant_")
+    assert index_cache["metadata_json"]["collection_name"].startswith("raglab_")
     assert index_cache["metadata_json"]["embedding"]["model"] == "intfloat/multilingual-e5-small"
     assert index_cache["metadata_json"]["index_mode"] == "hybrid"
     assert index_cache["metadata_json"]["sparse"]["model_id"] == "bm25_local"
@@ -984,6 +985,7 @@ def test_delete_chunks_cache_blocks_dependent_runtime_caches(
     fake_qdrant = FakeQdrantStore()
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
     index_response = client.post(
         f"/v1/projects/{project_id}/indexes/qdrant",
         json={
@@ -1041,6 +1043,7 @@ def test_delete_chunks_cache_with_cascade_removes_dependent_runtime_caches(
     fake_qdrant = FakeQdrantStore()
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
     index_response = client.post(
         f"/v1/projects/{project_id}/indexes/qdrant",
         json={
@@ -1119,6 +1122,7 @@ def test_retrieval_preview_can_rerank_candidates(
     fake_qdrant = FakeQdrantStore()
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
     monkeypatch.setattr("app.services.rerankers.create_reranker", lambda model_id, params=None: FakeReranker())
 
     index_response = client.post(
@@ -1209,6 +1213,7 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.api.projects._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
 
     index_response = client.post(
         f"/v1/projects/{project_id}/indexes/qdrant",
@@ -1241,14 +1246,7 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
     }
     experiment_response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "data_asset_id": data_asset_id,
-            "debug_level": "summary",
-            "ground_truth_set_id": ground_truth_set["id"],
-            "name": "Evaluate GT",
-            "params_hash": "sha256:evaluate-gt",
-            "params_snapshot_json": snapshot,
-        },
+        json={"name": "Evaluate GT", "index_cache_id": index_response.json()["id"], "ground_truth_set_id": ground_truth_set["id"], "retrieval": snapshot["retrieval"], "debug_level": "summary"},
     )
     assert experiment_response.status_code == 201
 
@@ -1282,13 +1280,23 @@ def test_saved_experiment_evaluates_all_ground_truth_questions(
         "tags": ["lookup", "policy"],
     }
     assert summary["slice_metrics"]["synthetic"]["question_count"] == 1
+    assert summary["slice_metrics"]["synthetic"]["completed_question_count"] == 1
+    assert summary["slice_metrics"]["synthetic"]["error_count"] == 0
+    assert summary["slice_metrics"]["synthetic"]["metric_question_counts"] == summary["metric_question_counts"]
+    assert summary["metric_question_counts"] == {key: 1 for key in summary["metric_averages"]}
     assert summary["slice_metrics"]["synthetic"]["metric_averages"] == summary["metric_averages"]
     assert summary["slice_metrics"]["empty"] == {
+        "completed_question_count": 0,
+        "error_count": 0,
         "filter": {"source": ["missing"]},
         "label": "Empty",
         "metric_averages": {},
+        "metric_question_counts": {},
         "question_count": 0,
-        "warnings": ["Evaluation slice matched no questions."],
+        "warnings": [
+            "Evaluation slice matched no questions.",
+            "No questions completed successfully; metrics use completed rows only, so no metrics are available.",
+        ],
     }
     assert summary["questions"][0]["question_id"] == "q001"
     assert summary["questions"][0]["ground_truth"]["relevant_chunks"] == [
@@ -1343,6 +1351,7 @@ def test_saved_experiment_evaluation_logs_per_question_failures(
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.api.projects._qdrant_store", lambda: fake_qdrant)
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
 
     index_response = client.post(
         f"/v1/projects/{project_id}/indexes/qdrant",
@@ -1358,25 +1367,7 @@ def test_saved_experiment_evaluation_logs_per_question_failures(
     ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
     experiment_response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "data_asset_id": data_asset_id,
-            "debug_level": "summary",
-            "ground_truth_set_id": ground_truth_set["id"],
-            "name": "Evaluate GT failure",
-            "params_hash": "sha256:evaluate-gt-failure",
-            "params_snapshot_json": {
-                "ground_truth": {"ground_truth_set_id": ground_truth_set["id"]},
-                "index_cache_id": index_response.json()["id"],
-                "retrieval": {
-                    "candidate_k": 5,
-                    "mode": "dense",
-                    "parent_score": "max",
-                    "strategy": "chunk_retrieval",
-                    "top_k": 1,
-                },
-                "reranking": None,
-            },
-        },
+        json={"name": "Evaluate GT failure", "index_cache_id": index_response.json()["id"], "ground_truth_set_id": ground_truth_set["id"], "retrieval": {"mode": "dense", "top_k": 1, "candidate_k": 5}, "debug_level": "summary"},
     )
     assert experiment_response.status_code == 201
 
@@ -1394,6 +1385,11 @@ def test_saved_experiment_evaluation_logs_per_question_failures(
     assert evaluate_response.status_code == 200
     body = evaluate_response.json()
     assert body["status"] == "completed_with_errors"
+    failed_slice = body["metrics_summary_json"]["slice_metrics"]["synthetic"]
+    assert failed_slice["question_count"] == failed_slice["error_count"] == 1
+    assert failed_slice["completed_question_count"] == 0
+    assert failed_slice["metric_averages"] == failed_slice["metric_question_counts"] == {}
+    assert "No questions completed successfully" in " ".join(failed_slice["warnings"])
     question = body["metrics_summary_json"]["questions"][0]
     assert question["status"] == "failed"
     assert question["error_json"] == {
@@ -1441,6 +1437,7 @@ def test_qdrant_index_failure_is_visible_in_derived_cache(
     chunks_cache_id = chunks_response.json()["id"]
     monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: FailingQdrantStore())
     monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder_from_snapshot", lambda snapshot: FakeEmbedder())
 
     index_response = client.post(
         f"/v1/projects/{project_id}/indexes/qdrant",
@@ -1465,7 +1462,7 @@ def test_qdrant_index_failure_is_visible_in_derived_cache(
     assert len(caches) == 1
     assert caches[0]["status"] == "failed"
     assert caches[0]["metadata_json"]["error_json"]["message"] == "Qdrant is unavailable"
-    assert caches[0]["metadata_json"]["collection_name"].startswith("raglab_qdrant_")
+    assert caches[0]["metadata_json"]["collection_name"].startswith("raglab_")
 
 
 def test_preview_chunking_for_prepared_markdown(client: TestClient, monkeypatch, tmp_path) -> None:
@@ -1967,6 +1964,7 @@ def test_prepare_docling_uses_async_endpoint(monkeypatch, tmp_path) -> None:
                 {
                     "original_name": "policy.pdf",
                     "stored_path": "files/f_000001.pdf",
+                    "sha256": hashlib.sha256(b"synthetic pdf").hexdigest(),
                 }
             ]
         },
@@ -2133,13 +2131,7 @@ def test_delete_experiment_data_asset_is_blocked(client: TestClient, monkeypatch
     parameter_set_id = _create_parameter_set(client, project_id)
     response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "name": "Uses prepared data",
-            "data_asset_id": data_asset_id,
-            "parameter_set_id": parameter_set_id,
-            "params_hash": "sha256:test-params",
-            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
-        },
+        json=_verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id, parameter_set_id=parameter_set_id),
     )
     assert response.status_code == 201
 
@@ -2230,13 +2222,7 @@ def test_delete_experiment_parameter_set_is_blocked(
     parameter_set_id = _create_parameter_set(client, project_id)
     response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "name": "Uses parameter set",
-            "data_asset_id": data_asset_id,
-            "parameter_set_id": parameter_set_id,
-            "params_hash": "sha256:test-params",
-            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
-        },
+        json=_verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id, parameter_set_id=parameter_set_id),
     )
     assert response.status_code == 201
 
@@ -2729,13 +2715,7 @@ def test_delete_ground_truth_set_used_by_saved_experiment_is_blocked(
     ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
     experiment_response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "data_asset_id": data_asset_id,
-            "ground_truth_set_id": ground_truth_set["id"],
-            "name": "Uses GT",
-            "params_hash": "sha256:test-params",
-            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
-        },
+        json=_verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id, ground_truth_set_id=ground_truth_set["id"]),
     )
     assert experiment_response.status_code == 201
 
@@ -2747,40 +2727,21 @@ def test_delete_ground_truth_set_used_by_saved_experiment_is_blocked(
     assert "saved experiments" in delete_response.json()["detail"]
 
 
-def test_create_saved_experiment_with_metrics_json(client: TestClient, monkeypatch, tmp_path) -> None:
+def test_create_saved_experiment_starts_without_metrics(client: TestClient, monkeypatch, tmp_path) -> None:
     project_id = _create_project(client)
     data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
     parameter_set_id = _create_parameter_set(client, project_id)
 
     response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "name": "Hybrid baseline",
-            "data_asset_id": data_asset_id,
-            "parameter_set_id": parameter_set_id,
-            "params_hash": "sha256:test-params",
-            "params_snapshot_json": {
-                "preparation": {"converter": "pymupdf_text"},
-                "chunking": {"chunk_size": 900},
-                "retrieval": {"mode": "hybrid", "top_k": 8},
-            },
-            "metrics_summary_json": {
-                "hit_at_5": 0.8,
-                "mrr": 0.7,
-                "latency_ms": 250,
-            },
-            "debug_level": "none",
-        },
+        json=_verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id, parameter_set_id=parameter_set_id),
     )
 
     assert response.status_code == 201
     body = response.json()
     assert body["project_id"] == project_id
-    assert body["metrics_summary_json"] == {
-        "hit_at_5": 0.8,
-        "mrr": 0.7,
-        "latency_ms": 250,
-    }
+    assert body["metrics_summary_json"] == {}
+    assert body["status"] == "created"
     assert body["data_asset_manifest_hash"].startswith("sha256:")
 
 
@@ -2789,12 +2750,7 @@ def test_delete_saved_experiment(client: TestClient, monkeypatch, tmp_path) -> N
     data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
     create_response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "name": "Temporary experiment",
-            "data_asset_id": data_asset_id,
-            "params_hash": "sha256:temporary",
-            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
-        },
+        json=_verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id),
     )
     assert create_response.status_code == 201
     saved_experiment_id = create_response.json()["id"]
@@ -2815,12 +2771,7 @@ def test_rename_saved_experiment(client: TestClient, monkeypatch, tmp_path) -> N
     data_asset_id = _upload_prepared_data_asset(client, monkeypatch, tmp_path, project_id)
     create_response = client.post(
         f"/v1/projects/{project_id}/saved-experiments",
-        json={
-            "name": "Old experiment name",
-            "data_asset_id": data_asset_id,
-            "params_hash": "sha256:rename",
-            "params_snapshot_json": {"retrieval": {"mode": "dense"}},
-        },
+        json=_verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id),
     )
     assert create_response.status_code == 201
     saved_experiment_id = create_response.json()["id"]
@@ -2988,23 +2939,7 @@ def _upload_prepared_data_asset(
     tmp_path,
     project_id: str,
 ) -> str:
-    raw_asset_id = _create_data_asset(client, project_id)
-    monkeypatch.setattr(
-        "app.services.data_assets.get_settings",
-        lambda: type("Settings", (), {"data_dir": tmp_path})(),
-    )
-    response = client.post(
-        f"/v1/projects/{project_id}/data-assets/prepared/upload",
-        data={
-            "name": "Prepared policies",
-            "data_format": "markdown",
-            "parent_id": raw_asset_id,
-            "preparation_params_json": '{"method":"external_gpu","output_format":"markdown"}',
-        },
-        files={"files": ("policy.md", b"# Policy", "text/markdown")},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+    return _upload_prepared_data_asset_with_content(client, monkeypatch, tmp_path, project_id, b"# Policy")
 
 
 def _upload_prepared_data_asset_with_parent(
@@ -3039,18 +2974,18 @@ def _upload_prepared_data_asset_with_content(
     project_id: str,
     content: bytes,
 ) -> str:
-    raw_asset_id = _create_data_asset(client, project_id)
-    monkeypatch.setattr(
-        "app.services.data_assets.get_settings",
-        lambda: type("Settings", (), {"data_dir": tmp_path})(),
-    )
+    _patch_data_dirs(monkeypatch, tmp_path)
+    raw = client.post(f"/v1/projects/{project_id}/data-assets/raw/upload",
+        data={"name": "Source policy", "data_format": "markdown"},
+        files={"files": ("policy.md", content, "text/markdown")}).json()
+    raw_asset_id = raw["id"]
     response = client.post(
         f"/v1/projects/{project_id}/data-assets/prepared/upload",
         data={
             "name": "Prepared policies",
             "data_format": "markdown",
             "parent_id": raw_asset_id,
-            "preparation_params_json": '{"method":"external_gpu","output_format":"markdown"}',
+            "preparation_params_json": json.dumps({"method": "external_gpu", "output_format": "markdown", "params": {}, "source_manifest_hash": raw["manifest_hash"]}),
         },
         files={"files": ("policy.md", content, "text/markdown")},
     )
@@ -3103,3 +3038,20 @@ def _create_parameter_set(client: TestClient, project_id: str) -> str:
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def _verified_experiment_choices(client, monkeypatch, tmp_path, project_id, data_asset_id,
+                                 ground_truth_set_id=None, parameter_set_id=None):
+    _patch_data_dirs(monkeypatch, tmp_path)
+    store = FakeQdrantStore()
+    monkeypatch.setattr("app.api.runtime._qdrant_store", lambda: store)
+    monkeypatch.setattr("app.services.runtime_cache.create_embedder", fake_create_embedder)
+    chunks = client.post(f"/v1/projects/{project_id}/chunks/materialize", json={
+        "data_asset_id": data_asset_id, "chunking": {"strategy": "recursive", "params": {"chunk_size": 300, "chunk_overlap": 50}},
+    })
+    assert chunks.status_code == 201, chunks.text
+    index = client.post(f"/v1/projects/{project_id}/indexes/qdrant", json={"chunks_cache_id": chunks.json()["id"]})
+    assert index.status_code == 201, index.text
+    gt_id = ground_truth_set_id or _upload_ground_truth_set(client, project_id, data_asset_id).json()["id"]
+    return {"name": "Verified experiment", "index_cache_id": index.json()["id"],
+            "ground_truth_set_id": gt_id, "parameter_set_id": parameter_set_id}

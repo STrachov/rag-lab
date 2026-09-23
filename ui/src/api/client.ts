@@ -377,6 +377,22 @@ export type RetrievedChunk = {
   text_preview?: string | null;
 };
 
+export type RetrievalDiagnostics = {
+  reranking?: Array<{ page: number | null; parent_id: string; rerank_child_id: string;
+    selected_child_rank: number; selected_child_score: number; original_parent_score: number;
+    pre_rerank_parent_rank: number; rerank_score: number; final_parent_rank: number }>;
+  fusion: string | null; rrf_k: number | null;
+  dense_candidates: Array<{ chunk_id: string; page: number | null; parent_id?: string | null; dense_rank: number; dense_score: number | null }>;
+  sparse_candidates: Array<{ chunk_id: string; page: number | null; sparse_rank: number; sparse_score: number | null }>;
+  fused_candidates: Array<{ chunk_id: string; page: number | null; fused_rank: number;
+    dense_rank: number | null; sparse_rank: number | null; dense_contribution: number;
+    sparse_contribution: number; fused_score: number }>;
+  parent_page_aggregation: { applied: boolean; strategy: string; parent_score: string;
+    pages: Array<{ rank: number; page: number | null; parent_id: string; page_score: number;
+      child_chunks: Array<{ chunk_id: string; rank: number; score: number }>;
+      max_child_chunk_ids: string[] }> };
+};
+
 export type RetrievalPreviewResponse = {
   index_cache_id: string;
   retrieval_cache_id?: string | null;
@@ -387,6 +403,7 @@ export type RetrievalPreviewResponse = {
   candidate_k?: number | null;
   reranking?: Record<string, unknown> | null;
   retrieved_chunks: RetrievedChunk[];
+  diagnostics?: RetrievalDiagnostics | null;
   usage?: Record<string, unknown> | null;
 };
 
@@ -454,18 +471,20 @@ export type SavedExperiment = {
 };
 
 export type SavedExperimentCreate = {
-  code_commit?: string | null;
-  data_asset_id: string;
-  debug_level?: "none" | "summary" | "full";
-  ground_truth_set_id?: string | null;
-  metrics_summary_json?: Record<string, unknown>;
+  index_cache_id: string;
+  ground_truth_set_id: string;
   name: string;
+  retrieval: {
+    mode: string;
+    strategy: string;
+    top_k: number;
+    candidate_k: number | null;
+    parent_score: string;
+  };
+  reranking: { enabled: boolean; model_id: string; params: Record<string, unknown> } | null;
   notes?: string | null;
   parameter_set_id?: string | null;
-  params_hash: string;
-  params_snapshot_json: Record<string, unknown>;
-  pipeline_version?: string | null;
-  status?: string;
+  debug_level?: "none" | "summary" | "full";
 };
 
 export type SavedExperimentDeleteResponse = {
@@ -855,10 +874,9 @@ export async function createSavedExperiment(
 export async function evaluateSavedExperiment(
   projectId: string,
   savedExperimentId: string,
-  payload: { index_cache_id?: string | null } = {},
 ): Promise<SavedExperiment> {
   return request(`/projects/${projectId}/saved-experiments/${savedExperimentId}/evaluate`, {
-    body: JSON.stringify(payload),
+    body: JSON.stringify({}),
     method: "POST",
   });
 }

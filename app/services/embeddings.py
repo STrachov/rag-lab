@@ -270,7 +270,7 @@ class VoyageEmbedder:
             return []
 
         embeddings: list[list[float]] = []
-        batch_size = min(1000, max(1, int(self.params["batch_size"])))
+        batch_size = int(self.params["batch_size"])
         batches = _voyage_batches(
             texts,
             batch_size=batch_size,
@@ -479,11 +479,29 @@ def create_embedder(
     raise ValueError(f"Unsupported embedding provider: {spec.provider}")
 
 
+def create_embedder_from_snapshot(snapshot: dict[str, Any]) -> SentenceTransformerEmbedder | VoyageEmbedder:
+    """Execute already resolved configuration without consulting catalog defaults."""
+    spec = EmbeddingModelSpec(
+        id=snapshot["model_id"], label=snapshot["model"], description="",
+        provider=snapshot["provider"], model_name=snapshot["model"],
+        vector_size=snapshot["vector_size"], fields=[],
+        passage_prefix=snapshot["passage_prefix"], query_prefix=snapshot["query_prefix"],
+    )
+    params = dict(snapshot["params"])
+    if spec.provider == "sentence_transformers":
+        return _cached_sentence_transformer_embedder(spec, params)
+    if spec.provider == "voyage":
+        return VoyageEmbedder(spec, params)
+    raise ValueError(f"Unsupported embedding provider: {spec.provider}")
+
+
 def _cached_sentence_transformer_embedder(
     spec: EmbeddingModelSpec,
     params: dict[str, Any],
 ) -> SentenceTransformerEmbedder:
-    cache_key = _model_cache_key(spec.id, params)
+    cache_key = stable_json_dumps({"model": spec.model_name, "provider": spec.provider,
+        "passage_prefix": spec.passage_prefix, "query_prefix": spec.query_prefix,
+        "configuration": _model_cache_key(spec.id, params)})
     with _LOCAL_EMBEDDER_CACHE_LOCK:
         cached = _LOCAL_EMBEDDER_CACHE.get(cache_key)
         if cached is not None:
@@ -520,6 +538,10 @@ def _coerce_params(spec: EmbeddingModelSpec, params: dict[str, Any]) -> dict[str
                 value = int(value)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{name} must be a number") from exc
+            if field.min_value is not None and value < field.min_value:
+                raise ValueError(f"{name} must be at least {field.min_value}")
+            if field.max_value is not None and value > field.max_value:
+                raise ValueError(f"{name} must be at most {field.max_value}")
         elif field.field_type == "boolean":
             value = _coerce_bool(value, name)
         elif field.field_type == "select":

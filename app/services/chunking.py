@@ -7,6 +7,8 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from app.services.hashing import read_verified_bytes
+
 
 TOKEN_PATTERN = re.compile(r"\S+")
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -82,6 +84,7 @@ class ChunkingParams:
 
 @dataclass(frozen=True)
 class PreparedFile:
+    sha256: str
     original_name: str
     path: Path
     role: str | None
@@ -271,7 +274,8 @@ def chunk_prepared_asset(
     chunks_by_file: dict[str, int] = {}
 
     for prepared_file in files:
-        text = prepared_file.path.read_text(encoding="utf-8", errors="replace")
+        content = read_verified_bytes(prepared_file.path, prepared_file.sha256, "Prepared input")
+        text = content.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         file_chunks = strategy.chunker(
             text,
             normalized_chunking,
@@ -516,15 +520,17 @@ def _prepared_files(
             }:
                 continue
         path = base_dir / stored_path
-        if path.exists():
-            prepared_files.append(
-                PreparedFile(
-                    original_name=original_name or path.name,
-                    path=path,
-                    role=role or None,
-                    stored_path=stored_path,
-                )
+        if not path.is_file():
+            raise ValueError(f"Required prepared input is missing: {original_name}")
+        prepared_files.append(
+            PreparedFile(
+                sha256=file_entry.get("sha256"),
+                original_name=original_name or path.name,
+                path=path,
+                role=role or None,
+                stored_path=stored_path,
             )
+        )
     return prepared_files
 
 

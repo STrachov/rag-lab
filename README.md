@@ -167,8 +167,12 @@ Current implemented foundation:
 - saved experiment detail pages with aggregate metrics, API reranking usage totals, and per-question result summaries;
 - saved experiment rename/delete actions and compact list metrics for questions, Hit, MRR, and Recall;
 - categorized parameter sets with protected deletion;
-- saved experiments that snapshot prepared data manifest hashes plus current evaluation settings and
-  references; making the snapshot self-contained is still required work.
+- backend-generated experiment snapshots with historical source/prepared lineage, verified GT/chunks/sparse
+  hashes, isolated index builds and one atomic evaluation attempt;
+- execution code provenance and controlled-variable differences in detail/Compare.
+
+See [SavedExperiment reproducibility](docs/REPRODUCIBILITY.md) for the new create/evaluate contract.
+Old development experiments/caches must be recreated and GT re-imported; no database migration is required.
 
 Start with these files:
 

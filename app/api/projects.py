@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi import File, Form, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.vectorstores.qdrant_store import QdrantVectorStore
@@ -71,6 +71,9 @@ from app.services.ground_truth import (
     store_uploaded_ground_truth_set,
 )
 from app.services.evaluation import evaluate_ground_truth_questions
+from app.services.experiment_snapshot import build_experiment_snapshot, pipeline_params_hash
+from app.services.code_version import capture_code_version
+from app.services.runtime_cache import PIPELINE_VERSION
 from app.services.preparation import list_preparation_methods
 from app.services.preparation import prepare_docling
 from app.services.preparation import prepare_pymupdf_text
@@ -818,31 +821,20 @@ def create_saved_experiment(
     db: Session = Depends(get_db),
 ) -> models.SavedExperiment:
     _get_project_or_404(db, project_id)
-    _get_project_child_or_404(db, models.DataAsset, project_id, payload.data_asset_id, "data asset")
-    _require_data_asset_type(db, payload.data_asset_id, "prepared")
-
     if payload.parameter_set_id is not None:
-        _get_project_child_or_404(
-            db,
-            models.ParameterSet,
-            project_id,
-            payload.parameter_set_id,
-            "parameter set",
-        )
-
-    if payload.ground_truth_set_id is not None:
-        _get_project_child_or_404(
-            db,
-            models.GroundTruthSet,
-            project_id,
-            payload.ground_truth_set_id,
-            "ground truth set",
-        )
-
-    data_asset = db.get(models.DataAsset, payload.data_asset_id)
-    saved_experiment_payload = payload.model_dump()
-    saved_experiment_payload["data_asset_manifest_hash"] = data_asset.manifest_hash
-    saved_experiment = models.SavedExperiment(project_id=project_id, **saved_experiment_payload)
+        _get_project_child_or_404(db, models.ParameterSet, project_id, payload.parameter_set_id, "parameter set")
+    try:
+        snapshot = build_experiment_snapshot(db, project_id, payload)
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot create verified experiment: {exc}") from exc
+    prepared = snapshot["data"]["prepared"]
+    saved_experiment = models.SavedExperiment(
+        project_id=project_id, name=payload.name, data_asset_id=prepared["asset_id"],
+        data_asset_manifest_hash=prepared["manifest_hash"], ground_truth_set_id=payload.ground_truth_set_id,
+        parameter_set_id=payload.parameter_set_id, params_snapshot_json=snapshot,
+        params_hash=pipeline_params_hash(snapshot), notes=payload.notes, debug_level=payload.debug_level,
+        pipeline_version=PIPELINE_VERSION, status="created",
+    )
     db.add(saved_experiment)
     db.commit()
     db.refresh(saved_experiment)
@@ -861,104 +853,48 @@ def evaluate_saved_experiment(
 ) -> models.SavedExperiment:
     _get_project_or_404(db, project_id)
     saved_experiment = _get_saved_experiment_or_404(db, project_id, saved_experiment_id)
-    if saved_experiment.ground_truth_set_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Saved experiment has no ground truth set",
-        )
-    ground_truth_set = _get_ground_truth_set_or_404(db, project_id, saved_experiment.ground_truth_set_id)
-    index_cache_id = (
-        payload.index_cache_id
-        if payload is not None and payload.index_cache_id
-        else str(saved_experiment.params_snapshot_json.get("index_cache_id") or "")
-    )
-    if not index_cache_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Saved experiment evaluation requires index_cache_id",
-        )
-    index_cache = _get_project_cache_or_404(db, project_id, index_cache_id)
-    if index_cache.cache_type != "qdrant_index":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="index_cache_id must reference a qdrant_index cache",
-        )
-
-    logger.info(
-        "saved experiment evaluation request start project_id=%s saved_experiment_id=%s "
-        "ground_truth_set_id=%s index_cache_id=%s",
-        project_id,
-        saved_experiment_id,
-        ground_truth_set.id,
-        index_cache.id,
-    )
     started_at = datetime.now(UTC)
-    saved_experiment.status = "running"
-    saved_experiment.started_at = started_at
-    saved_experiment.finished_at = None
-    saved_experiment.error_json = None
+    claimed = db.execute(update(models.SavedExperiment).where(
+        models.SavedExperiment.id == saved_experiment_id,
+        models.SavedExperiment.project_id == project_id,
+        models.SavedExperiment.status == "created",
+    ).values(status="running", started_at=started_at).execution_options(synchronize_session=False))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Saved experiment already consumed; create a new experiment")
+    db.commit()
+    db.refresh(saved_experiment)
+    code = capture_code_version()
+    saved_experiment.code_commit = code["commit"]
+    saved_experiment.pipeline_version = PIPELINE_VERSION
+    snapshot = saved_experiment.params_snapshot_json
+    saved_experiment.metrics_summary_json = {"evaluation": {
+        "code": code, "semantics": snapshot["semantics"],
+        "canonical_sha256": snapshot["ground_truth"]["canonical_sha256"],
+        "input_chunks_sha256": snapshot["index"]["input_chunks_sha256"],
+    }}
     db.commit()
     try:
+        ground_truth_set = _get_ground_truth_set_or_404(db, project_id, saved_experiment.ground_truth_set_id)
+        index_cache = _get_project_cache_or_404(db, project_id, snapshot["index"]["cache_id"])
         summary = evaluate_ground_truth_questions(
-            ground_truth_set=ground_truth_set,
-            index_cache=index_cache,
-            saved_experiment=saved_experiment,
-            vector_store=_qdrant_store(),
+            ground_truth_set=ground_truth_set, index_cache=index_cache,
+            saved_experiment=saved_experiment, vector_store=_qdrant_store(),
         )
-    except ValueError as exc:
-        logger.exception(
-            "saved experiment evaluation request failed project_id=%s saved_experiment_id=%s "
-            "ground_truth_set_id=%s index_cache_id=%s error_type=%s error_message=%s",
-            project_id,
-            saved_experiment_id,
-            ground_truth_set.id,
-            index_cache.id,
-            type(exc).__name__,
-            str(exc),
-        )
-        saved_experiment.status = "failed"
-        saved_experiment.finished_at = datetime.now(UTC)
-        saved_experiment.error_json = {"message": str(exc), "type": type(exc).__name__}
-        db.commit()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception(
-            "saved experiment evaluation request failed project_id=%s saved_experiment_id=%s "
-            "ground_truth_set_id=%s index_cache_id=%s error_type=%s error_message=%s",
-            project_id,
-            saved_experiment_id,
-            ground_truth_set.id,
-            index_cache.id,
-            type(exc).__name__,
-            str(exc),
-        )
+        logger.exception("saved experiment evaluation failed saved_experiment_id=%s", saved_experiment_id)
         saved_experiment.status = "failed"
         saved_experiment.finished_at = datetime.now(UTC)
         saved_experiment.error_json = {"message": str(exc), "type": type(exc).__name__}
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to evaluate saved experiment: {exc}",
-        ) from exc
-
+        raise HTTPException(status_code=400 if isinstance(exc, (ValueError, HTTPException)) else 502,
+                            detail=f"Failed to evaluate saved experiment: {exc}") from exc
     saved_experiment.metrics_summary_json = summary
-    saved_experiment.status = str(summary.get("evaluation", {}).get("status") or "completed")
+    saved_experiment.status = str(summary["evaluation"]["status"])
     saved_experiment.finished_at = datetime.now(UTC)
     index_cache.last_used_at = datetime.now(UTC)
     db.commit()
     db.refresh(saved_experiment)
-    logger.info(
-        "saved experiment evaluation request finished project_id=%s saved_experiment_id=%s "
-        "ground_truth_set_id=%s index_cache_id=%s status=%s completed=%s errors=%s duration_seconds=%s",
-        project_id,
-        saved_experiment_id,
-        ground_truth_set.id,
-        index_cache.id,
-        saved_experiment.status,
-        summary.get("evaluation", {}).get("completed_question_count"),
-        summary.get("evaluation", {}).get("error_count"),
-        summary.get("evaluation", {}).get("duration_seconds"),
-    )
     return saved_experiment
 
 

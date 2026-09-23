@@ -120,7 +120,12 @@ def _ground_truth_schema() -> dict:
                 ],
                 "type": "string",
             },
-            "difficulty": {"enum": ["easy", "medium", "hard"], "type": "string"},
+            "difficulty": {
+                "description": "Legacy alias for metadata.difficulty; if both are present they must agree.",
+                "deprecated": True,
+                "enum": ["easy", "medium", "hard"],
+                "type": "string",
+            },
             "expected_chunks": {
                 "items": {
                     "additionalProperties": False,
@@ -140,7 +145,10 @@ def _ground_truth_schema() -> dict:
             "metadata": {
                 "additionalProperties": True,
                 "properties": {
-                    "difficulty": {"type": ["string", "null"]},
+                    "difficulty": {
+                        "description": "Canonical difficulty. Must agree with legacy top-level difficulty if supplied.",
+                        "type": ["string", "null"],
+                    },
                     "source": {"type": ["string", "null"]},
                     "tags": {"items": {"type": "string"}, "type": "array"},
                 },
@@ -183,7 +191,6 @@ def _ground_truth_template() -> dict:
     return {
         "acceptable_answer_patterns": [],
         "answer_type": "factual",
-        "difficulty": "easy",
         "expected_chunks": [
             {
                 "chunk_id": "chunk_000001",
@@ -224,6 +231,8 @@ Rules:
 - Use `not_found: true` only when the prepared text does not contain supporting evidence.
 - Do not invent facts that are not supported by the prepared text.
 - Keep `expected_facts` short and atomic.
+- Put difficulty in `metadata.difficulty`. Legacy top-level `difficulty` is imported
+  into that same field; if both are supplied they must agree or upload is rejected.
 
 Suggested prompt:
 
