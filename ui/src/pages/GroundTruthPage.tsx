@@ -73,7 +73,15 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
   }
 
   async function handleDelete(groundTruthSet: GroundTruthSet) {
-    if (!currentProject || !window.confirm(`Delete ground truth set "${groundTruthSet.name}"?`)) {
+    if (!currentProject) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Удалить Ground Truth Set '${groundTruthSet.name}'?\n` +
+        "Будут удалены GT set и принадлежащие ему сохранённые artifacts.\n" +
+        "Это действие нельзя отменить.",
+    );
+    if (!confirmed) {
       return;
     }
     setDeletingId(groundTruthSet.id);
@@ -150,8 +158,7 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
             <span>Status</span>
             <span>Type</span>
             <span>Questions</span>
-            <span>Files</span>
-            <span>Delete</span>
+            <span>Actions</span>
           </div>
           {groundTruthSets.map((groundTruthSet) => (
             <div className="table-row ground-truth-table" key={groundTruthSet.id}>
@@ -161,28 +168,28 @@ export function GroundTruthPage({ currentProject }: GroundTruthPageProps) {
               </span>
               <span>{formatMetadataValue(groundTruthSet.metadata_json.ground_truth_type)}</span>
               <span>{formatQuestionSummary(groundTruthSet)}</span>
-              <span className="row-actions">
-                <a
-                  className="text-action"
-                  href={getGroundTruthSetFileUrl(currentProject.id, groundTruthSet.id, "canonical")}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Canonical
-                </a>
-                <a
-                  className="text-action"
-                  href={getGroundTruthSetFileUrl(currentProject.id, groundTruthSet.id, "original")}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Original
-                </a>
-              </span>
-              <span>
+              <span className="ground-truth-actions">
+                <span className="ground-truth-downloads">
+                  <a
+                    className="text-action"
+                    href={getGroundTruthSetFileUrl(currentProject.id, groundTruthSet.id, "canonical")}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Canonical
+                  </a>
+                  <a
+                    className="text-action"
+                    href={getGroundTruthSetFileUrl(currentProject.id, groundTruthSet.id, "original")}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Original
+                  </a>
+                </span>
                 <button
                   className="text-action danger"
-                  disabled={deletingId === groundTruthSet.id}
+                  disabled={deletingId !== null}
                   onClick={() => handleDelete(groundTruthSet)}
                   type="button"
                 >

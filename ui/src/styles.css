@@ -1129,7 +1129,20 @@ h1 {
 }
 
 .ground-truth-table {
-  grid-template-columns: minmax(180px, 1.1fr) minmax(110px, 0.55fr) minmax(150px, 0.75fr) minmax(240px, 1.35fr) minmax(160px, 0.8fr) minmax(80px, 0.4fr);
+  grid-template-columns: minmax(180px, 1.1fr) minmax(110px, 0.55fr) minmax(150px, 0.75fr) minmax(240px, 1.35fr) minmax(190px, 0.9fr);
+}
+
+.ground-truth-actions {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.ground-truth-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .parameter-table {

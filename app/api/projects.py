@@ -727,16 +727,18 @@ def delete_ground_truth_set(
     ground_truth_set = _get_ground_truth_set_or_404(db, project_id, ground_truth_set_id)
     used_by_experiment = db.scalar(
         select(models.SavedExperiment.id)
-        .where(models.SavedExperiment.project_id == project_id)
         .where(models.SavedExperiment.ground_truth_set_id == ground_truth_set_id)
     )
     if used_by_experiment is not None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete ground truth set used by saved experiments",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot delete ground truth set because it is used by saved experiments. "
+                "Delete the saved experiments first."
+            ),
         )
 
-    _delete_ground_truth_storage(project_id, ground_truth_set.storage_path)
+    _delete_ground_truth_storage(project_id, ground_truth_set_id, ground_truth_set.storage_path)
     db.delete(ground_truth_set)
     db.commit()
     return GroundTruthSetDeleteResponse(deleted_ground_truth_set_id=ground_truth_set_id)
@@ -1388,13 +1390,24 @@ def _delete_asset_storage(storage_path: str | None) -> None:
         shutil.rmtree(path)
 
 
-def _delete_ground_truth_storage(project_id: str, storage_path: str | None) -> None:
-    try:
-        ground_truth_dir = _ground_truth_storage_dir(project_id, storage_path)
-    except HTTPException:
-        raise
-    except OSError:
-        return
+def _delete_ground_truth_storage(
+    project_id: str,
+    ground_truth_set_id: str,
+    storage_path: str | None,
+) -> None:
+    ground_truth_dir = _ground_truth_storage_dir(project_id, storage_path)
+    expected_dir = (
+        get_settings().data_dir
+        / "ground_truth"
+        / project_id
+        / "ground_truths"
+        / ground_truth_set_id
+    ).resolve()
+    if ground_truth_dir.resolve() != expected_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ground truth storage path does not belong to this ground truth set",
+        )
     if ground_truth_dir.exists():
         shutil.rmtree(ground_truth_dir)
 

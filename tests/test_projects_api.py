@@ -2685,7 +2685,15 @@ def test_delete_ground_truth_set_removes_db_row_and_storage(
     response = _upload_ground_truth_set(client, project_id, data_asset_id)
     ground_truth_set = response.json()
     ground_truth_dir = Path(ground_truth_set["storage_path"]).parent
+    unrelated_ground_truth_set = _upload_ground_truth_set(client, project_id, data_asset_id).json()
+    unrelated_ground_truth_dir = Path(unrelated_ground_truth_set["storage_path"]).parent
     assert ground_truth_dir.exists()
+    assert {path.relative_to(ground_truth_dir).as_posix() for path in ground_truth_dir.rglob("*") if path.is_file()} == {
+        "ground_truth.json",
+        "manifest.json",
+        "original/ground_truth.json",
+        "validation.json",
+    }
 
     delete_response = client.delete(
         f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}",
@@ -2694,9 +2702,43 @@ def test_delete_ground_truth_set_removes_db_row_and_storage(
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted_ground_truth_set_id"] == ground_truth_set["id"]
     assert not ground_truth_dir.exists()
+    assert unrelated_ground_truth_dir.exists()
     list_response = client.get(f"/v1/projects/{project_id}/ground-truth-sets")
     assert list_response.status_code == 200
-    assert list_response.json()["ground_truth_sets"] == []
+    assert [item["id"] for item in list_response.json()["ground_truth_sets"]] == [
+        unrelated_ground_truth_set["id"],
+    ]
+
+
+def test_delete_ground_truth_set_is_project_scoped_and_missing_is_not_found(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    owner_project_id = _create_project(client)
+    other_project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        owner_project_id,
+        b"# Policy\n\nPayment is due within 30 days.",
+    )
+    ground_truth_set = _upload_ground_truth_set(client, owner_project_id, data_asset_id).json()
+    ground_truth_dir = Path(ground_truth_set["storage_path"]).parent
+
+    cross_project_response = client.delete(
+        f"/v1/projects/{other_project_id}/ground-truth-sets/{ground_truth_set['id']}",
+    )
+    missing_response = client.delete(
+        f"/v1/projects/{owner_project_id}/ground-truth-sets/{'0' * 32}",
+    )
+
+    assert cross_project_response.status_code == 404
+    assert missing_response.status_code == 404
+    assert ground_truth_dir.exists()
+    owner_list = client.get(f"/v1/projects/{owner_project_id}/ground-truth-sets").json()
+    assert [item["id"] for item in owner_list["ground_truth_sets"]] == [ground_truth_set["id"]]
 
 
 def test_delete_ground_truth_set_used_by_saved_experiment_is_blocked(
@@ -2723,8 +2765,16 @@ def test_delete_ground_truth_set_used_by_saved_experiment_is_blocked(
         f"/v1/projects/{project_id}/ground-truth-sets/{ground_truth_set['id']}",
     )
 
-    assert delete_response.status_code == 400
-    assert "saved experiments" in delete_response.json()["detail"]
+    assert delete_response.status_code == 409
+    assert delete_response.json()["detail"] == (
+        "Cannot delete ground truth set because it is used by saved experiments. "
+        "Delete the saved experiments first."
+    )
+    assert Path(ground_truth_set["storage_path"]).parent.exists()
+    list_response = client.get(f"/v1/projects/{project_id}/ground-truth-sets")
+    assert [item["id"] for item in list_response.json()["ground_truth_sets"]] == [
+        ground_truth_set["id"],
+    ]
 
 
 def test_create_saved_experiment_starts_without_metrics(client: TestClient, monkeypatch, tmp_path) -> None:
