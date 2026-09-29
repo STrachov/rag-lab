@@ -1,4 +1,10 @@
 import { RetrievalDiagnosticsPanel } from "../components/RetrievalDiagnosticsPanel";
+import {
+  compatibleGroundTruthSets,
+  GroundTruthEvaluationSelector,
+  hasValidGroundTruthSelection,
+  reconcileGroundTruthSelection,
+} from "../components/GroundTruthEvaluationSelector";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -101,8 +107,17 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     ? indexCaches.filter((cache) => cacheBelongsToChunks(cache, selectedChunksCache))
     : indexCaches;
   const selectedIndexCache = linkedIndexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? linkedIndexCaches[0] ?? null;
+  const evaluationDataAssetId = String(
+    selectedIndexCache?.data_asset_id ?? selectedChunksCache?.data_asset_id ?? "",
+  ) || null;
+  const evaluationGroundTruthSets = useMemo(
+    () => compatibleGroundTruthSets(groundTruthSets, evaluationDataAssetId),
+    [evaluationDataAssetId, groundTruthSets],
+  );
   const selectedGroundTruthSet =
-    groundTruthSets.find((groundTruthSet) => groundTruthSet.id === selectedGroundTruthSetId) ?? null;
+    evaluationGroundTruthSets.find(
+      (groundTruthSet) => groundTruthSet.id === selectedGroundTruthSetId,
+    ) ?? null;
   const selectedGroundTruthQuestion =
     groundTruthQuestions.find((question) => question.question_id === selectedGroundTruthQuestionId) ?? null;
   const indexingEstimate = selectedChunksCache ? cacheIndexingEstimate(selectedChunksCache) : null;
@@ -158,7 +173,6 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
         setSparseModels(sparseResult.models);
         setRerankerModels(rerankerResult.models);
         setGroundTruthSets(groundTruthResult.ground_truth_sets);
-        setSelectedGroundTruthSetId((current) => current || groundTruthResult.ground_truth_sets[0]?.id || "");
         const urlChunksCacheId = searchParams.get("chunks_cache_id") ?? "";
         const firstChunksCache = chunksResult.derived_caches[0]?.id ?? "";
         setChunksCacheId((current) => current || urlChunksCacheId || firstChunksCache);
@@ -191,6 +205,12 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
       })
       .catch((err: Error) => setError(err.message));
   }, [currentProject, searchParams]);
+
+  useEffect(() => {
+    setSelectedGroundTruthSetId((current) =>
+      reconcileGroundTruthSelection(current, evaluationGroundTruthSets),
+    );
+  }, [evaluationGroundTruthSets]);
 
   useEffect(() => {
     if (!currentProject || !selectedGroundTruthSetId) {
@@ -455,7 +475,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
 
   async function handleEvaluateGroundTruth() {
     const dataAssetId = String(selectedIndexCache?.data_asset_id ?? selectedChunksCache?.data_asset_id ?? "");
-    if (!currentProject || !selectedIndexCache || !selectedGroundTruthSetId || !dataAssetId) {
+    if (!currentProject || !selectedIndexCache || !selectedGroundTruthSet || !dataAssetId) {
       return;
     }
     const suggestedName = defaultEvaluationExperimentName(selectedGroundTruthSet, selectedIndexCache);
@@ -467,7 +487,7 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     try {
       const experiment = await createSavedExperiment(currentProject.id, {
         index_cache_id: selectedIndexCache.id,
-        ground_truth_set_id: selectedGroundTruthSetId,
+        ground_truth_set_id: selectedGroundTruthSet.id,
         name: experimentName,
         debug_level: "summary",
         retrieval: {
@@ -757,49 +777,38 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                     </label>
                     {questionSource === "ground_truth" ? (
                       <>
-                        <label>
-                          Ground truth set
-                          <select
-                            value={selectedGroundTruthSetId}
-                            onChange={(event) => {
-                              setSelectedGroundTruthSetId(event.target.value);
-                              setSelectedGroundTruthQuestionId("");
-                              setRetrievalMetrics(null);
-                              setRerankMetrics(null);
-                            }}
-                          >
-                            {groundTruthSets.length === 0 ? <option value="">No GT sets</option> : null}
-                            {groundTruthSets.map((groundTruthSet) => (
-                              <option key={groundTruthSet.id} value={groundTruthSet.id}>
-                                {groundTruthSet.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="wide-field">
-                          Question
-                          <select
-                            value={selectedGroundTruthQuestionId}
-                            onChange={(event) => {
-                              setSelectedGroundTruthQuestionId(event.target.value);
-                              setRetrievalResult(null);
-                              setRerankResult(null);
-                              setRetrievalMetrics(null);
-                              setRerankMetrics(null);
-                            }}
-                          >
-                            {groundTruthQuestions.length === 0 ? <option value="">No questions</option> : null}
-                            {groundTruthQuestions.map((question) => (
-                              <option key={question.question_id} value={question.question_id}>
-                                {formatQuestionOption(question.question)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="wide-field">
-                          Selected question text
-                          <textarea readOnly rows={3} value={query} />
-                        </label>
+                        {!selectedGroundTruthSet ? (
+                          <div className="nested-empty wide-field">
+                            Select a Ground Truth Set in the Ground Truth Evaluation panel first.
+                          </div>
+                        ) : (
+                          <>
+                            <label className="wide-field">
+                              Question
+                              <select
+                                value={selectedGroundTruthQuestionId}
+                                onChange={(event) => {
+                                  setSelectedGroundTruthQuestionId(event.target.value);
+                                  setRetrievalResult(null);
+                                  setRerankResult(null);
+                                  setRetrievalMetrics(null);
+                                  setRerankMetrics(null);
+                                }}
+                              >
+                                {groundTruthQuestions.length === 0 ? <option value="">No questions</option> : null}
+                                {groundTruthQuestions.map((question) => (
+                                  <option key={question.question_id} value={question.question_id}>
+                                    {formatQuestionOption(question.question)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="wide-field">
+                              Selected question text
+                              <textarea readOnly rows={3} value={query} />
+                            </label>
+                          </>
+                        )}
                       </>
                     ) : (
                       <label className="wide-field">
@@ -993,8 +1002,34 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
 
           <div className="parameter-section">
             <h2>Ground Truth Evaluation</h2>
+            <div className="parameter-grid">
+              <GroundTruthEvaluationSelector
+                dataAssets={dataAssets}
+                groundTruthSets={evaluationGroundTruthSets}
+                selectedGroundTruthSetId={selectedGroundTruthSetId}
+                onChange={(groundTruthSetId) => {
+                  setSelectedGroundTruthSetId(groundTruthSetId);
+                  setGroundTruthQuestions([]);
+                  setSelectedGroundTruthQuestionId("");
+                  setRetrievalMetrics(null);
+                  setRerankMetrics(null);
+                }}
+              />
+            </div>
+            {!hasValidGroundTruthSelection(
+              selectedGroundTruthSetId,
+              evaluationGroundTruthSets,
+            ) ? (
+              <div className="nested-empty">
+                Select a Ground Truth Set before running evaluation.
+              </div>
+            ) : null}
             <div className="asset-mini-summary">
-              <span>{groundTruthQuestions.length} questions</span>
+              <span>
+                {selectedGroundTruthSet
+                  ? `${groundTruthQuestions.length} questions`
+                  : "no GT selected"}
+              </span>
               <span>{selectedIndexCache ? String(selectedIndexCache.metadata_json.collection_name ?? selectedIndexCache.cache_key) : "no index"}</span>
               <span>{retrievalStrategy}</span>
               <span>{retrievalMode}</span>
@@ -1014,7 +1049,8 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
                 isEvaluating ||
                 !selectedIndexCache ||
                 selectedIndexCache.status !== "ready" ||
-                !selectedGroundTruthSetId ||
+                evaluationGroundTruthSets.length === 0 ||
+                !selectedGroundTruthSet ||
                 groundTruthQuestions.length === 0
               }
               onClick={handleEvaluateGroundTruth}
