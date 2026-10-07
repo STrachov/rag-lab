@@ -169,8 +169,9 @@ def store_uploaded_ground_truth_set(
         original_path.write_bytes(content)
 
         parsed = _parse_json_or_jsonl(content)
+        annotation_warnings = _annotation_migration_warnings(parsed)
         canonical = _canonicalize_ground_truth(parsed)
-        validation = _validate_ground_truth(canonical)
+        validation = _validate_ground_truth(canonical, warnings=annotation_warnings)
         canonical_path = base_dir / "ground_truth.json"
         canonical_bytes = json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=False).encode("utf-8")
         canonical_path.write_bytes(canonical_bytes)
@@ -268,6 +269,7 @@ def _canonicalize_ground_truth(value: Any) -> dict[str, Any]:
     else:
         raise ValueError("Ground truth must be a JSON object with questions[] or JSONL records")
 
+    metadata = _canonical_dataset_metadata(metadata)
     question_ids = [question["question_id"] for question in questions]
     duplicate_ids = sorted({item for item in question_ids if question_ids.count(item) > 1})
     if duplicate_ids:
@@ -282,6 +284,10 @@ def _canonicalize_ground_truth(value: Any) -> dict[str, Any]:
     }
     if isinstance(value, dict) and "evaluation_slices" in value:
         canonical["evaluation_slices"] = _canonical_evaluation_slices(value["evaluation_slices"])
+    else:
+        aliased_slices = _canonical_benchmark_evaluation_slices(metadata)
+        if aliased_slices:
+            canonical["evaluation_slices"] = aliased_slices
     return canonical
 
 
@@ -324,8 +330,9 @@ def _canonical_question_from_qrels(value: Any, *, ground_truth_type: str) -> dic
         "relevant_pages": relevant_pages,
         "relevant_chunks": relevant_chunks,
     }
-    if "metadata" in value:
-        canonical["metadata"] = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    has_metadata, metadata = _question_metadata_alias(value)
+    if has_metadata:
+        canonical["metadata"] = _canonical_question_metadata(metadata, question_id=question_id)
     return canonical
 
 
@@ -355,8 +362,9 @@ def _canonical_question_from_authoring_record(value: dict[str, Any]) -> dict[str
         "relevant_pages": [],
         "relevant_chunks": relevant_chunks,
     }
-    if "metadata" in value or "difficulty" in value:
-        metadata = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    has_metadata, metadata_value = _question_metadata_alias(value)
+    if has_metadata or "difficulty" in value:
+        metadata = _canonical_question_metadata(metadata_value, question_id=question_id)
         if "difficulty" in value:
             difficulty = value["difficulty"]
             if difficulty is not None and not isinstance(difficulty, str):
@@ -391,9 +399,28 @@ def _canonical_question_from_page_answer(value: Any, *, fallback_index: int) -> 
         "relevant_chunks": [],
         "relevant_pages": relevant_pages,
     }
-    if "metadata" in value:
-        canonical["metadata"] = _canonical_question_metadata(value.get("metadata"), question_id=question_id)
+    has_metadata, metadata = _question_metadata_alias(value)
+    if has_metadata:
+        canonical["metadata"] = _canonical_question_metadata(metadata, question_id=question_id)
     return canonical
+
+
+def _canonical_dataset_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(value)
+    benchmark_annotations = metadata.get("benchmark_annotations")
+    if not isinstance(benchmark_annotations, dict):
+        return metadata
+    if "annotation_version" not in metadata and "annotation_version" in benchmark_annotations:
+        metadata["annotation_version"] = benchmark_annotations["annotation_version"]
+    return metadata
+
+
+def _question_metadata_alias(value: dict[str, Any]) -> tuple[bool, Any]:
+    if "metadata" in value:
+        return True, value.get("metadata")
+    if "evaluation_metadata" in value:
+        return True, value.get("evaluation_metadata")
+    return False, None
 
 
 def _canonical_question_metadata(value: Any, *, question_id: str) -> dict[str, Any]:
@@ -412,6 +439,122 @@ def _canonical_question_metadata(value: Any, *, question_id: str) -> dict[str, A
             raise ValueError(f"{question_id}: metadata.tags must be an array of strings")
         metadata["tags"] = list(tags)
     return metadata
+
+
+def _canonical_benchmark_evaluation_slices(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    benchmark_annotations = metadata.get("benchmark_annotations")
+    if not isinstance(benchmark_annotations, dict):
+        return []
+    slices: list[dict[str, Any]] = []
+    for container_name, filter_field, label_prefix in (
+        ("source_slices", "source", "Source"),
+        ("difficulty_slices", "difficulty", "Difficulty"),
+    ):
+        groups = benchmark_annotations.get(container_name)
+        if groups is None:
+            continue
+        if not isinstance(groups, dict):
+            raise ValueError(f"metadata.benchmark_annotations.{container_name} must be an object")
+        for group_name, question_ids in groups.items():
+            if not isinstance(group_name, str) or not group_name.strip():
+                raise ValueError(
+                    f"metadata.benchmark_annotations.{container_name} keys must be non-empty strings"
+                )
+            if not isinstance(question_ids, list) or any(
+                not isinstance(question_id, str) for question_id in question_ids
+            ):
+                raise ValueError(
+                    f"metadata.benchmark_annotations.{container_name}.{group_name} "
+                    "must be an array of question ids"
+                )
+            normalized_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", group_name.strip()).strip("_.-")
+            if not normalized_name:
+                raise ValueError(
+                    f"metadata.benchmark_annotations.{container_name} contains an invalid slice name"
+                )
+            slices.append(
+                {
+                    "filter": {filter_field: [group_name]},
+                    "id": f"{filter_field}_{normalized_name}",
+                    "label": f"{label_prefix}: {group_name.replace('_', ' ')}",
+                }
+            )
+    return _canonical_evaluation_slices(slices)
+
+
+def _annotation_migration_warnings(value: Any) -> list[str]:
+    if isinstance(value, list):
+        metadata: dict[str, Any] = {}
+        questions = value
+    elif isinstance(value, dict):
+        raw_metadata = value.get("metadata")
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+        questions = value.get("questions")
+        if not isinstance(questions, list):
+            questions = value.get("answers")
+    else:
+        return []
+    warnings: list[str] = []
+    benchmark_annotations = metadata.get("benchmark_annotations")
+    benchmark_annotations = benchmark_annotations if isinstance(benchmark_annotations, dict) else {}
+
+    if "annotation_version" in benchmark_annotations:
+        if "annotation_version" in metadata:
+            warnings.append(
+                "Detected non-canonical annotation field: "
+                "benchmark_annotations.annotation_version was ignored because "
+                "annotation_version is present."
+            )
+        else:
+            warnings.append(
+                "Detected non-canonical annotation field: "
+                "benchmark_annotations.annotation_version was migrated to annotation_version."
+            )
+
+    if isinstance(questions, list):
+        has_migrated_question_metadata = any(
+            isinstance(question, dict)
+            and "evaluation_metadata" in question
+            and "metadata" not in question
+            for question in questions
+        )
+        has_ignored_question_metadata = any(
+            isinstance(question, dict)
+            and "evaluation_metadata" in question
+            and "metadata" in question
+            for question in questions
+        )
+        if has_migrated_question_metadata:
+            warnings.append(
+                "Detected non-canonical annotation field: "
+                "evaluation_metadata was migrated to metadata."
+            )
+        if has_ignored_question_metadata:
+            warnings.append(
+                "Detected non-canonical annotation field: "
+                "evaluation_metadata was ignored because metadata is present."
+            )
+
+    benchmark_slice_fields = [
+        field
+        for field in ("source_slices", "difficulty_slices")
+        if field in benchmark_annotations
+    ]
+    if benchmark_slice_fields:
+        aliases = ", ".join(
+            f"benchmark_annotations.{field}" for field in benchmark_slice_fields
+        )
+        if isinstance(value, dict) and "evaluation_slices" in value:
+            warnings.append(
+                f"Detected non-canonical annotation fields: {aliases} were ignored because "
+                "evaluation_slices is present."
+            )
+        else:
+            warnings.append(
+                f"Detected non-canonical annotation fields: {aliases} were migrated to "
+                "evaluation_slices."
+            )
+    return warnings
 
 
 def _canonical_evaluation_slices(value: Any) -> list[dict[str, Any]]:
@@ -484,6 +627,8 @@ def _canonical_relevant_chunk(value: Any, *, fallback_rank: int) -> dict[str, An
 
 def _validate_ground_truth(
     canonical: dict[str, Any],
+    *,
+    warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     relevant_chunk_ids = {
         str(chunk["chunk_id"])
@@ -504,7 +649,7 @@ def _validate_ground_truth(
         "referenced_page_count": len(relevant_page_keys),
         "referenced_pdf_count": len({pdf_sha1 for pdf_sha1, _ in relevant_page_keys}),
         "status": "format_valid",
-        "warnings": [],
+        "warnings": list(warnings or []),
     }
 
 

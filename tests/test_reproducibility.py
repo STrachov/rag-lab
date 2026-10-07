@@ -123,6 +123,55 @@ def test_historical_lineage_and_snapshot_survive_current_changes(pipeline):
     assert p.get(experiment)["params_snapshot_json"] == snapshot
 
 
+def test_annotation_aliases_are_normalized_into_saved_experiment_snapshot(pipeline):
+    p = pipeline
+    payload = {
+        "schema_version": "raglab.ground_truth.v1",
+        "metadata": {
+            "ground_truth_type": "page_level_qrels",
+            "annotation_schema_version": "raglab.annotation.v1",
+            "benchmark_annotations": {
+                "annotation_version": "alias-v1",
+                "source_slices": {"synthetic": ["q0", "q1"]},
+                "difficulty_slices": {"easy": ["q0", "q1"]},
+            },
+        },
+        "questions": [
+            {
+                "question_id": f"q{index}",
+                "question": f"What does policy {index} say?",
+                "expected_answer_type": "found",
+                "relevant_pages": [{"pdf_sha1": "synthetic", "page_index": 0}],
+                "evaluation_metadata": {
+                    "source": "synthetic",
+                    "difficulty": "easy",
+                    "tags": ["policy"],
+                },
+            }
+            for index in range(2)
+        ],
+    }
+
+    ground_truth = p.upload_gt(payload)
+    experiment = p.create(ground_truth_set_id=ground_truth["id"])
+    snapshot = experiment["params_snapshot_json"]["ground_truth"]
+
+    assert snapshot["annotation_schema_version"] == "raglab.annotation.v1"
+    assert snapshot["annotation_version"] == "alias-v1"
+    assert snapshot["evaluation_slices"] == [
+        {
+            "filter": {"source": ["synthetic"]},
+            "id": "source_synthetic",
+            "label": "Source: synthetic",
+        },
+        {
+            "filter": {"difficulty": ["easy"]},
+            "id": "difficulty_easy",
+            "label": "Difficulty: easy",
+        },
+    ]
+
+
 @pytest.mark.parametrize("field,value", [
     ("params_hash", "forged"), ("params_snapshot_json", {}), ("code_commit", "forged"),
     ("data_asset_manifest_hash", "forged"), ("data_asset_id", "forged"), ("metrics_summary_json", {"hit": 1}),

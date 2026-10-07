@@ -2330,6 +2330,53 @@ def test_upload_ground_truth_set_stores_canonical_files_and_validation(
     assert canonical["questions"][0]["relevant_chunks"][0]["chunk_id"] == "chunk_000001"
 
 
+def test_upload_ground_truth_set_migrates_annotation_aliases(
+    client: TestClient,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_id = _create_project(client)
+    data_asset_id = _upload_prepared_data_asset_with_content(
+        client,
+        monkeypatch,
+        tmp_path,
+        project_id,
+        b"# Wheeler benchmark",
+    )
+    fixture_path = Path(__file__).parents[1] / "datasets" / "ground_truth.wheeler_annotated.json"
+
+    response = client.post(
+        f"/v1/projects/{project_id}/ground-truth-sets/upload",
+        data={"data_asset_id": data_asset_id, "name": "Wheeler annotated"},
+        files={"file": (fixture_path.name, fixture_path.read_bytes(), "application/json")},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    validation = body["metadata_json"]["validation"]
+    assert validation["status"] == "format_valid"
+    assert validation["warnings"] == [
+        "Detected non-canonical annotation field: benchmark_annotations.annotation_version "
+        "was migrated to annotation_version.",
+        "Detected non-canonical annotation field: evaluation_metadata was migrated to metadata.",
+        "Detected non-canonical annotation fields: benchmark_annotations.source_slices, "
+        "benchmark_annotations.difficulty_slices were migrated to evaluation_slices.",
+    ]
+    assert body["metadata_json"]["question_metadata"] is True
+    assert body["metadata_json"]["evaluation_slice_count"] == 5
+
+    canonical = json.loads(Path(body["storage_path"]).read_text(encoding="utf-8"))
+    assert canonical["metadata"]["annotation_version"] == "2026-09-04"
+    assert canonical["questions"][0]["metadata"]["source"] == "erc2_original"
+    assert {item["id"] for item in canonical["evaluation_slices"]} == {
+        "source_erc2_original",
+        "source_synthetic_chatgpt",
+        "difficulty_hard",
+        "difficulty_medium",
+        "difficulty_direct_lookup",
+    }
+
+
 def test_upload_ground_truth_set_accepts_chunk_ids_without_cache_binding(
     client: TestClient,
     monkeypatch,

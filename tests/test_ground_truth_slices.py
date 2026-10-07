@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from app.models.api import SavedExperimentCreate
@@ -45,6 +48,74 @@ def test_question_metadata_and_evaluation_slices_survive_canonicalization() -> N
 
     assert canonical["questions"][0]["metadata"] == payload["questions"][0]["metadata"]
     assert canonical["evaluation_slices"] == payload["evaluation_slices"]
+
+
+def test_canonical_annotations_take_precedence_over_aliases() -> None:
+    payload = _chunk_ground_truth()
+    payload["metadata"].update(
+        {
+            "annotation_schema_version": "raglab.annotation.v1",
+            "annotation_version": "canonical-v1",
+            "benchmark_annotations": {
+                "annotation_version": "alias-v1",
+                "source_slices": {"alias_source": ["q1"]},
+            },
+        }
+    )
+    payload["questions"][0]["metadata"] = {"source": "canonical_source"}
+    payload["questions"][0]["evaluation_metadata"] = {"source": "alias_source"}
+    payload["evaluation_slices"] = [
+        {
+            "id": "canonical_source",
+            "label": "Canonical source",
+            "filter": {"source": ["canonical_source"]},
+        }
+    ]
+
+    canonical = _canonicalize_ground_truth(payload)
+
+    assert canonical["metadata"]["annotation_schema_version"] == "raglab.annotation.v1"
+    assert canonical["metadata"]["annotation_version"] == "canonical-v1"
+    assert canonical["questions"][0]["metadata"] == {"source": "canonical_source"}
+    assert canonical["evaluation_slices"] == payload["evaluation_slices"]
+
+
+def test_wheeler_annotation_aliases_are_canonicalized() -> None:
+    fixture_path = Path(__file__).parents[1] / "datasets" / "ground_truth.wheeler_annotated.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    canonical = _canonicalize_ground_truth(payload)
+
+    assert canonical["metadata"]["annotation_version"] == "2026-09-04"
+    assert canonical["questions"][0]["metadata"] == payload["questions"][0]["evaluation_metadata"]
+    slices_by_id = {item["id"]: item for item in canonical["evaluation_slices"]}
+    assert slices_by_id == {
+        "source_erc2_original": {
+            "id": "source_erc2_original",
+            "label": "Source: erc2 original",
+            "filter": {"source": ["erc2_original"]},
+        },
+        "source_synthetic_chatgpt": {
+            "id": "source_synthetic_chatgpt",
+            "label": "Source: synthetic chatgpt",
+            "filter": {"source": ["synthetic_chatgpt"]},
+        },
+        "difficulty_hard": {
+            "id": "difficulty_hard",
+            "label": "Difficulty: hard",
+            "filter": {"difficulty": ["hard"]},
+        },
+        "difficulty_medium": {
+            "id": "difficulty_medium",
+            "label": "Difficulty: medium",
+            "filter": {"difficulty": ["medium"]},
+        },
+        "difficulty_direct_lookup": {
+            "id": "difficulty_direct_lookup",
+            "label": "Difficulty: direct lookup",
+            "filter": {"difficulty": ["direct_lookup"]},
+        },
+    }
 
 
 @pytest.mark.parametrize(
