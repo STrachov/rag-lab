@@ -7,6 +7,7 @@ import {
 } from "../components/GroundTruthEvaluationSelector";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { defaultEvaluationExperimentName } from "../utils/experimentName";
 
 import {
   createParameterSet,
@@ -107,6 +108,9 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     ? indexCaches.filter((cache) => cacheBelongsToChunks(cache, selectedChunksCache))
     : indexCaches;
   const selectedIndexCache = linkedIndexCaches.find((cache) => cache.id === selectedIndexCacheId) ?? linkedIndexCaches[0] ?? null;
+  const selectedIndexChunksCache = selectedIndexCache
+    ? chunkCaches.find((cache) => cacheBelongsToChunks(selectedIndexCache, cache)) ?? null
+    : selectedChunksCache;
   const evaluationDataAssetId = String(
     selectedIndexCache?.data_asset_id ?? selectedChunksCache?.data_asset_id ?? "",
   ) || null;
@@ -478,7 +482,14 @@ export function IndexingPage({ currentProject }: IndexingPageProps) {
     if (!currentProject || !selectedIndexCache || !selectedGroundTruthSet || !dataAssetId) {
       return;
     }
-    const suggestedName = defaultEvaluationExperimentName(selectedGroundTruthSet, selectedIndexCache);
+    const suggestedName = defaultEvaluationExperimentName(
+      selectedGroundTruthSet,
+      selectedIndexChunksCache,
+      selectedIndexCache,
+      retrievalMode,
+      evaluateWithReranking ? selectedRerankerModel ?? null : null,
+      sparseModels,
+    );
     const experimentName = window.prompt("Saved experiment name", suggestedName)?.trim();
     if (!experimentName) {
       return;
@@ -1432,16 +1443,6 @@ function cacheIndexingEstimate(cache: DerivedCache): { chunkCount: number; estim
     }
   }
   return { chunkCount, estimatedTokens: null };
-}
-
-function defaultEvaluationExperimentName(
-  groundTruthSet: GroundTruthSet | null,
-  indexCache: DerivedCache,
-): string {
-  const groundTruthName = groundTruthSet?.name?.trim() || "GT";
-  const embeddingName = embeddingModelName(indexCache) || "embedding";
-  const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-  return `${groundTruthName} / ${embeddingName} / ${timestamp}`;
 }
 
 function cacheBelongsToChunks(indexCache: DerivedCache, chunksCache: DerivedCache): boolean {
