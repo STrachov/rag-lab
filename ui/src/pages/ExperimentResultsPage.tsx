@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { getSavedExperiment, Project, SavedExperiment } from "../api/client";
 import { SliceMetricSummary, SliceMetricValue, SlicePopulation } from "../components/SlicePopulation";
+import { downloadExperimentExport } from "../utils/experimentExport";
 
 type ExperimentResultsPageProps = {
   currentProject: Project | null;
@@ -72,6 +73,21 @@ export function ExperimentResultsPage({ currentProject }: ExperimentResultsPageP
         <p className="eyebrow">Experiments</p>
         <h1>{experiment?.name ?? "Experiment Results"}</h1>
         <p>Saved evaluation results and per-question metrics for this experiment.</p>
+        <button
+          type="button"
+          disabled={!experiment || experiment.id !== experimentId || experiment.project_id !== currentProject.id}
+          onClick={() => {
+            if (!experiment) return;
+            try {
+              downloadExperimentExport(currentProject, experiment);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Failed to export experiment");
+            }
+          }}
+          title="Download the complete saved experiment, including all questions regardless of filters"
+        >
+          Export JSON
+        </button>
       </header>
 
       <Link className="text-action" to={`/projects/${currentProject.id}/saved-experiments`}>
